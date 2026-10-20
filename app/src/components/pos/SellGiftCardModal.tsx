@@ -122,7 +122,9 @@ export default function SellGiftCardModal({ card, currencySymbol, onClose, onSol
           <div className="px-2 py-2">
             <DojoChargePanel
               amount={card.initialAmount}
-              reference={`Gift card ${card.code}`}
+              // Never the whole code: it can be spent like cash, and the
+              // reference is kept in Dojo's records.
+              reference={`Gift card ending ${card.code.slice(-4)}`}
               currencySymbol={currencySymbol}
               busy={busy}
               onApproved={(r) => { setCardFlow("none"); void handleSell(r); }}

@@ -45,9 +45,15 @@ export interface DojoPaymentDetails {
   card?: DojoCardDetails;
 }
 
-/** One past terminal session on an intent (PaymentIntent.terminalSessionHistory). */
+/** One entry of PaymentIntent.terminalSessionHistory. The sandbox logs a copy of
+ *  the session at each status change, oldest first, so one session appears
+ *  several times (seen 2026-10-21). */
 export interface DojoTerminalSessionHistoryEntry {
-  terminalSession?: { id?: string; status?: string } | null;
+  terminalSession?: {
+    id?: string;
+    status?: string;
+    details?: { sessionType?: string } | null;
+  } | null;
 }
 
 export interface DojoPaymentIntent {

@@ -9,12 +9,14 @@
  * differently from what Dojo's go-live checklist expects.
  */
 
+import { createDojoClient } from "../src/lib/dojo/client";
 import { DojoApiError, describeDojoError, type DojoOp } from "../src/lib/dojo/errors";
 import { DojoStartError, startTerminalPayment, type StartPaymentResult } from "../src/lib/dojo/flow";
 import { resolveSnapshot, type DojoGateway } from "../src/lib/dojo/gateway";
 import { createDojoMock } from "../src/lib/dojo/mock";
-import type { DojoSessionSnapshot } from "../src/lib/dojo/types";
+import type { DojoSaleResult, DojoSessionSnapshot } from "../src/lib/dojo/types";
 import { buildDojoSignature, verifyDojoSignature } from "../src/lib/dojo/webhook";
+import { DojoCreateSessionSchema, DojoRefundSchema } from "../src/lib/schemas/dojo";
 
 const AMOUNT = { value: 1250, currencyCode: "GBP" }; // £12.50
 let failures = 0;
@@ -53,7 +55,7 @@ async function dojoError(fn: () => Promise<unknown>): Promise<{ err: DojoApiErro
   }
 }
 
-async function virtualTerminals(gw: DojoGateway): Promise<string | null> {
+async function virtualTerminals(gw: DojoGateway): Promise<DojoSaleResult | null> {
   console.log("\n── Each virtual terminal, picked by its TID ──");
   const cases: Array<{ tid: string; signature?: boolean; expect: string; ok: (s: DojoSessionSnapshot) => boolean }> = [
     { tid: "VCMSEEKSIP0", expect: "approved, card details saved", ok: (s) => !!s.result?.authCode },
@@ -67,13 +69,13 @@ async function virtualTerminals(gw: DojoGateway): Promise<string | null> {
     { tid: "VCMSEEKSIP1", expect: "approved with a £1.25 tip recorded", ok: (s) => s.result?.tipAmount === 1.25 && s.result?.totalAmount === 13.75 },
   ];
 
-  let paidIntent: string | null = null;
+  let paid: DojoSaleResult | null = null;
   for (const c of cases) {
     const snap = await finish(gw, await sale(gw, c.tid), c.signature);
     check(snap.done && c.ok(snap), `${c.tid}: ${c.expect} [${snap.status}]`);
-    if (c.tid === "VCMSEEKSIP0" && snap.result) paidIntent = snap.result.paymentIntentId;
+    if (c.tid === "VCMSEEKSIP0" && snap.result) paid = snap.result;
   }
-  return paidIntent;
+  return paid;
 }
 
 async function signatureEdges(gw: DojoGateway): Promise<void> {
@@ -100,14 +102,19 @@ async function retryAfterDecline(gw: DojoGateway): Promise<void> {
   const snap = await finish(gw, third);
   check(third.paymentIntentId === first.paymentIntentId && !!snap.result,
     "another card on a third attempt is approved on that same intent");
+  const fourth = await sale(gw, "VCMSEEKSIP0", first.paymentIntentId!);
+  check(fourth.terminalId === null && fourth.terminalSessionId === third.terminalSessionId,
+    "retrying once more reports the approved attempt, not the declined ones");
 }
 
-async function alreadyPaid(gw: DojoGateway, paidIntent: string | null): Promise<void> {
+async function alreadyPaid(gw: DojoGateway, paid: DojoSaleResult | null): Promise<void> {
   console.log("\n── Retry of a payment that already went through ──");
-  if (!paidIntent) { check(false, "needs the approved VCMSEEKSIP0 sale from above"); return; }
+  if (!paid) { check(false, "needs the approved VCMSEEKSIP0 sale from above"); return; }
+  const paidIntent = paid.paymentIntentId;
   const again = await sale(gw, "VCMSEEKSIP0", paidIntent);
-  check(again.terminalId === null && again.snapshot.done && again.snapshot.result?.paymentIntentId === paidIntent,
-    "reported as paid; no second charge is started");
+  check(again.terminalId === null && again.snapshot.done && again.snapshot.result?.paymentIntentId === paidIntent
+    && again.terminalSessionId === paid.terminalSessionId,
+    "reported as paid with the session that took the money; no second charge is started");
 
   // A paid intent for a different amount is another payment: it must not make
   // this one look paid.
@@ -172,6 +179,32 @@ function staffMessages(): void {
     "a bad API key is not passed on as a 401 (the staff login is fine)");
 }
 
+/** The real client's handling of a call Dojo never answers (fetch stubbed, so no waiting). */
+async function noAnswer(): Promise<void> {
+  console.log("\n── Dojo not answering ──");
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = (async () => {
+    throw new DOMException("The operation was aborted due to timeout", "TimeoutError");
+  }) as typeof fetch;
+  try {
+    const timedOut = await dojoError(() => createDojoClient().getTerminalSession("ts_demo"));
+    check(timedOut !== null && timedOut.err.status === 0 && describeDojoError(timedOut.err, "poll").code === "network",
+      `a call that times out counts as a network problem, so the result stays unknown: "${timedOut?.err.message}"`);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+}
+
+/** What the routes take from a screen (lib/schemas/dojo.ts). */
+function routeBodies(): void {
+  console.log("\n── What the routes accept ──");
+  const start = DojoCreateSessionSchema.safeParse({ amount: 12.5, sessionType: "UnlinkedRefund", captureMode: "Manual" });
+  check(start.success && !("sessionType" in start.data) && !("captureMode" in start.data),
+    "a refund session or manual capture sent to the payment routes is dropped: they only start sales");
+  const refund = DojoRefundSchema.safeParse({ paymentIntentId: "pi_demo", amount: 5 });
+  check(!refund.success, "a server refund without a requestId (its idempotency key) is refused");
+}
+
 async function refunds(gw: DojoGateway): Promise<void> {
   console.log("\n── Server-side refunds ──");
   const snap = await finish(gw, await sale(gw, "VCMSEEKSIP0"));
@@ -180,6 +213,18 @@ async function refunds(gw: DojoGateway): Promise<void> {
   check((await gw.getPaymentIntent(pi)).status === "Captured", "a partial refund leaves the intent Captured");
   await gw.createRefund({ paymentIntentId: pi, amount: 750, refundReason: "Demo", idempotencyKey: "demo-rest" });
   check((await gw.getPaymentIntent(pi)).status === "Refunded", "refunding the rest marks it Refunded");
+  const again = await dojoError(() => gw.createRefund({ paymentIntentId: pi, amount: 100, idempotencyKey: "demo-after" }));
+  check(again !== null && describeDojoError(again.err, "refund").code === "rejected",
+    "a refund on a fully refunded payment is refused");
+
+  const other = (await finish(gw, await sale(gw, "VCMSEEKSIP0"))).result!.paymentIntentId;
+  const once = await gw.createRefund({ paymentIntentId: other, amount: 400, idempotencyKey: "demo-twice" });
+  const twice = await gw.createRefund({ paymentIntentId: other, amount: 400, idempotencyKey: "demo-twice" });
+  check(once.refundId === twice.refundId && (await gw.getPaymentIntent(other)).refundedAmount === 400,
+    "the same refund sent twice (same requestId) refunds once");
+  const over = await dojoError(() => gw.createRefund({ paymentIntentId: other, amount: 900, idempotencyKey: "demo-over" }));
+  check(over !== null && describeDojoError(over.err, "refund").code === "rejected",
+    "refunding more than is left of the payment is refused");
 
   console.log("\n── Card-present (matched) refunds ──");
   // Through flow.ts, as the routes do: the amount is sent, so the intent updates.
@@ -228,13 +273,15 @@ async function main(): Promise<void> {
   const terminals = await gw.listTerminals(false);
   console.log(`Mock terminals: ${terminals.map((t) => t.properties?.tid).join(", ")}`);
 
-  const paidIntent = await virtualTerminals(gw);
+  const paid = await virtualTerminals(gw);
   await signatureEdges(gw);
   await retryAfterDecline(gw);
-  await alreadyPaid(gw, paidIntent);
+  await alreadyPaid(gw, paid);
   await cancelling(gw);
   await unavailableTerminals(gw);
   staffMessages();
+  await noAnswer();
+  routeBodies();
   await refunds(gw);
   webhookSignatures();
 

@@ -59,6 +59,8 @@ export interface UseDojoTerminal {
   cancelState: DojoCancelState;
   /** A message to show beside a live payment, e.g. why a cancel or signature call failed. */
   notice: string | null;
+  /** The server is on the simulator or a sandbox key: no real money moves. */
+  test: boolean;
   start: (body: CreateDojoSessionBody) => Promise<void>;
   submitSignature: (accepted: boolean) => Promise<void>;
   cancel: () => Promise<void>;
@@ -74,6 +76,7 @@ export function useDojoTerminal(scope: DojoScope = "pos"): UseDojoTerminal {
   const [errorCode, setErrorCode] = useState<string | null>(null);
   const [cancelState, setCancelState] = useState<DojoCancelState>("idle");
   const [notice, setNotice] = useState<string | null>(null);
+  const [test, setTest] = useState(false);
 
   const mountedRef = useRef(false);
   const activeRef = useRef(false);          // a session is being started or watched
@@ -174,6 +177,7 @@ export function useDojoTerminal(scope: DojoScope = "pos"): UseDojoTerminal {
       );
       if (res.paymentIntentId) intentIdRef.current = res.paymentIntentId;
       sessionIdRef.current = res.terminalSessionId;
+      setTest(Boolean(res.test));
       if (!activeRef.current) return; // reset() while starting
       if (!mountedRef.current) {
         // The screen closed while the session was being created.
@@ -241,7 +245,7 @@ export function useDojoTerminal(scope: DojoScope = "pos"): UseDojoTerminal {
   }, [scope]);
 
   return {
-    phase, status, notification, result, error, errorCode, cancelState, notice,
+    phase, status, notification, result, error, errorCode, cancelState, notice, test,
     start, submitSignature, cancel, reset,
   };
 }

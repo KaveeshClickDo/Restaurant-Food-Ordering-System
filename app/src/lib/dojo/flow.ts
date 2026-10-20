@@ -122,7 +122,7 @@ async function findIntent(gateway: DojoGateway, id: string): Promise<DojoPayment
 }
 
 function alreadyPaid(intent: DojoPaymentIntent): StartPaymentResult {
-  const sessionId = lastSessionId(intent);
+  const sessionId = paidSessionId(intent);
   const status = intent.status === "Authorized" ? "Authorized" : "Captured";
   return {
     terminalId: null,
@@ -140,13 +140,15 @@ function alreadyPaid(intent: DojoPaymentIntent): StartPaymentResult {
   };
 }
 
-function lastSessionId(intent: DojoPaymentIntent): string | null {
-  const history = intent.terminalSessionHistory ?? [];
-  for (let i = history.length - 1; i >= 0; i--) {
-    const id = history[i]?.terminalSession?.id;
-    if (id) return id;
-  }
-  return null;
+const PAID_SESSION: ReadonlySet<string> = new Set(["Captured", "Authorized", "SignatureVerificationAccepted"]);
+
+/** The session that took the money: the latest successful sale session in the
+ *  intent's history, else the latest session of any kind. */
+function paidSessionId(intent: DojoPaymentIntent): string | null {
+  const sessions = (intent.terminalSessionHistory ?? []).map((h) => h?.terminalSession).reverse();
+  const paid = sessions.find((s) =>
+    s?.id && PAID_SESSION.has(s.status ?? "") && (s.details?.sessionType ?? "Sale") === "Sale");
+  return paid?.id ?? sessions.find((s) => s?.id)?.id ?? null;
 }
 
 async function resolveTerminalId(gateway: DojoGateway, wanted: string | undefined): Promise<string> {

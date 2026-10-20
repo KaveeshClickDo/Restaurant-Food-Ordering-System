@@ -2,14 +2,18 @@
  * POST /api/pos/dojo/refunds — server-side ("customer not present") refund on a
  * previously captured Dojo payment intent. Dojo's recommended refund method.
  *
- * Gated by `canIssueRefund` (or admin), mirroring the POS void/refund flow. For
- * a card-present refund (customer + card at the terminal) the client instead
- * opens a MatchedRefund/UnlinkedRefund via POST /api/pos/dojo/sessions.
+ * Gated by `canIssueRefund` (or admin), mirroring the POS void/refund flow. No
+ * route opens a refund on the card machine (MatchedRefund/UnlinkedRefund):
+ * those pay money out too, so one would need this same gate.
  *
- * Send the same `requestId` when retrying one refund: it is Dojo's idempotency
- * key, so a double tap or a network retry can't refund twice. After the refund
- * the intent is read back (as Dojo's checklist asks) and its status returned:
- * "Refunded" when fully refunded, "Captured" with refundedAmount when partial.
+ * `requestId` is required: make one per refund and send the same one when
+ * retrying it. It is Dojo's idempotency key, so a double tap or a network retry
+ * (including a timeout, after which the refund may have gone through) can't
+ * refund twice.
+ *
+ * After the refund the intent is read back (as Dojo's checklist asks) and its
+ * status returned: "Refunded" when fully refunded, "Captured" with
+ * refundedAmount when partial.
  * On the sandbox, refunds of terminal payments fail; Dojo confirmed that's a
  * sandbox limitation and approves a correct request.
  *
@@ -17,7 +21,6 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { randomUUID } from "node:crypto";
 import { requirePosPermission } from "@/lib/posPermissions";
 import { parseBody } from "@/lib/apiValidation";
 import { DojoRefundSchema } from "@/lib/schemas/dojo";
@@ -40,7 +43,7 @@ export async function POST(req: NextRequest) {
       amount: toMinorUnits(body.amount),
       refundReason: body.refundReason,
       notes: body.notes,
-      idempotencyKey: body.requestId ?? randomUUID(),
+      idempotencyKey: body.requestId,
     });
 
     // Read the outcome back; the refund itself already succeeded, so a failed

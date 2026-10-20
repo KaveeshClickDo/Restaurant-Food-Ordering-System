@@ -116,7 +116,7 @@ function details(run: Run): void {
 
 /** Status changes with seconds since the session opened, from Dojo's own timestamps. */
 function timeline(session: DojoTerminalSession): string[] {
-  const events = session.statusEvents;
+  const events = session.statusEvents ?? [];
   if (events.length === 0) return [];
   const start = Date.parse(events[0].createdAt);
   const out: string[] = [];
@@ -169,7 +169,7 @@ async function follow(
   run.result = snap.result;
   if (session) {
     run.statuses = timeline(session);
-    run.prompts = dedupe(session.notificationEvents.map((n) => n.notificationType));
+    run.prompts = dedupe((session.notificationEvents ?? []).map((n) => n.notificationType));
   }
 }
 
@@ -319,6 +319,10 @@ async function paid(gw: DojoGateway): Promise<void> {
     again.alreadyPaid
       ? `reported as paid with the original approval (auth ${again.result?.authCode}); no second charge started`
       : `expected "already paid", got ${describeRun(again)}`);
+  if (again.alreadyPaid) {
+    check(again.result?.terminalSessionId === sale.result.terminalSessionId,
+      `it names the session that took the money (${again.result?.terminalSessionId || "none"}), from the intent's history`);
+  }
 }
 
 async function cancel(gw: DojoGateway): Promise<void> {

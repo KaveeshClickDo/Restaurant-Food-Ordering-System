@@ -43,6 +43,12 @@ const NOTIF_TEXT: Record<string, string> = {
   Declined: "Declined",
 };
 
+/** Error codes that mean Dojo (or our own switch) refused before any session
+ *  began, so nothing can have been charged. Anything else, including a timeout
+ *  or an unrecognised server error, may have reached the machine. "Busy" is
+ *  left out too: what holds the machine may be an earlier try of this payment. */
+const REFUSED_BEFORE_START = new Set(["auth", "terminal_unavailable", "rejected", "disabled"]);
+
 export default function DojoChargePanel({
   amount,
   reference,
@@ -112,6 +118,12 @@ export default function DojoChargePanel({
 
   return (
     <div className="p-5">
+      {dojo.test && (
+        <p className="mb-3 mx-auto w-fit rounded-full bg-amber-500/15 border border-amber-500/30 px-3 py-1 text-xs font-semibold text-amber-300">
+          Test mode — no real money moves
+        </p>
+      )}
+
       {(dojo.phase === "starting" || dojo.phase === "processing") && (
         <div className="text-center py-6">
           <div className="w-20 h-20 bg-blue-500/20 rounded-2xl flex items-center justify-center mx-auto mb-4">
@@ -202,17 +214,17 @@ export default function DojoChargePanel({
         </div>
       )}
 
-      {/* Could not start: Dojo refused or was unreachable before any payment began,
-          so "Record as paid" would record money that was never taken. */}
+      {/* Could not start. No "Record as paid": money may not have been taken.
+          "Nothing was charged" only when Dojo refused before anything began. */}
       {dojo.phase === "error" && (
         <div className="text-center py-6">
           <AlertTriangle size={44} className="text-amber-400 mx-auto mb-3" />
           <p className="text-white font-bold text-lg mb-1">Couldn&apos;t start the card payment</p>
           <p className="text-slate-400 text-sm mb-1">{dojo.error ?? "Something went wrong talking to the card machine."}</p>
           <p className="text-slate-500 text-xs mb-5">
-            {dojo.errorCode === "network"
-              ? "Check the card machine screen before trying again."
-              : "Nothing was charged."}
+            {dojo.errorCode && REFUSED_BEFORE_START.has(dojo.errorCode)
+              ? "Nothing was charged."
+              : "Check the card machine screen before trying again."}
           </p>
           <div className="flex gap-3">
             <button onClick={back}

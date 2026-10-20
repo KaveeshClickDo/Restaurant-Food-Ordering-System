@@ -11,6 +11,12 @@ import { z } from "zod";
 
 const MajorAmount = z.number().positive().max(1_000_000);
 
+/**
+ * Starting a card-present SALE. Deliberately no `sessionType` or `captureMode`:
+ * refund sessions pay money out (they'd need a canIssueRefund-gated route) and
+ * nothing captures a pre-authorisation, so the routes only ever take sales with
+ * automatic capture. Unknown keys are stripped, so sending them does nothing.
+ */
 export const DojoCreateSessionSchema = z.object({
   /** Amount to charge, in major units (e.g. 12.50). */
   amount: MajorAmount,
@@ -20,10 +26,7 @@ export const DojoCreateSessionSchema = z.object({
   /** Optional explicit terminal (a Dojo id "tm_…" or a TID); when omitted the
    *  server uses DOJO_TERMINAL_ID, then auto-discovers one. */
   terminalId: z.string().max(80).optional(),
-  captureMode: z.enum(["Auto", "Manual"]).optional(),
-  /** Sale (default) or a card-present refund flow. */
-  sessionType: z.enum(["Sale", "MatchedRefund", "UnlinkedRefund"]).optional(),
-  /** Sale: the earlier attempt's intent, reused on retry. Required for MatchedRefund. */
+  /** The earlier attempt's intent, reused on retry. */
   paymentIntentId: z.string().max(120).optional(),
 });
 
@@ -37,9 +40,10 @@ export const DojoRefundSchema = z.object({
   amount: MajorAmount,
   refundReason: z.string().max(255).optional(),
   notes: z.string().max(255).optional(),
-  /** One id per refund, resent on retries: Dojo's idempotency key, so a
-   *  repeated request can't refund twice. */
-  requestId: z.string().min(8).max(64).optional(),
+  /** One id per refund, made by the screen and resent on every retry: Dojo's
+   *  idempotency key, so a repeated request can't refund twice. Required,
+   *  because a key made on the server would differ on each retry. */
+  requestId: z.string().min(8).max(64),
 });
 
 /**

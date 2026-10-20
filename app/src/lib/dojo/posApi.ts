@@ -26,15 +26,14 @@ export interface DojoClientConfig {
   sandbox: boolean;
 }
 
+/** Starting a card-present sale (the routes take nothing else). */
 export interface CreateDojoSessionBody {
   amount: number;               // major units (e.g. 12.50)
   currencyCode?: string;
   reference?: string;
   description?: string;
   terminalId?: string;
-  captureMode?: "Auto" | "Manual";
-  sessionType?: "Sale" | "MatchedRefund" | "UnlinkedRefund";
-  /** Sale: the earlier attempt's intent, so a retry reuses it. MatchedRefund: the original. */
+  /** The earlier attempt's intent, so a retry reuses it. */
   paymentIntentId?: string;
 }
 
@@ -44,7 +43,16 @@ export interface CreateDojoSessionResult {
   paymentIntentId: string | null;
   terminalSessionId: string | null;
   snapshot: DojoSessionSnapshot;
+  /** Simulator or sandbox key: no real money moves. */
+  test: boolean;
 }
+
+/** Longest wait for our server per call; a timeout surfaces as code "network".
+ *  Starting a payment makes up to four Dojo calls in a row (15s limit each), so
+ *  its wait is longer than that: giving up first would lose the payment intent
+ *  of a session the server did open, and a retry would then make a new one. */
+const CALL_TIMEOUT_MS = 20_000;
+const START_TIMEOUT_MS = 90_000;
 
 /**
  * A failed call to our Dojo routes. `message` is written for staff; `code` is
@@ -66,31 +74,47 @@ export class DojoRequestError extends Error {
   }
 }
 
-async function jsonFetch<T>(path: string, init?: RequestInit): Promise<T> {
-  let res: Response;
+async function jsonFetch<T>(path: string, init: RequestInit = {}, timeoutMs = CALL_TIMEOUT_MS): Promise<T> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  const noAnswer = () => new DojoRequestError(
+    controller.signal.aborted
+      ? "The server didn't answer in time."
+      : "Can't reach the server. Check the internet connection.",
+    0, "network", null,
+  );
   try {
-    res = await fetch(apiBase() + path, {
-      ...init,
-      headers: { "Content-Type": "application/json", ...(init?.headers ?? {}) },
-    });
-  } catch {
-    throw new DojoRequestError("Can't reach the server. Check the internet connection.", 0, "network", null);
+    let res: Response;
+    try {
+      res = await fetch(apiBase() + path, {
+        ...init,
+        signal: controller.signal,
+        headers: { "Content-Type": "application/json", ...(init.headers ?? {}) },
+      });
+    } catch {
+      throw noAnswer();
+    }
+    const json = (await res.json().catch(() => ({}))) as T & {
+      ok?: boolean;
+      error?: string;
+      code?: string;
+      paymentIntentId?: string | null;
+    };
+    // Timed out while the body was arriving: there is no answer to use.
+    if (controller.signal.aborted) throw noAnswer();
+    // Every route answers ok: true on success, so anything else is a failure.
+    if (!res.ok || json.ok !== true) {
+      throw new DojoRequestError(
+        json.error || `Request to ${path} failed (${res.status}).`,
+        res.status,
+        json.code ?? null,
+        json.paymentIntentId ?? null,
+      );
+    }
+    return json;
+  } finally {
+    clearTimeout(timer);
   }
-  const json = (await res.json().catch(() => ({}))) as T & {
-    ok?: boolean;
-    error?: string;
-    code?: string;
-    paymentIntentId?: string | null;
-  };
-  if (!res.ok || json.ok === false) {
-    throw new DojoRequestError(
-      json.error || `Request to ${path} failed (${res.status}).`,
-      res.status,
-      json.code ?? null,
-      json.paymentIntentId ?? null,
-    );
-  }
-  return json;
 }
 
 /**
@@ -109,7 +133,7 @@ export function createDojoSession(
   return jsonFetch<CreateDojoSessionResult & { ok: true }>(`${root(scope)}/sessions`, {
     method: "POST",
     body: JSON.stringify(body),
-  });
+  }, START_TIMEOUT_MS);
 }
 
 export function getDojoSession(

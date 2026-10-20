@@ -15,7 +15,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { parseBody } from "@/lib/apiValidation";
 import { DojoCreateSessionSchema, DojoSignatureSchema } from "@/lib/schemas/dojo";
-import { getDojoGateway, dojoConfig, resolveSnapshot, isDojoEffectivelyEnabled } from "@/lib/dojo";
+import { getDojoGateway, dojoConfig, resolveSnapshot, isDojoEffectivelyEnabled, isDojoSandboxKey } from "@/lib/dojo";
 import { startTerminalPayment } from "@/lib/dojo/flow";
 import { dojoErrorResponse, toMinorUnits } from "@/lib/dojo/respond";
 
@@ -23,12 +23,17 @@ const missingId = () =>
   NextResponse.json({ ok: false, error: "Missing terminal session id." }, { status: 400 });
 
 /**
- * Start a card-present payment (or card refund) on a terminal.
+ * Start a card-present sale on a terminal.
  *
  * The work is in lib/dojo/flow: resolve the terminal (explicit body.terminalId
  * → pinned DOJO_TERMINAL_ID → first Available; an id or a TID), reuse the
  * intent on a retry or create one, then open the session, which wakes the
  * machine. The caller then polls handleGetSession() until it settles.
+ *
+ * Always a Sale with automatic capture. Refund sessions pay money out and need
+ * canIssueRefund, which these routes don't check; and nothing here captures a
+ * pre-authorisation. So the schema doesn't accept either from the client.
+ * `test` tells the screen to show a test-mode badge (simulator or sandbox key).
  *
  * Body amounts are in MAJOR units (12.50); we convert to Dojo's minor units.
  */
@@ -36,14 +41,6 @@ export async function handleCreateSession(req: NextRequest): Promise<NextRespons
   const parsed = await parseBody(req, DojoCreateSessionSchema);
   if (!parsed.ok) return NextResponse.json({ ok: false, error: parsed.error }, { status: parsed.status });
   const body = parsed.data;
-
-  const sessionType = body.sessionType ?? "Sale";
-  if (sessionType === "MatchedRefund" && !body.paymentIntentId) {
-    return NextResponse.json(
-      { ok: false, error: "MatchedRefund requires the original paymentIntentId." },
-      { status: 400 },
-    );
-  }
 
   try {
     // The admin toggle hides the option in every UI; enforce it here too, so a
@@ -57,15 +54,15 @@ export async function handleCreateSession(req: NextRequest): Promise<NextRespons
     }
     const cfg = dojoConfig();
     const started = await startTerminalPayment(getDojoGateway(), {
-      sessionType,
+      sessionType: "Sale",
       amount: { value: toMinorUnits(body.amount), currencyCode: body.currencyCode ?? cfg.currencyCode },
       reference: body.reference,
       description: body.description,
-      captureMode: body.captureMode,
       terminal: body.terminalId || cfg.terminalId || undefined,
       paymentIntentId: body.paymentIntentId,
     });
-    return NextResponse.json({ ok: true, ...started });
+    const test = cfg.mode === "mock" || isDojoSandboxKey();
+    return NextResponse.json({ ok: true, ...started, test });
   } catch (err) {
     return dojoErrorResponse(err, "create");
   }

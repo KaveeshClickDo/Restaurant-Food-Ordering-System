@@ -30,9 +30,13 @@ interface RequestOpts {
   body?: unknown;
   /** Add the software-house-id / reseller-id headers (terminal endpoints). */
   terminal?: boolean;
-  /** Idempotency-Key header (refunds). */
+  /** `idempotencyKey` header (refunds). */
   idempotencyKey?: string;
 }
+
+/** Longest wait for one Dojo call. A timeout is reported as status 0 (network),
+ *  so the till treats the result as unknown rather than failed. */
+const DOJO_TIMEOUT_MS = 15_000;
 
 async function request<T>(opts: RequestOpts): Promise<T> {
   const cfg = dojoConfig();
@@ -46,9 +50,10 @@ async function request<T>(opts: RequestOpts): Promise<T> {
     headers["software-house-id"] = cfg.softwareHouseId;
     headers["reseller-id"] = cfg.resellerId;
   }
-  if (opts.idempotencyKey) headers["IdempotencyKey"] = opts.idempotencyKey;
+  if (opts.idempotencyKey) headers["idempotencyKey"] = opts.idempotencyKey;
 
   let res: Response;
+  let text: string;
   try {
     res = await fetch(cfg.baseUrl + opts.path, {
       method: opts.method,
@@ -56,12 +61,21 @@ async function request<T>(opts: RequestOpts): Promise<T> {
       body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
       // Never cache payment calls.
       cache: "no-store",
+      signal: AbortSignal.timeout(DOJO_TIMEOUT_MS),
     });
+    // Inside the try: the timeout also covers reading the body.
+    text = await res.text();
   } catch (err) {
-    throw new DojoApiError(0, `Network error calling Dojo: ${err instanceof Error ? err.message : String(err)}`, null);
+    const timedOut = err instanceof Error && err.name === "TimeoutError";
+    throw new DojoApiError(
+      0,
+      timedOut
+        ? `Dojo didn't answer within ${DOJO_TIMEOUT_MS / 1000}s (${opts.method} ${opts.path}).`
+        : `Network error calling Dojo: ${err instanceof Error ? err.message : String(err)}`,
+      null,
+    );
   }
 
-  const text = await res.text();
   const json = text ? safeParse(text) : null;
 
   if (!res.ok) {

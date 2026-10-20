@@ -64,9 +64,10 @@ We drive Dojo, so it does not apply. We want **Pay at Counter → Terminals API*
 Notes:
 - `reseller-id` is **optional**, not required as previously documented here. We
   send it anyway — harmless, and Dojo's own examples include it.
-- The refund idempotency header is spelled `idempotencyKey` in the spec. HTTP
-  header names are case-insensitive (RFC 9110), so our `IdempotencyKey` is
-  equivalent — but it is **required**, so never omit it.
+- The refund idempotency header is spelled `idempotencyKey` in the spec, and we
+  send it that way (HTTP header names are case-insensitive anyway, RFC 9110). It
+  is **required**, so never omit it, and it must stay the same across retries of
+  one refund: our refund route takes it from the screen as `requestId`.
 - Sandbox dummy ids `softwareHouse1` / `reseller1` are Dojo's public test values.
   Production values are assigned by Dojo during partner onboarding.
 

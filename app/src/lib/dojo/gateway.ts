@@ -99,7 +99,7 @@ function toSaleResult(
   intent: DojoPaymentIntent | null,
 ): DojoSaleResult {
   return saleResultFrom(
-    session.details.sale?.paymentIntentId ?? intent?.id ?? "",
+    session.details?.sale?.paymentIntentId ?? intent?.id ?? "",
     session.id,
     intent,
     session.status,
@@ -116,7 +116,8 @@ export function toSnapshot(
 ): DojoSessionSnapshot {
   const settled = isSettled(session.status);
   const success = isSuccess(session.status);
-  const notes = session.notificationEvents;
+  // Defaults in case Dojo leaves a field out: a crash here would stall the till.
+  const notes = session.notificationEvents ?? [];
   const latestNotification = notes.length > 0 ? notes[notes.length - 1].notificationType : null;
 
   let message: string | null = null;
@@ -130,7 +131,7 @@ export function toSnapshot(
 
   return {
     terminalSessionId: session.id,
-    paymentIntentId: session.details.sale?.paymentIntentId ?? null,
+    paymentIntentId: session.details?.sale?.paymentIntentId ?? null,
     status: session.status,
     latestNotification,
     done: settled,
@@ -157,7 +158,7 @@ export async function resolveSnapshot(
   session: DojoTerminalSession,
 ): Promise<DojoSessionSnapshot> {
   let intent: DojoPaymentIntent | null = null;
-  const piId = session.details.sale?.paymentIntentId;
+  const piId = session.details?.sale?.paymentIntentId;
   if (piId && (isSuccess(session.status) || session.status === "Expired")) {
     try { intent = await gateway.getPaymentIntent(piId); } catch { /* keep null */ }
   }

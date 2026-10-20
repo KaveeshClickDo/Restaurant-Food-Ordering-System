@@ -5,11 +5,11 @@
  */
 
 import { NextRequest } from "next/server";
-import { getAnyStaffSession, unauthorizedJson } from "@/lib/auth";
+import { getTillStaffSession, unauthorizedJson } from "@/lib/auth";
 import { handleSignSession } from "@/lib/dojo/sessionHandlers";
 
 export async function PUT(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
-  if (!(await getAnyStaffSession())) return unauthorizedJson();
+  if (!(await getTillStaffSession())) return unauthorizedJson();
   const { id } = await ctx.params;
   return handleSignSession(req, id);
 }

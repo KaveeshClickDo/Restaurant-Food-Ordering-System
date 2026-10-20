@@ -1,7 +1,8 @@
 # Dojo card terminal — how it works in this app
 
 Status: **built, and tested on Dojo's sandbox.** All nine virtual terminals on our
-account pass (2026-10-20), along with the go-live edge cases. Before the
+account pass (2026-10-20, run again after a second review on 2026-10-21), along
+with the go-live edge cases. Before the
 accreditation session (UAT) with Dojo, two things remain: the refund screen, and
 an end-to-end test of the till screens. See §9.
 
@@ -104,17 +105,33 @@ the surface's own settle call ─▶ recordDojoPayment(...) ─▶ dojo_payments
   card is in, Dojo refuses (422): staff see "too late to cancel" and the payment's
   real outcome still arrives. A payment screen can't be closed while a payment is
   live (`onActiveChange`); if it unmounts anyway, the hook cancels the session.
-- **Errors before a payment starts** (wrong API key, busy, offline or unknown
-  terminal) show a "Couldn't start" screen with a plain message
-  (`lib/dojo/errors.ts`) and no "Record as paid", because nothing was charged.
+- **Errors before a payment starts** show a "Couldn't start" screen with a plain
+  message (`lib/dojo/errors.ts`) and no "Record as paid". It says "Nothing was
+  charged" only when Dojo refused before any session began (wrong API key,
+  unknown or offline terminal, a request Dojo rejected, or the switch is off).
+  For a busy machine, a timeout or an unexpected error it tells staff to check
+  the machine's screen, because the machine may be showing an earlier try of
+  the same payment.
+- **Sales only:** the payment routes start sales with automatic capture and
+  nothing else. A `sessionType` or `captureMode` in the request body is dropped,
+  so no screen can open a refund or a pre-auth through them.
+- **Timeouts:** each call to Dojo gives up after 15s, which counts as a network
+  problem (result unknown). The tablet waits up to 20s for a poll, signature or
+  cancel, and 90s to start a payment. Starting can take up to four Dojo calls,
+  so the tablet's limit is longer than the server's: it never gives up on a
+  session the server did open.
+- **Test mode:** on the simulator or a sandbox key, the payment screen shows a
+  "Test mode — no real money moves" badge (the start response carries `test`).
 
 ### Surface boundary
 
 The `/waiter` app must only call `/api/waiter/*`. So the waiter has its own
 `/api/waiter/dojo/sessions[...]` routes gated on a **waiter** session, while the
-POS family uses `/api/pos/dojo/*` gated on any staff session. Both are thin auth
-wrappers over the same `lib/dojo/sessionHandlers.ts`, so the flows cannot drift.
-The client picks its routes with `<DojoChargePanel scope="waiter" />`.
+POS family uses `/api/pos/dojo/*` gated on a **POS or collection** session
+(`getTillStaffSession` in `lib/auth.ts`); kitchen, driver and admin logins can't
+drive the machine. Both are thin auth wrappers over the same
+`lib/dojo/sessionHandlers.ts`, so the flows cannot drift. The client picks its
+routes with `<DojoChargePanel scope="waiter" />`.
 
 ---
 
@@ -146,7 +163,7 @@ Apply with `cd app && npm run db:migrate` — idempotent, safe to re-run.
 
 ```bash
 cd app
-npm run dojo:demo        # every terminal + retry, cancel, busy, refunds, webhook signatures; exits 1 on a failure
+npm run dojo:demo        # every terminal + retry, cancel, busy, timeouts, refunds, webhook signatures; exits 1 on a failure
 ```
 
 In the UI: set `DOJO_MODE=mock`, `npm run dev`, open `/pos` or `/waiter`, take a
@@ -172,8 +189,12 @@ a TID or a Dojo terminal id (`tm_…`), so the same value works in mock and live
 needs only `DOJO_API_KEY=sk_sandbox_…` in `app/.env.local`, refuses any other
 key, and takes sections: `npm run dojo:sandbox -- refunds signature`.
 
-What it shows (first run 2026-10-12; all nine terminals 2026-10-20):
+What it shows (first run 2026-10-12; all nine terminals 2026-10-20; full re-run
+2026-10-21):
 - The key, the `softwareHouse1` id and the terminal TIDs (`properties.tid`) work.
+  On 2026-10-21 the account also listed a tenth terminal, TID `62410185`,
+  Offline. It isn't one of the virtual terminals; finding a machine
+  automatically only ever picks an Available one, so it's skipped.
 - Every terminal's outcome, signature accept/reject, retrying a declined card on
   the same intent, the already-paid check, cancel from the POS, a busy terminal
   (409), an unknown terminal (404) and a wrong key (401) behave as the code
@@ -186,6 +207,9 @@ What it shows (first run 2026-10-12; all nine terminals 2026-10-20):
 - **Matched refunds** (card present) work, but the intent is only marked
   `Refunded` when the request carries `amount`. The schema says it's optional;
   Dojo's own example sends it, and so do we (`client.ts`). Unlinked refunds work.
+- A payment intent's `terminalSessionHistory` holds a copy of each session at
+  every status change, oldest first (seen 2026-10-21). The already-paid check
+  takes the latest successful sale session from it.
 
 Dojo's other answers (2026-10-13): terminal gratuity is optional for
 accreditation; the physical test device isn't needed for any checklist item.
@@ -220,7 +244,9 @@ The APK only had to ship the UI once.
 reuse, already-paid check), `sessionHandlers.ts` (shared route logic),
 `recordPayment.ts` (verified write to `dojo_payments`), `webhook.ts` (HMAC),
 `errors.ts` (error types + staff messages), `respond.ts` (error→HTTP + minor
-units), `types.ts`, `posApi.ts` (**client-side** fetchers, `apiBase()`-aware).
+units), `types.ts`, `posApi.ts` (**client-side** fetchers, `apiBase()`-aware,
+with timeouts). Request bodies: `lib/schemas/dojo.ts`. The POS-family login
+check: `getTillStaffSession` in `lib/auth.ts`.
 
 **Routes** — `api/pos/dojo/{config,terminals,sessions,sessions/[id],
 sessions/[id]/signature,sessions/[id]/cancel,refunds,webhook}` and
@@ -250,17 +276,28 @@ sessions/[id]/signature,sessions/[id]/cancel,refunds,webhook}` and
   but a sale the server rejects (e.g. an item no longer available) has already
   been charged. Fix before go-live: keep the approved result and retry the save
   without charging, and check the sale before sending it to the machine.
+- **A start that times out after Dojo opened the session:** the machine can
+  show the payment while the till says "Couldn't start". Retrying is safe (it
+  reuses the intent, and reports it as paid if the customer paid), but taking
+  the money another way is not, so staff must check the machine first. Rare: it
+  needs a Dojo call to take over 15s.
 - **Refund UI:** the refund route is ready (payment intent refund, Dojo's
-  recommendation; `canIssueRefund`-gated; send one `requestId` per refund so a
-  retry can't refund twice), but no screen calls it yet. Dojo requires a working
-  refund path before production. A card-present refund session's snapshot
-  carries a sale-shaped `result` with an empty `paymentIntentId`, so a
-  card-present refund screen would need its own handling.
+  recommendation; `canIssueRefund`-gated; a `requestId` is required, one per
+  refund and resent on retries, so a retry can't refund twice), but no screen
+  calls it yet. Dojo requires a working refund path before production. The
+  route doesn't record who issued a refund; the screen's work should add that.
+  No route opens a refund on the card machine (matched or unlinked): it would
+  need its own `canIssueRefund` gate, and its own handling of the session
+  result, which is sale-shaped with an empty `paymentIntentId`.
+- **Webhook order:** the webhook stores each event's status as it arrives.
+  Dojo can deliver events late or out of order, so a late `Captured` could
+  overwrite `Refunded`. When webhooks are set up, store the intent's current
+  status read from Dojo instead.
 - **Split cash+card:** the card leg still uses the manual confirm.
-- **Pre-auth (Manual capture):** `captureMode` can be sent, but nothing calls
-  `POST /payment-intents/{id}/captures`, so a pre-auth could be started and
-  never settled. Both the capture call and a bar-tab UI are missing. Dojo's
-  checklist marks pre-auth `[Optional]`.
+- **Pre-auth (Manual capture):** not offered. The routes always use automatic
+  capture; `flow.ts` and the gateway still take `captureMode`, but nothing calls
+  `POST /payment-intents/{id}/captures`, so both the capture call and a bar-tab
+  UI are missing. Dojo's checklist marks pre-auth `[Optional]`.
 - **Cashback and `itemLines`:** not implemented.
 - **Gratuity:** a tip the customer adds on the card machine is recorded
   (`dojo_payments.tip_amount`, with Dojo's `total_amount`) and shown on the
@@ -272,4 +309,6 @@ sessions/[id]/signature,sessions/[id]/cancel,refunds,webhook}` and
   though `dojo_payments` holds them.
 - **Payment reference:** the POS till uses the assigned customer's name as the
   Dojo payment reference, so names show in Dojo's portal. A sale or receipt
-  number would identify the payment without that.
+  number would identify the payment without that. (A gift card sale sends only
+  the last four characters of the card's code, because the code can be spent
+  like cash.)

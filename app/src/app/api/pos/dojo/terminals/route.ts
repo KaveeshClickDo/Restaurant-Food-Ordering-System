@@ -10,12 +10,12 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { getAnyStaffSession, unauthorizedJson } from "@/lib/auth";
+import { getTillStaffSession, unauthorizedJson } from "@/lib/auth";
 import { getDojoGateway } from "@/lib/dojo";
 import { dojoErrorResponse } from "@/lib/dojo/respond";
 
 export async function GET(req: NextRequest) {
-  const session = await getAnyStaffSession();
+  const session = await getTillStaffSession();
   if (!session) return unauthorizedJson();
 
   const all = new URL(req.url).searchParams.get("all") === "1";

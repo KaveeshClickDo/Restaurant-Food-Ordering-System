@@ -19,8 +19,10 @@
  * It also behaves like Dojo where the POS has to cope: a busy terminal refuses
  * a second session (409), a cancel after the card is in is refused (422), a
  * signature left alone is accepted after 80 seconds, a late signature decision
- * is refused (422), and unknown ids are 404s. Errors are DojoApiErrors, so they
- * reach the POS through the same mapping as real ones.
+ * is refused (422), and unknown ids are 404s. A refund needs a captured payment
+ * and no more than is left of it, and a repeated idempotency key refunds only
+ * once. Errors are DojoApiErrors, so they reach the POS through the same
+ * mapping as real ones.
  *
  * Progression is poll-count based and deterministic: each getTerminalSession()
  * advances the session one tick (card presented on the 2nd poll, result on the
@@ -104,10 +106,28 @@ interface MockSession {
 
 const intents = new Map<string, DojoPaymentIntent>();
 const sessions = new Map<string, MockSession>();
+/** Refunds by idempotency key: a repeated request gets the first result and
+ *  refunds nothing more, as with Dojo. */
+const refundsByKey = new Map<string, DojoRefundResult>();
 
 function nowIso(): string { return new Date().toISOString(); }
 function rid(prefix: string): string {
   return `${prefix}_mock_${Math.random().toString(36).slice(2, 14)}`;
+}
+
+/** What the card was charged, tip included. */
+const chargedTotal = (pi: DojoPaymentIntent) => pi.totalAmount?.value ?? pi.amount.value;
+
+/** As in the sandbox (2026-10-21), the intent's terminalSessionHistory gets a
+ *  copy of the session at each status change, oldest first. */
+function logHistory(s: DojoTerminalSession): void {
+  const piId = s.details.sale?.paymentIntentId ?? s.details.matchedRefund?.paymentIntentId;
+  const pi = piId ? intents.get(piId) : undefined;
+  if (!pi) return;
+  pi.terminalSessionHistory = [
+    ...(pi.terminalSessionHistory ?? []),
+    { terminalSession: { id: s.id, status: s.status, details: { sessionType: s.details.sessionType } } },
+  ];
 }
 
 function pushStatus(s: DojoTerminalSession, status: DojoTerminalSessionStatus): void {
@@ -115,6 +135,7 @@ function pushStatus(s: DojoTerminalSession, status: DojoTerminalSessionStatus): 
   const ev: DojoStatusEvent = { createdAt: nowIso(), status, debugMessage: "" };
   s.statusEvents.push(ev);
   s.updatedAt = ev.createdAt;
+  logHistory(s);
 }
 
 function pushNote(s: DojoTerminalSession, notificationType: string): void {
@@ -176,7 +197,7 @@ function applyMatchedRefund(refund: NonNullable<DojoTerminalSessionDetails["matc
   const pi = intents.get(refund.paymentIntentId);
   if (!pi || !refund.amount) return;
   pi.refundedAmount = (pi.refundedAmount ?? 0) + refund.amount.value;
-  pi.status = pi.refundedAmount >= pi.amount.value ? "Refunded" : "Captured";
+  pi.status = pi.refundedAmount >= chargedTotal(pi) ? "Refunded" : "Captured";
   pi.updatedAt = nowIso();
 }
 
@@ -314,7 +335,6 @@ export function createDojoMock(): DojoGateway {
         if (input.sessionType === "MatchedRefund" && pi.status !== "Captured") {
           throw new DojoApiError(422, `The status ${pi.status} does not allow a refund.`, null);
         }
-        pi.terminalSessionHistory = [...(pi.terminalSessionHistory ?? []), { terminalSession: { id } }];
       }
 
       const session: DojoTerminalSession = {
@@ -336,6 +356,7 @@ export function createDojoMock(): DojoGateway {
         signatureRequiredAt: null,
         signatureDecision: null,
       });
+      logHistory(session);
       return structuredClone(session);
     },
 
@@ -366,11 +387,23 @@ export function createDojoMock(): DojoGateway {
     },
 
     async createRefund(input: CreateRefundInput): Promise<DojoRefundResult> {
+      const repeat = input.idempotencyKey ? refundsByKey.get(input.idempotencyKey) : undefined;
+      if (repeat) return { ...repeat };
       const pi = intents.get(input.paymentIntentId);
       if (!pi) throw new DojoApiError(404, `Payment intent ${input.paymentIntentId} not found.`, null);
+      if (pi.status !== "Captured") {
+        throw new DojoApiError(422, `The status ${pi.status} does not allow a refund.`, null);
+      }
+      const remaining = chargedTotal(pi) - (pi.refundedAmount ?? 0);
+      if (!Number.isInteger(input.amount) || input.amount <= 0 || input.amount > remaining) {
+        throw new DojoApiError(400, `The refund amount must be between 1 and ${remaining}.`, null);
+      }
       pi.refundedAmount = (pi.refundedAmount ?? 0) + input.amount;
-      pi.status = pi.refundedAmount >= pi.amount.value ? "Refunded" : "Captured";
-      return { refundId: rid("rfnd"), message: `mock refund for ${input.paymentIntentId}` };
+      pi.status = pi.refundedAmount >= chargedTotal(pi) ? "Refunded" : "Captured";
+      pi.updatedAt = nowIso();
+      const result: DojoRefundResult = { refundId: rid("rfnd"), message: `mock refund for ${input.paymentIntentId}` };
+      if (input.idempotencyKey) refundsByKey.set(input.idempotencyKey, result);
+      return { ...result };
     },
   };
 }
