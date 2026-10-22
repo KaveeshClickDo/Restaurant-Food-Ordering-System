@@ -21,6 +21,8 @@ export const DojoCreateSessionSchema = z.object({
   /** Amount to charge, in major units (e.g. 12.50). */
   amount: MajorAmount,
   currencyCode: z.string().length(3).optional(),
+  /** What the payment is for. The server cuts it to Dojo's 60 characters, or
+   *  sends "Card sale" when it's missing (lib/dojo/flow.ts). */
   reference: z.string().max(120).optional(),
   description: z.string().max(255).optional(),
   /** Optional explicit terminal (a Dojo id "tm_…" or a TID); when omitted the

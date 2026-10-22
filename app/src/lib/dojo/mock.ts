@@ -19,7 +19,8 @@
  * It also behaves like Dojo where the POS has to cope: a busy terminal refuses
  * a second session (409), a cancel after the card is in is refused (422), a
  * signature left alone is accepted after 80 seconds, a late signature decision
- * is refused (422), and unknown ids are 404s. A refund needs a captured payment
+ * is refused (422), unknown ids are 404s, and a payment needs a reference of
+ * 1–60 characters (400). A refund needs a captured payment
  * and no more than is left of it, and a repeated idempotency key refunds only
  * once. Errors are DojoApiErrors, so they reach the POS through the same
  * mapping as real ones.
@@ -283,6 +284,13 @@ function details(input: CreateTerminalSessionInput): DojoTerminalSessionDetails 
 export function createDojoMock(): DojoGateway {
   return {
     async createPaymentIntent(input: CreatePaymentIntentInput): Promise<DojoPaymentIntent> {
+      // Dojo's rule and wording (sandbox, 2026-10-21).
+      if (!input.reference || input.reference.length > 60) {
+        const why = input.reference
+          ? "The field Reference must be a string or array type with a maximum length of '60'."
+          : "The Reference field is required.";
+        throw new DojoApiError(400, `One or more validation errors occurred. — Reference: ${why}`, null);
+      }
       const id = rid("pi");
       const pi: DojoPaymentIntent = {
         id,

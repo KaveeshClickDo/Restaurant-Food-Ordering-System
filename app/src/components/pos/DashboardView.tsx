@@ -15,6 +15,7 @@ import { fmt, fmtPct, fmtDate, fmtTime, relTime } from "./_utils";
 import { buildDineInReceiptHtml, dineInRefundState, type DineInOrder } from "./_receipts";
 import { parseTableLabelFromNote } from "@/lib/tableLabel";
 import { printDineInBill } from "@/lib/posPrint";
+import { matchesShortSaleId } from "@/lib/posSaleRef";
 import {
   type POSPeriod, POS_PERIODS, getPOSDateRange, posExportCSV,
 } from "./dashboard/_helpers";
@@ -617,7 +618,9 @@ export default function DashboardView() {
   const txFiltered = txSource.filter((s) => {
     if (!txSearch.trim()) return true;
     const q = txSearch.toLowerCase();
-    return s.receiptNo.includes(q) || s.staffName.toLowerCase().includes(q) || (s.customerName ?? "").toLowerCase().includes(q);
+    return s.receiptNo.toLowerCase().includes(q) || s.staffName.toLowerCase().includes(q)
+      || (s.customerName ?? "").toLowerCase().includes(q)
+      || matchesShortSaleId(s.id, txSearch); // "POS sale 3F9A2C1B" in Dojo
   });
   const txSorted = [...txFiltered].sort((a, b) => {
     const dir = sortDir === "desc" ? -1 : 1;
@@ -1493,7 +1496,7 @@ export default function DashboardView() {
                         <div className="flex-1 min-w-48 relative">
                           <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
                           <input value={txSearch} onChange={(e) => setTxSearch(e.target.value)}
-                            placeholder="Search receipt, staff, customer…"
+                            placeholder="Search receipt, sale ID, staff, customer…"
                             className="w-full bg-slate-900 border border-slate-600 rounded-xl pl-9 pr-4 py-2 text-sm text-white outline-none focus:border-orange-500 placeholder-slate-500" />
                         </div>
                         <label className="flex items-center gap-2 text-xs text-slate-400 cursor-pointer select-none">

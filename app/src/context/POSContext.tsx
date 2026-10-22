@@ -318,6 +318,11 @@ interface POSContextValue {
     // Set only when the card leg was collected on an integrated Dojo terminal;
     // the server records it in the central dojo_payments table.
     dojo?: DojoSaleResult,
+    // The sale's id, when the caller made it before taking payment (the till
+    // does, so the card machine payment can name the sale). Use each id for
+    // ONE sale only: the server treats a repeated id as a replay of the first
+    // sale. Omitted → a fresh id.
+    saleId?: string,
   ) => Promise<{ sale: POSSale | null; error?: string }>;
   /** True when the Dojo card-terminal flow is on: DOJO_MODE (mock|live) AND
    *  the admin toggle. */
@@ -1379,6 +1384,7 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
     cashTendered?: number,
     giftCard?: { code: string; amount: number },
     dojo?: DojoSaleResult,
+    presetSaleId?: string,
   ): Promise<{ sale: POSSale | null; error?: string }> => {
     // Compute totals at full precision, then round each money field to 2dp
     // before sending. The server's Money primitive rejects float garbage
@@ -1415,7 +1421,7 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
     const onAndroid = isCapacitorAndroid();
     const clientCreatedAt = onAndroid ? new Date().toISOString() : undefined;
 
-    const saleId = uuid();
+    const saleId = presetSaleId ?? uuid();
     const saleDate = new Date().toISOString();
     // Build the payload. On web (`onAndroid = false`) the new offline fields
     // stay undefined and the existing server allocator runs exactly as before.

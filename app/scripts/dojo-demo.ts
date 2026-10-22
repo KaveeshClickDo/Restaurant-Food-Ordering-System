@@ -17,6 +17,8 @@ import { createDojoMock } from "../src/lib/dojo/mock";
 import type { DojoSaleResult, DojoSessionSnapshot } from "../src/lib/dojo/types";
 import { buildDojoSignature, verifyDojoSignature } from "../src/lib/dojo/webhook";
 import { DojoCreateSessionSchema, DojoRefundSchema } from "../src/lib/schemas/dojo";
+import { matchesShortSaleId, posSaleReference } from "../src/lib/posSaleRef";
+import { uuid } from "../src/lib/uuid";
 
 const AMOUNT = { value: 1250, currencyCode: "GBP" }; // £12.50
 let failures = 0;
@@ -195,6 +197,30 @@ async function noAnswer(): Promise<void> {
   }
 }
 
+/** Dojo needs a reference of 1–60 characters; the till's names its sale. */
+async function references(gw: DojoGateway): Promise<void> {
+  console.log("\n── Payment references ──");
+  const refused = await dojoError(() => gw.createPaymentIntent({ amount: AMOUNT, reference: "" }));
+  check(refused !== null && refused.err.status === 400 && describeDojoError(refused.err, "create").code === "rejected",
+    `like Dojo, the simulator refuses a payment with no reference: "${refused?.err.message}"`);
+
+  const startWith = async (reference: string | undefined) => {
+    const started = await startTerminalPayment(gw, { sessionType: "Sale", amount: AMOUNT, reference, terminal: "VCMSEEKSIP0" });
+    await finish(gw, started);
+    return (await gw.getPaymentIntent(started.paymentIntentId!)).reference ?? "";
+  };
+  check(await startWith(undefined) === "Card sale", "a screen that sends no reference still gets paid, as \"Card sale\"");
+  check((await startWith("x".repeat(80))).length === 60, "a reference over 60 characters is cut to 60");
+
+  const saleId = uuid();
+  const tillRef = posSaleReference(saleId);
+  check(await startWith(tillRef) === tillRef && /^POS sale [0-9A-F]{8}$/.test(tillRef),
+    `the till's reference names its sale: "${tillRef}"`);
+  check(matchesShortSaleId(saleId, tillRef) && matchesShortSaleId(saleId, tillRef.slice(-8).toLowerCase())
+    && !matchesShortSaleId(uuid(), tillRef) && !matchesShortSaleId(saleId, "P"),
+    "the sales search finds the sale from it, pasted whole or as the 8 characters; not from 1 character");
+}
+
 /** What the routes take from a screen (lib/schemas/dojo.ts). */
 function routeBodies(): void {
   console.log("\n── What the routes accept ──");
@@ -281,6 +307,7 @@ async function main(): Promise<void> {
   await unavailableTerminals(gw);
   staffMessages();
   await noAnswer();
+  await references(gw);
   routeBodies();
   await refunds(gw);
   webhookSignatures();

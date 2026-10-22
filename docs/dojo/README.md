@@ -1,8 +1,9 @@
 # Dojo card terminal — how it works in this app
 
 Status: **built, and tested on Dojo's sandbox.** All nine virtual terminals on our
-account pass (2026-10-20, run again after a second review on 2026-10-21), along
-with the go-live edge cases. Before the
+account pass (2026-10-20, run again after a second review on 2026-10-21, and on
+2026-10-22 with the payment reference fix), along with the go-live edge cases.
+Before the
 accreditation session (UAT) with Dojo, two things remain: the refund screen, and
 an end-to-end test of the till screens. See §9.
 
@@ -122,6 +123,24 @@ the surface's own settle call ─▶ recordDojoPayment(...) ─▶ dojo_payments
   session the server did open.
 - **Test mode:** on the simulator or a sandbox key, the payment screen shows a
   "Test mode — no real money moves" badge (the start response carries `test`).
+- **Payment reference:** Dojo requires one, 1–60 characters. Each screen names
+  what is paid for, with nothing secret or personal:
+
+  | Screen | Reference in Dojo |
+  |---|---|
+  | POS till sale | `POS sale 3F9A2C1B` (the sale's short id) |
+  | Collection | `Collection ORD-A1B2C3D4` |
+  | Waiter | `Table 5` |
+  | Reservation fee | `VIP <table>` |
+  | Gift card sale | `Gift card ending 4TPB` (never the whole code: it spends like cash) |
+
+  The server cuts a reference to 60 characters and sends `Card sale` if a
+  screen sends none (`paymentReference` in `flow.ts`). For the till's short id,
+  the till makes the sale's id when the payment screen opens (a fresh one each
+  time) and saves the sale under it (`lib/posSaleRef.ts`). Searching that id,
+  or pasting the whole reference, finds the sale in the POS dashboard and the
+  admin POS reports. A Dojo payment whose id matches no sale was charged but
+  never saved.
 
 ### Surface boundary
 
@@ -210,6 +229,12 @@ What it shows (first run 2026-10-12; all nine terminals 2026-10-20; full re-run
 - A payment intent's `terminalSessionHistory` holds a copy of each session at
   every status change, oldest first (seen 2026-10-21). The already-paid check
   takes the latest successful sale session from it.
+- A payment needs a `reference` of 1–60 characters; without one Dojo refuses it
+  (2026-10-21). The `references` section checks the till's `POS sale …`, a
+  screen that sends none, and one that's too long.
+- On 2026-10-22 a signature payment stayed `SignatureVerificationAccepted` for
+  about 90 seconds before Dojo captured it (session then `Captured`); before,
+  the capture followed at once. The till keeps waiting until it's captured.
 
 Dojo's other answers (2026-10-13): terminal gratuity is optional for
 accreditation; the physical test device isn't needed for any checklist item.
@@ -246,7 +271,9 @@ reuse, already-paid check), `sessionHandlers.ts` (shared route logic),
 `errors.ts` (error types + staff messages), `respond.ts` (error→HTTP + minor
 units), `types.ts`, `posApi.ts` (**client-side** fetchers, `apiBase()`-aware,
 with timeouts). Request bodies: `lib/schemas/dojo.ts`. The POS-family login
-check: `getTillStaffSession` in `lib/auth.ts`.
+check: `getTillStaffSession` in `lib/auth.ts`. The till's sale reference and
+its search: `lib/posSaleRef.ts` (used by `SaleView`, `context/POSContext.tsx`
+`completeSale`, `DashboardView` and `components/admin/POSReportsPanel.tsx`).
 
 **Routes** — `api/pos/dojo/{config,terminals,sessions,sessions/[id],
 sessions/[id]/signature,sessions/[id]/cancel,refunds,webhook}` and
@@ -307,8 +334,10 @@ sessions/[id]/signature,sessions/[id]/cancel,refunds,webhook}` and
   sets it.
 - **Receipt:** `ReceiptModal` does not yet print the captured scheme/last-4/auth,
   though `dojo_payments` holds them.
-- **Payment reference:** the POS till uses the assigned customer's name as the
-  Dojo payment reference, so names show in Dojo's portal. A sale or receipt
-  number would identify the payment without that. (A gift card sale sends only
-  the last four characters of the card's code, because the code can be spent
-  like cash.)
+- **Waiter reference:** `Table 5` doesn't tell one payment at that table from
+  the next. The bill's order ids are known before payment, so it could name an
+  order the way the till names its sale.
+- **A gift card spent before the card payment is saved:** the gift card part of
+  a sale is taken off only after the card machine has charged the rest. If the
+  same card is spent elsewhere in between, the sale is refused ("Gift card
+  balance changed") although the card payment went through.

@@ -6,7 +6,7 @@
  *
  * Run:  npm run dojo:sandbox                        (from app/; everything)
  *       npm run dojo:sandbox -- refunds signature   (only those sections)
- * Sections: machines, signature, retry, paid, cancel, busy, unknown, wrongkey, refunds.
+ * Sections: machines, signature, retry, paid, cancel, busy, unknown, wrongkey, references, refunds.
  *
  * It refuses any key that isn't a sandbox key and never prints the key. It
  * prints what Dojo actually returns (statuses with their timing, terminal
@@ -22,12 +22,13 @@ import { DojoApiError, describeDojoError, type DojoOp } from "../src/lib/dojo/er
 import { DojoStartError, startTerminalPayment } from "../src/lib/dojo/flow";
 import { resolveSnapshot, type DojoGateway } from "../src/lib/dojo/gateway";
 import type { DojoPaymentIntent, DojoSaleResult, DojoSessionSnapshot, DojoTerminalSession } from "../src/lib/dojo/types";
+import { posSaleReference } from "../src/lib/posSaleRef";
 
 const AMOUNT = { value: 1000, currencyCode: "GBP" }; // £10.00, so a 10% tip is £1.00
 const POLL_MS = 1000;
 const SCENARIO_TIMEOUT_MS = 180_000;
 
-const SECTIONS = ["machines", "signature", "retry", "paid", "cancel", "busy", "unknown", "wrongkey", "refunds"] as const;
+const SECTIONS = ["machines", "signature", "retry", "paid", "cancel", "busy", "unknown", "wrongkey", "references", "refunds"] as const;
 type Section = (typeof SECTIONS)[number];
 
 type Expect = "paid" | "declined" | "expired" | "canceled" | "rejected";
@@ -182,6 +183,8 @@ async function runSale(
     paymentIntentId?: string;
     cancelAtOnce?: boolean;
     sessionType?: "Sale" | "MatchedRefund" | "UnlinkedRefund";
+    /** The screen's reference; null sends none. Default: "sandbox-<label>". */
+    reference?: string | null;
   } = {},
 ): Promise<Run> {
   const t0 = Date.now();
@@ -191,7 +194,7 @@ async function runSale(
     const started = await startTerminalPayment(gw, {
       sessionType: opts.sessionType ?? "Sale",
       amount: AMOUNT,
-      reference: `sandbox-${label}`.slice(0, 60),
+      reference: opts.reference === null ? undefined : opts.reference ?? `sandbox-${label}`,
       description: `Sandbox check: ${label}`,
       terminal,
       paymentIntentId: opts.paymentIntentId,
@@ -369,6 +372,24 @@ async function wrongKey(gw: DojoGateway): Promise<void> {
   }
 }
 
+/** Dojo refuses a payment with no reference or one over 60 characters
+ *  (2026-10-21). Each case must still get paid, with the reference flow.ts sends. */
+async function references(gw: DojoGateway): Promise<void> {
+  console.log("\n── Payment references (Dojo needs 1–60 characters) ──");
+  const tillRef = posSaleReference(randomUUID());
+  const cases: Array<{ label: string; reference: string | null; ok: (sent: string) => boolean }> = [
+    { label: `the till's "${tillRef}"`, reference: tillRef, ok: (sent) => sent === tillRef },
+    { label: "no reference from the screen", reference: null, ok: (sent) => sent === "Card sale" },
+    { label: "a 75-character reference", reference: "R".repeat(75), ok: (sent) => sent.length === 60 },
+  ];
+  for (const c of cases) {
+    const run = await runSale(gw, c.label, "VCMSEEKSCN0", { reference: c.reference });
+    const sent = run.paymentIntentId ? (await gw.getPaymentIntent(run.paymentIntentId)).reference ?? "" : "";
+    check(matches(run, "paid") && c.ok(sent),
+      `${c.label}: ${describeRun(run)}; Dojo holds "${sent.length > 20 ? `${sent.slice(0, 12)}… (${sent.length} characters)` : sent}"`);
+  }
+}
+
 /** Dojo's processing failure for API refunds of terminal payments on the sandbox. */
 const SANDBOX_REFUND_FAILURE = "Your refund request was not successful";
 
@@ -449,6 +470,7 @@ async function main(): Promise<void> {
   if (wants("busy")) await busy(gw);
   if (wants("unknown")) await unknown(gw);
   if (wants("wrongkey")) await wrongKey(gw);
+  if (wants("references")) await references(gw);
   if (wants("refunds")) await refunds(gw);
 
   if (dojoQuestions.length) {

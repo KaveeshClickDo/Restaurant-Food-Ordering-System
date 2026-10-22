@@ -6,6 +6,8 @@ import { POSProduct, POSSale, getOfferPrice, isOfferActive } from "@/types/pos";
 import { ChevronRight, Gift, Search, X, Users, Star, Package, ShoppingCart } from "lucide-react";
 import { fmt, getInitials } from "./_utils";
 import { apiBase } from "@/lib/apiBase";
+import { uuid } from "@/lib/uuid";
+import { posSaleReference } from "@/lib/posSaleRef";
 import ModifierModal from "./ModifierModal";
 import PaymentModal from "./PaymentModal";
 import type { DojoSaleResult } from "@/lib/dojo/types";
@@ -23,7 +25,11 @@ export default function SaleView({ isOffline = false }: { isOffline?: boolean })
   const [activeCategory, setActiveCategory] = useState<string>("all");
   const [search, setSearch] = useState("");
   const [modifierProduct, setModifierProduct] = useState<POSProduct | null>(null);
-  const [showPayment, setShowPayment] = useState(false);
+  // The payment screen is open for the sale with this id (null = closed). Made
+  // fresh each time it opens, so the card machine payment can name the sale
+  // ("POS sale 3F9A2C1B") and one id never serves two sales. The screen saves
+  // at most once (its buttons lock), and a failed save means reopening it.
+  const [paymentSaleId, setPaymentSaleId] = useState<string | null>(null);
   const [showCustomer, setShowCustomer] = useState(false);
   const [showMobileCart, setShowMobileCart] = useState(false);
   const [completedSale, setCompletedSale] = useState<POSSale | null>(null);
@@ -132,7 +138,7 @@ export default function SaleView({ isOffline = false }: { isOffline?: boolean })
     giftCard?: { code: string; amount: number },
     dojo?: DojoSaleResult,
   ) {
-    const { sale, error } = await completeSale(method, payments, cashTendered, giftCard, dojo);
+    const { sale, error } = await completeSale(method, payments, cashTendered, giftCard, dojo, paymentSaleId ?? undefined);
     if (!sale) {
       // Surface the server's actual reason (e.g. "'Burger' is no longer
       // available on the menu", "Insufficient stock") instead of a generic
@@ -141,7 +147,7 @@ export default function SaleView({ isOffline = false }: { isOffline?: boolean })
       alert(error ?? "Couldn't save the sale to the server. Check your network and try again.");
       return;
     }
-    setShowPayment(false);
+    setPaymentSaleId(null);
     setShowMobileCart(false);
     setCompletedSale(sale);
   }
@@ -176,15 +182,15 @@ export default function SaleView({ isOffline = false }: { isOffline?: boolean })
       )}
 
       {/* Payment modal */}
-      {showPayment && (
+      {paymentSaleId && (
         <PaymentModal
           total={grandTotal}
           currencySymbol={settings.currencySymbol}
-          onClose={() => setShowPayment(false)}
+          onClose={() => setPaymentSaleId(null)}
           onComplete={handlePaymentComplete}
           isOffline={isOffline}
           dojoEnabled={dojoEnabled}
-          saleReference={assignedCustomer?.name || undefined}
+          saleReference={posSaleReference(paymentSaleId)}
         />
       )}
 
@@ -628,7 +634,7 @@ export default function SaleView({ isOffline = false }: { isOffline?: boolean })
         )}
         <div className="flex-1 overflow-hidden md:h-full">
           <OrderPanel
-            onCharge={() => { setShowPayment(true); }}
+            onCharge={() => { setPaymentSaleId(uuid()); }}
             onSelectCustomer={() => { setShowCustomer(true); }}
             onOpenDiscount={() => { setShowDiscount(true); }}
             onOpenTip={() => { setShowTip(true); }}

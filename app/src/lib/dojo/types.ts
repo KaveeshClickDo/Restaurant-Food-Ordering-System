@@ -79,7 +79,8 @@ export interface DojoPaymentIntent {
 
 export interface CreatePaymentIntentInput {
   amount: DojoMoney;
-  reference?: string;
+  /** Required by Dojo: 1–60 characters (flow.ts paymentReference makes sure). */
+  reference: string;
   description?: string;
   captureMode?: DojoCaptureMode; // defaults to "Auto"
   /** Card-not-present (MOTO): skips the "Present Card" screen. */

@@ -93,6 +93,12 @@ Notes:
   "reference": "Order-234", "captureMode": "Auto" }
 ```
 
+`reference` is **required**, 1–60 characters ("A unique identifier for the
+payment"; uniqueness isn't enforced). The sandbox refuses a missing one ("The
+Reference field is required.") and a 61-character one (tested 2026-10-21).
+`description` is optional, up to 4096 characters. The spec doesn't say where
+either is shown, so neither carries anything secret or personal.
+
 **Step 3 — create session.** Exactly one of `sale` / `matchedRefund` /
 `unlinkedRefund` must be present, and it must agree with `sessionType`:
 

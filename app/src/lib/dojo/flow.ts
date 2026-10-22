@@ -27,6 +27,8 @@ import type {
 export interface StartPaymentInput {
   sessionType: DojoSessionType;
   amount: DojoMoney;
+  /** What the payment is for, e.g. "POS sale 3F9A2C1B". Cut to Dojo's 60
+   *  characters; "Card sale" when empty (see paymentReference). */
   reference?: string;
   description?: string;
   captureMode?: DojoCaptureMode;
@@ -83,7 +85,7 @@ export async function startTerminalPayment(
   if (input.sessionType === "Sale" && !reuseIntent) {
     const intent = await gateway.createPaymentIntent({
       amount: input.amount,
-      reference: input.reference,
+      reference: paymentReference(input.reference),
       description: input.description,
       captureMode: input.captureMode ?? "Auto",
     });
@@ -108,6 +110,16 @@ export async function startTerminalPayment(
   } catch (err) {
     throw new DojoStartError(err, input.sessionType === "Sale" ? paymentIntentId ?? null : null);
   }
+}
+
+/** Dojo refuses a payment intent without a reference, or with one over 60
+ *  characters (sandbox, 2026-10-21), so a screen's reference is cut to fit
+ *  and an empty one becomes "Card sale". */
+const MAX_REFERENCE_LENGTH = 60;
+
+function paymentReference(wanted: string | undefined): string {
+  const reference = wanted?.trim();
+  return reference ? reference.slice(0, MAX_REFERENCE_LENGTH).trim() : "Card sale";
 }
 
 /** The earlier intent, or null when Dojo doesn't know it. Any other failure is

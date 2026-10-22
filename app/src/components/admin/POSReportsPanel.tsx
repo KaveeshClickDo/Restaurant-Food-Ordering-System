@@ -24,6 +24,7 @@ interface VipFeeRow {
   time: string | null;
 }
 import { POSSale, POSProduct } from "@/types/pos";
+import { matchesShortSaleId } from "@/lib/posSaleRef";
 import { useApp } from "@/context/AppContext";
 import { ReceiptModal } from "./ReceiptModal";
 import { Customer, Order } from "@/types";
@@ -434,8 +435,9 @@ export default function POSReportsPanel() {
   const txFiltered = txSource.filter((s) => {
     if (!txSearch.trim()) return true;
     const q = txSearch.toLowerCase();
-    return s.receiptNo.includes(q) || s.staffName.toLowerCase().includes(q) ||
-      (s.customerName ?? "").toLowerCase().includes(q);
+    return s.receiptNo.toLowerCase().includes(q) || s.staffName.toLowerCase().includes(q) ||
+      (s.customerName ?? "").toLowerCase().includes(q) ||
+      matchesShortSaleId(s.id, txSearch); // "POS sale 3F9A2C1B" in Dojo
   });
   const txSorted = [...txFiltered].sort((a, b) => {
     const dir = sortDir === "desc" ? -1 : 1;
@@ -819,7 +821,7 @@ export default function POSReportsPanel() {
               <div className="px-5 py-4 border-b border-gray-100 flex flex-wrap items-center gap-3">
                 <input
                   value={txSearch} onChange={(e) => setTxSearch(e.target.value)}
-                  placeholder="Search receipt, staff, customer…"
+                  placeholder="Search receipt, sale ID, staff, customer…"
                   className="flex-1 min-w-48 border border-gray-200 rounded-xl px-4 py-2 text-sm outline-none focus:border-orange-400 placeholder-gray-400"
                 />
                 <label className="flex items-center gap-2 text-sm text-gray-600 cursor-pointer select-none">

@@ -35,7 +35,9 @@ export default function PaymentModal({
   /** When true and online, the "Card" tender drives a Dojo card terminal instead
    *  of the manual "Payment Received" confirm. Off → today's manual behaviour. */
   dojoEnabled?: boolean;
-  /** Reference stamped on the Dojo payment intent (e.g. an order/cart label). */
+  /** The Dojo payment's reference and description, naming what is paid for
+   *  ("POS sale 3F9A2C1B", "Collection ORD-…"). No personal details: Dojo
+   *  keeps it in its records. */
   saleReference?: string;
 }) {
   type Step = "method" | "cash" | "card" | "split" | "done";
@@ -339,7 +341,7 @@ export default function PaymentModal({
           <DojoChargePanel
             amount={due}
             reference={saleReference}
-            description={saleReference ? `POS sale ${saleReference}` : "POS card sale"}
+            description={saleReference ?? "POS card sale"}
             currencySymbol={currencySymbol}
             busy={submitting}
             onApproved={onDojoApproved}
