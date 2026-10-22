@@ -16,7 +16,7 @@ import { buildDineInReceiptHtml, dineInRefundState, type DineInOrder } from "./_
 import { parseTableLabelFromNote } from "@/lib/tableLabel";
 import { printDineInBill } from "@/lib/posPrint";
 import {
-  type POSPeriod, POS_PERIODS, getPOSDateRange, posExportCSV,
+  type POSPeriod, POS_PERIODS, getPOSDateRange, posExportCSV, defaultCustomRange,
 } from "./dashboard/_helpers";
 import VoidSaleModal from "./dashboard/VoidSaleModal";
 import DineInActionModal, { type DineInAction } from "./dashboard/DineInActionModal";
@@ -359,8 +359,15 @@ export default function DashboardView() {
 
   // ── Reports state ───────────────────────────────────────────────────────────
   const [period, setPeriod] = useState<POSPeriod>("today");
-  const [customStart, setCustomStart] = useState("");
-  const [customEnd, setCustomEnd] = useState("");
+  // Pre-filled to the last 30 days so switching to "Custom" never lands on two
+  // empty inputs — getPOSDateRange's "custom" case treats an empty date as
+  // epoch/now, which made that one click crunch the entire sales history.
+  const [customStart, setCustomStart] = useState(() => defaultCustomRange()[0]);
+  const [customEnd, setCustomEnd] = useState(() => defaultCustomRange()[1]);
+  // Local drafts so typing a year (2 → 0002 → 0020 → ...) doesn't commit each
+  // intermediate value and recompute reports mid-type; committed on blur/Enter.
+  const [draftStart, setDraftStart] = useState(customStart);
+  const [draftEnd, setDraftEnd] = useState(customEnd);
   type ReportTab = "overview" | "items" | "staff" | "transactions";
   const [reportTab, setReportTab] = useState<ReportTab>("overview");
   const [txSearch, setTxSearch] = useState("");
@@ -1036,12 +1043,18 @@ export default function DashboardView() {
                 <div className="flex flex-wrap gap-3 mt-4 pt-4 border-t border-slate-700">
                   <div>
                     <label className="text-xs text-slate-400 mb-1 block">From</label>
-                    <input type="date" value={customStart} onChange={(e) => setCustomStart(e.target.value)}
+                    <input type="date" value={draftStart}
+                      onChange={(e) => setDraftStart(e.target.value)}
+                      onBlur={() => setCustomStart(draftStart)}
+                      onKeyDown={(e) => { if (e.key === "Enter") setCustomStart(draftStart); }}
                       className="bg-slate-900 border border-slate-600 rounded-xl px-3 py-2 text-sm text-white outline-none focus:border-orange-500" />
                   </div>
                   <div>
                     <label className="text-xs text-slate-400 mb-1 block">To</label>
-                    <input type="date" value={customEnd} onChange={(e) => setCustomEnd(e.target.value)}
+                    <input type="date" value={draftEnd}
+                      onChange={(e) => setDraftEnd(e.target.value)}
+                      onBlur={() => setCustomEnd(draftEnd)}
+                      onKeyDown={(e) => { if (e.key === "Enter") setCustomEnd(draftEnd); }}
                       className="bg-slate-900 border border-slate-600 rounded-xl px-3 py-2 text-sm text-white outline-none focus:border-orange-500" />
                   </div>
                 </div>

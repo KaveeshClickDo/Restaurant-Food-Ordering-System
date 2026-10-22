@@ -12,6 +12,18 @@ export const POS_PERIODS: { id: POSPeriod; label: string }[] = [
   { id: "custom",    label: "Custom" },
 ];
 
+// Default `customStart`/`customEnd` <input type="date"> values — last 30 days.
+// Without this, a freshly-opened Custom picker sits on two empty strings, and 
+// getPOSDateRange's "custom" case falls back to epoch→now, forcing every 
+// reports aggregation to crunch tens of thousands of days.
+export function defaultCustomRange(): [string, string] {
+  const now = new Date();
+  const start = new Date(now);
+  start.setDate(start.getDate() - 29);
+  const toInputValue = (d: Date) => d.toISOString().slice(0, 10);
+  return [toInputValue(start), toInputValue(now)];
+}
+
 export function getPOSDateRange(period: POSPeriod, customStart: string, customEnd: string): [Date, Date] {
   const now   = new Date();
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
