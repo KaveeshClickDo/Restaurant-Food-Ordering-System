@@ -613,11 +613,13 @@ export default function SaleView({ isOffline = false }: { isOffline?: boolean })
         </div>
       )}
 
-      {/* Right: Order panel */}
-      <div className={`
-        ${showMobileCart ? 'fixed inset-0 z-50 flex flex-col bg-slate-950' : 'hidden md:flex md:flex-col'}
-        md:w-75 xl:w-96 flex-shrink-0 md:static md:block
-      `}>
+      {/* Right: Order panel. Hidden entirely once the cart is empty 
+       and reappears as soon as an item is added. */}
+      <div className={
+        showMobileCart
+          ? "fixed inset-0 z-50 flex flex-col bg-slate-950 md:static md:w-75 xl:w-96"
+          : `hidden md:flex md:flex-col md:static md:flex-shrink-0 md:overflow-hidden md:transition-[width] md:duration-500 md:ease-in-out ${cart.length > 0 ? "md:w-75 xl:w-96" : "md:w-0"}`
+      }>
         {showMobileCart && (
           <div className="md:hidden bg-slate-900 border-b border-slate-800 p-4 flex items-center flex-shrink-0 pt-safe-top">
             <button onClick={() => setShowMobileCart(false)} className="flex items-center gap-2 text-slate-300 hover:text-white font-semibold transition-colors">
@@ -626,7 +628,7 @@ export default function SaleView({ isOffline = false }: { isOffline?: boolean })
             </button>
           </div>
         )}
-        <div className="flex-1 overflow-hidden md:h-full">
+        <div className="w-full md:w-75 xl:w-96 flex-shrink-0 flex-1 overflow-hidden md:h-full">
           <OrderPanel
             onCharge={() => { setShowPayment(true); }}
             onSelectCustomer={() => { setShowCustomer(true); }}
