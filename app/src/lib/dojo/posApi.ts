@@ -136,6 +136,20 @@ export function createDojoSession(
   }, START_TIMEOUT_MS);
 }
 
+/** A Dojo card machine as the picker shows it. `tid` is its name, e.g. VCMSEEKSIP0. */
+export interface DojoMachine {
+  id: string;
+  status: "Available" | "InUse" | "Offline" | string;
+  tid: string | null;
+}
+
+/** Every card machine on the account, for the machine picker. */
+export function listDojoTerminals(
+  scope: DojoScope = "pos",
+): Promise<{ ok: true; terminals: DojoMachine[]; test: boolean }> {
+  return jsonFetch<{ ok: true; terminals: DojoMachine[]; test: boolean }>(`${root(scope)}/terminals`);
+}
+
 export function getDojoSession(
   id: string,
   scope: DojoScope = "pos",

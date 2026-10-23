@@ -1331,6 +1331,29 @@ alter table dojo_events enable row level security;
 drop policy if exists "deny_anon_all" on dojo_events;
 create policy "deny_anon_all" on dojo_events for all to anon using (false) with check (false);
 
+-- Refunds made through Dojo (payment intent refunds), with who issued them.
+-- request_id is the idempotency key sent to Dojo, so one refund request can't
+-- be recorded (or sent) twice; source_type/source_id say what was refunded,
+-- as in dojo_payments.
+create table if not exists dojo_refunds (
+  id                 text        primary key default gen_random_uuid()::text,
+  payment_intent_id  text        not null,
+  refund_id          text,                      -- Dojo's refund id
+  request_id         text        not null unique,
+  amount             numeric(10,2) not null,    -- major units
+  reason             text,
+  source_type        text        not null,
+  source_id          text,
+  staff_id           text,                      -- null = website admin
+  intent_status      text,                      -- the intent's status after it (Refunded / Captured)
+  created_at         timestamptz not null default now()
+);
+create index if not exists idx_dojo_refunds_source on dojo_refunds (source_type, source_id);
+create index if not exists idx_dojo_refunds_intent on dojo_refunds (payment_intent_id);
+alter table dojo_refunds enable row level security;
+drop policy if exists "deny_anon_all" on dojo_refunds;
+create policy "deny_anon_all" on dojo_refunds for all to anon using (false) with check (false);
+
 -- ── Session versioning for staff roles ───────────────────────────────────────
 -- Embedded in the HMAC session token so admin-initiated credential changes
 -- (password/email) or deactivation immediately invalidate all live

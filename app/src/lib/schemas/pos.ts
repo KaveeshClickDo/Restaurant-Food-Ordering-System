@@ -67,6 +67,9 @@ export const PosSaleVoidSchema = z.object({
   voidReason:   NonEmptyString,
   refundMethod: z.enum(["cash", "card", "none"]).optional(),
   refundAmount: Money.optional(),
+  /** For a card machine sale's card refund: one id per Void & Refund screen,
+   *  resent on retries, so Dojo can't refund twice. */
+  refundRequestId: z.string().min(8).max(64).optional(),
 });
 
 // ── POS dine-in void / refund ────────────────────────────────────────────────

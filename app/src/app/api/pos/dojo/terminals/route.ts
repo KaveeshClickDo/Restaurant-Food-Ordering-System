@@ -1,31 +1,19 @@
 /**
- * GET /api/pos/dojo/terminals — list Dojo card terminals for this account.
+ * GET /api/pos/dojo/terminals — list Dojo card terminals for this account, for
+ * the payment screen's machine picker (DojoChargePanel).
  *
- * Returns only Available terminals by default (?all=1 for every status). The POS
- * uses this to pick a machine (or confirm the pinned DOJO_TERMINAL_ID is free).
- * `tid` is the machine's name as Dojo lists it (e.g. VCMSEEKSIP0), which is also
- * accepted as DOJO_TERMINAL_ID.
- * Namespaced under /dojo to avoid the existing /api/pos/terminals (the till/POS
- * device concept — unrelated to Dojo hardware).
+ * Every status by default (?available=1 for only the free ones). `tid` is the
+ * machine's name as Dojo lists it (e.g. VCMSEEKSIP0), which is also accepted as
+ * DOJO_TERMINAL_ID. Namespaced under /dojo to avoid the existing
+ * /api/pos/terminals (the till/POS device concept — unrelated to Dojo hardware).
+ * The waiter app has its own /api/waiter/dojo/terminals over the same handler.
  */
 
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
 import { getTillStaffSession, unauthorizedJson } from "@/lib/auth";
-import { getDojoGateway } from "@/lib/dojo";
-import { dojoErrorResponse } from "@/lib/dojo/respond";
+import { handleListTerminals } from "@/lib/dojo/sessionHandlers";
 
 export async function GET(req: NextRequest) {
-  const session = await getTillStaffSession();
-  if (!session) return unauthorizedJson();
-
-  const all = new URL(req.url).searchParams.get("all") === "1";
-  try {
-    const terminals = await getDojoGateway().listTerminals(!all);
-    return NextResponse.json({
-      ok: true,
-      terminals: terminals.map((t) => ({ id: t.id, status: t.status, tid: t.properties?.tid ?? null })),
-    });
-  } catch (err) {
-    return dojoErrorResponse(err, "terminals");
-  }
+  if (!(await getTillStaffSession())) return unauthorizedJson();
+  return handleListTerminals(new URL(req.url).searchParams.get("available") === "1");
 }

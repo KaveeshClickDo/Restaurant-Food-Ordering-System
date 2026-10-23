@@ -3,9 +3,11 @@
 Status: **built, and tested on Dojo's sandbox.** All nine virtual terminals on our
 account pass (2026-10-20, run again after a second review on 2026-10-21, and on
 2026-10-22 with the payment reference fix), along with the go-live edge cases.
-Before the
-accreditation session (UAT) with Dojo, two things remain: the refund screen, and
-an end-to-end test of the till screens. See §9.
+On 2026-10-23 the refund screen, the card machine picker and the save retry were
+added, and every screen's payment ran end to end (real logins, real routes, a
+test database, the sandbox). Before the accreditation session (UAT) with Dojo:
+click through the screens in a browser, then book it. The script for both is
+[UAT.md](./UAT.md); open items are in §9.
 
 API facts: [dojo-integration-reference.md](./dojo-integration-reference.md)
 (verified 2026-08-12 against the live docs **and** the OpenAPI spec, plus the
@@ -80,13 +82,30 @@ driven flow (present card → PIN → signature → settle) for all five.
 ## 4. Runtime flow
 
 ```
-DojoChargePanel ─▶ POST   /api/{pos|waiter}/dojo/sessions        create intent + open session
+DojoChargePanel ─▶ GET    /api/{pos|waiter}/dojo/terminals       the machine picker's list
+                ─▶ POST   /api/{pos|waiter}/dojo/sessions        create intent + open session
       │ poll 1.2s ▶ GET    /api/{pos|waiter}/dojo/sessions/{id}   until settled
       │ signature ▶ PUT    …/sessions/{id}/signature {accepted}
       │ cancel    ▶ PUT    …/sessions/{id}/cancel
       ▼ on success
 the surface's own settle call ─▶ recordDojoPayment(...) ─▶ dojo_payments row
+      ▲ failed? "Try saving again" repeats it with the same result (no new charge)
 ```
+
+- **Choosing the machine:** each tablet remembers its card machine, per surface
+  (browser storage). With one machine online it's used straight away; with
+  several and none remembered, staff pick one (TID, with Ready / Busy /
+  Offline). In test mode the picker always shows, because testers switch
+  between the virtual terminals. Result screens offer "Use another"; a retry
+  on another machine reuses the payment intent, which Dojo accepts.
+- **Approved, then the save fails:** the panel keeps the approved result and
+  shows "Paid, but not saved yet" with the reason and **Try saving again**,
+  which repeats the surface's save with the same result: the card is never
+  charged again. The screen can't be closed meanwhile; "Leave without saving"
+  asks first and says the payment stays with Dojo. A save route that finds the
+  payment already recorded for its kind of record answers "saved" (the first
+  try went through and only its reply was lost), so a retry can't refuse or
+  save twice (`isDojoPaymentRecorded`; the till's sale id already does this).
 
 - **All Dojo calls are server-side** (route → `lib/dojo` gateway → Dojo). Card
   data never touches the tablet: no native SDK, no PCI scope on the device.
@@ -102,10 +121,13 @@ the surface's own settle call ─▶ recordDojoPayment(...) ─▶ dojo_payments
   whether the earlier attempt for the same amount actually went through, and if
   so reports it as paid rather than charging again (`lib/dojo/flow.ts`). An
   earlier intent for a different amount is never reused.
-- **Cancel** asks Dojo and keeps polling until Dojo reports `Canceled`. Once the
-  card is in, Dojo refuses (422): staff see "too late to cancel" and the payment's
-  real outcome still arrives. A payment screen can't be closed while a payment is
-  live (`onActiveChange`); if it unmounts anyway, the hook cancels the session.
+- **Cancel** asks Dojo and keeps polling until Dojo reports the result. Once the
+  card is in, Dojo may refuse (422; staff see "too late to cancel"), or accept
+  the cancel and still take the payment (the sandbox did, 2026-10-22; staff see
+  "Cancel sent… wait for the result"). Either way the payment's real outcome
+  arrives and is what the till shows. A payment screen can't be closed while a
+  payment is live (`onActiveChange`); if it unmounts anyway, the hook cancels
+  the session.
 - **Errors before a payment starts** show a "Couldn't start" screen with a plain
   message (`lib/dojo/errors.ts`) and no "Record as paid". It says "Nothing was
   charged" only when Dojo refused before any session began (wrong API key,
@@ -130,7 +152,7 @@ the surface's own settle call ─▶ recordDojoPayment(...) ─▶ dojo_payments
   |---|---|
   | POS till sale | `POS sale 3F9A2C1B` (the sale's short id) |
   | Collection | `Collection ORD-A1B2C3D4` |
-  | Waiter | `Table 5` |
+  | Waiter | `Table 5 #ORD-A1B2C3D4` (the bill's first order, as tickets print it) |
   | Reservation fee | `VIP <table>` |
   | Gift card sale | `Gift card ending 4TPB` (never the whole code: it spends like cash) |
 
@@ -141,6 +163,31 @@ the surface's own settle call ─▶ recordDojoPayment(...) ─▶ dojo_payments
   or pasting the whole reference, finds the sale in the POS dashboard and the
   admin POS reports. A Dojo payment whose id matches no sale was charged but
   never saved.
+
+### Refunds
+
+Dojo requires at least one working refund path; ours is the till's **Void &
+Refund** (POS dashboard). For a sale paid on the card machine, its refund
+option reads "To card" and names the card; the refund is a payment intent
+refund (Dojo's recommended method), full or partial:
+
+1. `PATCH /api/pos/sales/[id]` checks `canVoidSale` and `canIssueRefund`, and
+   caps the amount at what was paid.
+2. It sends the refund to Dojo **first** (`lib/dojo/refund.ts`). If Dojo
+   refuses, nothing is voided and the screen shows Dojo's reason.
+3. Only then is the sale voided, as before.
+
+Each Void & Refund screen sends one `refundRequestId`, Dojo's idempotency key,
+on every retry, and a sale already refunded through Dojo is never refunded
+again (an earlier try whose void didn't save just saves the void). Every
+refund is recorded in `dojo_refunds` with who issued it. On the sandbox, Dojo
+refuses refunds of card machine payments ("Your refund request was not
+successful"), which Dojo confirmed is expected; the screen explains that in
+test mode. On the simulator the refund succeeds.
+
+The standalone `POST /api/pos/dojo/refunds` uses the same helper. Refunds of
+the other kinds of card machine payment (waiter, collection, gift card,
+reservation fee) are still a record only; see §9.
 
 ### Surface boundary
 
@@ -172,7 +219,9 @@ iteration did the latter; `schema.sql` drops those columns idempotently.)
 
 The webhook reconciles `dojo_payments.status` and dedupes via `dojo_events`; if
 the update fails it un-marks the event and returns 500, so Dojo's retry applies
-it. The refund route also updates the status after a refund.
+it. A refund also updates the status, and is recorded in **`dojo_refunds`**
+(amount, reason, Dojo's refund id, the request id it was sent with, who issued
+it, and the intent's status afterwards).
 
 Apply with `cd app && npm run db:migrate` — idempotent, safe to re-run.
 
@@ -183,6 +232,13 @@ Apply with `cd app && npm run db:migrate` — idempotent, safe to re-run.
 ```bash
 cd app
 npm run dojo:demo        # every terminal + retry, cancel, busy, timeouts, refunds, webhook signatures; exits 1 on a failure
+```
+
+With a sandbox key, two more (both exit 1 on a failure):
+
+```bash
+npm run dojo:sandbox     # the payment logic against Dojo's real sandbox: every virtual terminal, refunds, …
+npm run dojo:routes      # the routes as the tablet calls them (login gate skipped, stand-in database)
 ```
 
 In the UI: set `DOJO_MODE=mock`, `npm run dev`, open `/pos` or `/waiter`, take a
@@ -245,14 +301,14 @@ Accreditation is booked through the "Partner UAT Session" link Dojo sent.
 ## 7. Going live
 
 **Sandbox:** `DOJO_MODE=live`, `DOJO_API_KEY=sk_sandbox_…`, keep the dummy
-`DOJO_SOFTWARE_HOUSE_ID=softwareHouse1`, and pin a virtual terminal by its TID
-(e.g. `DOJO_TERMINAL_ID=VCMSEEKSIP0`). Restart after each change. Dojo's virtual
+`DOJO_SOFTWARE_HOUSE_ID=softwareHouse1`, and restart. Pick a virtual terminal
+on the payment screen (test mode always shows the picker), or pin one for the
+whole server by its TID (e.g. `DOJO_TERMINAL_ID=VCMSEEKSIP0`). Dojo's virtual
 terminals give you every outcome without hardware.
 
-**Production:** pass Dojo's UAT, which needs a working refund path: the refund
-route (payment intent refund, Dojo's recommendation) is ready, the screen isn't
-yet. Then `sk_prod_…` plus the Dojo-assigned `software-house-id`, and repoint
-webhooks.
+**Production:** pass Dojo's UAT (script: [UAT.md](./UAT.md)); the refund path it
+needs is the till's Void & Refund (§4 Refunds). Then `sk_prod_…` plus the
+Dojo-assigned `software-house-id`, and repoint webhooks.
 
 **Android POS needs no rebuild** for sandbox↔prod, because it is all server-side.
 The APK only had to ship the UI once.
@@ -267,7 +323,9 @@ The APK only had to ship the UI once.
 `gateway.ts` (interface + snapshot/result mappers), `client.ts` (real HTTP),
 `mock.ts` (simulator), `flow.ts` (starting a payment: terminal by TID, intent
 reuse, already-paid check), `sessionHandlers.ts` (shared route logic),
-`recordPayment.ts` (verified write to `dojo_payments`), `webhook.ts` (HMAC),
+`recordPayment.ts` (verified write to `dojo_payments`; `isDojoPaymentRecorded`
+for retried saves), `refund.ts` (payment intent refunds, recorded in
+`dojo_refunds`), `webhook.ts` (HMAC),
 `errors.ts` (error types + staff messages), `respond.ts` (error→HTTP + minor
 units), `types.ts`, `posApi.ts` (**client-side** fetchers, `apiBase()`-aware,
 with timeouts). Request bodies: `lib/schemas/dojo.ts`. The POS-family login
@@ -276,46 +334,50 @@ its search: `lib/posSaleRef.ts` (used by `SaleView`, `context/POSContext.tsx`
 `completeSale`, `DashboardView` and `components/admin/POSReportsPanel.tsx`).
 
 **Routes** — `api/pos/dojo/{config,terminals,sessions,sessions/[id],
-sessions/[id]/signature,sessions/[id]/cancel,refunds,webhook}` and
-`api/waiter/dojo/sessions{,/[id],/[id]/signature,/[id]/cancel}`;
-`api/admin/dojo/status`. Settle routes that record a Dojo payment:
+sessions/[id]/signature,sessions/[id]/cancel,refunds,sales/[id],webhook}` and
+`api/waiter/dojo/{terminals,sessions,sessions/[id],sessions/[id]/signature,
+sessions/[id]/cancel}`; `api/admin/dojo/status`. Settle routes that record a
+Dojo payment (each treats an already-recorded payment as saved):
 `api/pos/sales`, `api/waiter/settle`, `api/pos/orders/[id]/settle` and
 `api/collection/orders/[id]/settle` (via `lib/collectionOrders.ts`),
-`api/pos/gift-cards/[id]/activate`, `api/pos/reservations`.
+`api/pos/gift-cards/[id]/activate`, `api/pos/reservations`. Void & Refund with
+the card refund: `api/pos/sales/[id]` (PATCH).
 
-**UI** — `components/pos/DojoChargePanel.tsx`, `useDojoTerminal.ts`,
-`PaymentModal.tsx`, `SaleView.tsx`, `CollectionView.tsx`, `app/collection/page.tsx`,
-`SellGiftCardModal.tsx`, `ReservationsView.tsx`,
-`components/waiter/BillView.tsx`, `components/admin/IntegrationsPanel.tsx`.
+**UI** — `components/pos/DojoChargePanel.tsx` (machine picker, payment, save
+retry), `useDojoTerminal.ts`, `PaymentModal.tsx`, `SaleView.tsx`,
+`CollectionView.tsx`, `app/collection/page.tsx`, `SellGiftCardModal.tsx`,
+`ReservationsView.tsx`, `components/waiter/BillView.tsx`,
+`components/pos/dashboard/VoidSaleModal.tsx` (refund to card),
+`components/admin/IntegrationsPanel.tsx`.
 
 **Checks** — `app/scripts/dojo-demo.ts` (simulator), `app/scripts/dojo-sandbox.ts`
-(real sandbox).
+(real sandbox, payment logic), `app/scripts/dojo-routes.ts` (real sandbox,
+through the routes). The UAT script: [UAT.md](./UAT.md).
 
-**Schema** — `dojo_payments`, `dojo_events` in `supabase/schema.sql`.
+**Schema** — `dojo_payments`, `dojo_events`, `dojo_refunds` in
+`supabase/schema.sql`.
 
 ---
 
 ## 9. Known gaps
 
-- **Approved, then saving fails:** if the card machine approves but the
-  surface's save then fails, trying again starts a new card payment, so the
-  customer can be charged twice. The POS till queues network failures offline,
-  but a sale the server rejects (e.g. an item no longer available) has already
-  been charged. Fix before go-live: keep the approved result and retry the save
-  without charging, and check the sale before sending it to the machine.
+- **A sale the server can't accept after the card was charged:** the save
+  retry (§4) covers a dropped connection, but a sale the server refuses for
+  good (say an item went off the menu meanwhile) keeps failing. Staff then
+  "Leave without saving" and refund it in Dojo or record it by hand. Checking
+  the sale with the server before sending it to the machine would avoid that.
 - **A start that times out after Dojo opened the session:** the machine can
   show the payment while the till says "Couldn't start". Retrying is safe (it
   reuses the intent, and reports it as paid if the customer paid), but taking
   the money another way is not, so staff must check the machine first. Rare: it
   needs a Dojo call to take over 15s.
-- **Refund UI:** the refund route is ready (payment intent refund, Dojo's
-  recommendation; `canIssueRefund`-gated; a `requestId` is required, one per
-  refund and resent on retries, so a retry can't refund twice), but no screen
-  calls it yet. Dojo requires a working refund path before production. The
-  route doesn't record who issued a refund; the screen's work should add that.
-  No route opens a refund on the card machine (matched or unlinked): it would
-  need its own `canIssueRefund` gate, and its own handling of the session
-  result, which is sale-shaped with an empty `paymentIntentId`.
+- **Refunds beyond the till:** the till's Void & Refund refunds card machine
+  sales to the card (§4 Refunds), which meets Dojo's "one refund path". The
+  waiter, collection, gift card and reservation fee refunds still only record
+  that a refund was made; their card machine payments are refunded in Dojo's
+  portal for now. No route opens a refund on the card machine (matched or
+  unlinked): it would need its own `canIssueRefund` gate, and its own handling
+  of the session result, which is sale-shaped with an empty `paymentIntentId`.
 - **Webhook order:** the webhook stores each event's status as it arrives.
   Dojo can deliver events late or out of order, so a late `Captured` could
   overwrite `Refunded`. When webhooks are set up, store the intent's current
@@ -334,10 +396,10 @@ sessions/[id]/signature,sessions/[id]/cancel,refunds,webhook}` and
   sets it.
 - **Receipt:** `ReceiptModal` does not yet print the captured scheme/last-4/auth,
   though `dojo_payments` holds them.
-- **Waiter reference:** `Table 5` doesn't tell one payment at that table from
-  the next. The bill's order ids are known before payment, so it could name an
-  order the way the till names its sale.
 - **A gift card spent before the card payment is saved:** the gift card part of
   a sale is taken off only after the card machine has charged the rest. If the
   same card is spent elsewhere in between, the sale is refused ("Gift card
-  balance changed") although the card payment went through.
+  balance changed") although the card payment went through: the screen shows
+  "Paid, but not saved yet" with that reason, and staff take the difference
+  another way or refund. Holding the gift card amount before charging the
+  machine would close it; that's a decision still to make.

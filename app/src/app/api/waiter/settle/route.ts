@@ -10,7 +10,7 @@ import { requireWaiterAuth } from "@/lib/waiterAuth";
 import { parseBody } from "@/lib/apiValidation";
 import { WaiterSettleSchema } from "@/lib/schemas/waiter";
 import { lookupActiveGiftCard, clampGiftCardAmount, redeemGiftCardForRow } from "@/lib/giftCardValidation";
-import { recordDojoPayment } from "@/lib/dojo";
+import { recordDojoPayment, isDojoPaymentRecorded } from "@/lib/dojo";
 
 export async function POST(req: NextRequest) {
   const unauth = await requireWaiterAuth();
@@ -22,6 +22,11 @@ export async function POST(req: NextRequest) {
           discountAmount, discountNote, tipAmount, serviceFeeAmount, vatAmount, vatInclusive, dojo } = parsed.data;
 
   const round2 = (n: number) => Math.round(n * 100) / 100;
+
+  // A retried save after a card payment: already done if the payment is recorded.
+  if (dojo?.paymentIntentId && await isDojoPaymentRecorded(dojo.paymentIntentId, "dine_in")) {
+    return NextResponse.json({ ok: true, duplicate: true });
+  }
 
   try {
     // Fetch the orders being settled up-front: we need their combined subtotal

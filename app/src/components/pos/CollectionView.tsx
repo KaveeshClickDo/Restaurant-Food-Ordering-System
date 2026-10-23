@@ -199,21 +199,32 @@ export default function CollectionView() {
   }, [scope, onlineTab, refreshHistory]);
 
   // Take payment for an unpaid order → settle (paid + delivered + loyalty).
-  async function settlePayment(order: CollectionOrder, method: Tender, dojo?: DojoSaleResult) {
+  /** Returns true when saved, else the reason. After a card machine payment a
+   *  failed save keeps the payment screen open: it shows the reason and retries
+   *  without charging again. */
+  async function settlePayment(order: CollectionOrder, method: Tender, dojo?: DojoSaleResult): Promise<true | string> {
     setError("");
-    const r = await fetch(`${apiBase()}/api/pos/orders/${order.id}/settle`, {
-      method:  "POST",
-      headers: { "Content-Type": "application/json" },
-      body:    JSON.stringify({ paymentMethod: method, ...(dojo ? { dojo } : {}) }),
-    });
-    const json = await r.json().catch(() => ({})) as { ok?: boolean; error?: string };
-    if (!r.ok || !json.ok) {
-      setError(json.error ?? "Could not take payment. Please try again.");
+    let message: string | null = null;
+    try {
+      const r = await fetch(`${apiBase()}/api/pos/orders/${order.id}/settle`, {
+        method:  "POST",
+        headers: { "Content-Type": "application/json" },
+        body:    JSON.stringify({ paymentMethod: method, ...(dojo ? { dojo } : {}) }),
+      });
+      const json = await r.json().catch(() => ({})) as { ok?: boolean; error?: string };
+      if (!r.ok || !json.ok) message = json.error ?? "Could not take payment. Please try again.";
+    } catch {
+      message = "Network error. Please try again.";
+    }
+    if (message && dojo) return message;
+    if (message) {
+      setError(message);
     } else {
       setReceipt(toReceipt(order, method));
     }
     setPayTarget(null);
     refresh();
+    return message ?? true;
   }
 
   // Mark an already-paid order collected → delivered (no payment).
@@ -505,7 +516,7 @@ export default function CollectionView() {
           onClose={() => setPayTarget(null)}
           onComplete={(method, _payments, _cash, _gc, dojo) => {
             const pm = method === "card" ? "card" : method === "split" ? "split" : "cash";
-            settlePayment(payTarget, pm, dojo);
+            return settlePayment(payTarget, pm, dojo);
           }}
         />
       )}

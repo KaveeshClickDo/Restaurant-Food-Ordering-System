@@ -22,6 +22,7 @@ import {
 import CollectionFooter from "@/components/collection/CollectionFooter";
 import { computeTax, taxSurcharge } from "@/lib/taxUtils";
 import { parseTableLabelFromNote } from "@/lib/tableLabel";
+import { fullOrderNumber } from "@/lib/orderNumber";
 import type { WaiterStaff, DiningTable } from "@/types";
 import type { BillOrder, WaiterReceipt } from "./_types";
 import { fmtCur } from "./_utils";
@@ -162,8 +163,12 @@ export default function BillView({ table, waiter, receipt, setReceipt, onCheckou
     }
   }
 
-  async function payBill(method: "cash" | "card" | "gift_card", dojo?: DojoSaleResult) {
-    if (billOrders.length === 0 || paying) return;
+  /** Settle the bill. Returns null when settled, else the reason. With a card
+   *  machine payment the reason goes back to its screen (which retries the
+   *  save without charging again) instead of an alert. */
+  async function payBill(method: "cash" | "card" | "gift_card", dojo?: DojoSaleResult): Promise<string | null> {
+    if (billOrders.length === 0) return "There are no orders on this bill.";
+    if (paying) return "The bill is already being settled.";
     setPaying(true);
     const round2 = (n: number) => Math.round(n * 100) / 100;
     const subtotal = round2(billOrders.reduce((s, o) => s + o.total, 0));
@@ -196,8 +201,9 @@ export default function BillView({ table, waiter, receipt, setReceipt, onCheckou
     } catch (err) {
       console.error("payBill network error:", err);
       setPaying(false);
-      alert("Couldn't settle the bill. Check your network and try again.");
-      return;
+      const message = "Couldn't settle the bill. Check your network and try again.";
+      if (!dojo) alert(message);
+      return message;
     }
     setPaying(false);
     if (!res.ok) {
@@ -208,8 +214,9 @@ export default function BillView({ table, waiter, receipt, setReceipt, onCheckou
       const json = await res.json().catch(() => ({})) as { error?: string };
       const log = res.status >= 500 ? console.error : console.warn;
       log("payBill failed:", res.status, json.error ?? "(no details)");
-      alert(json.error ?? "Couldn't settle the bill. Please try again.");
-      return;
+      const message = json.error ?? "Couldn't settle the bill. Please try again.";
+      if (!dojo) alert(message);
+      return message;
     }
     // Table is settled — close out any reservation that was seated here today.
     // Best-effort; the bill is already the source of truth.
@@ -245,6 +252,7 @@ export default function BillView({ table, waiter, receipt, setReceipt, onCheckou
     });
     resetBillExtras();
     // Stay on bill view — ReceiptModal overlays and navigates away on close
+    return null;
   }
 
   // ── Computed ─────────────────────────────────────────────────────────────────
@@ -500,11 +508,21 @@ export default function BillView({ table, waiter, receipt, setReceipt, onCheckou
               ) : cardFlow === "dojo" ? (
                 <DojoChargePanel
                   amount={dueAfterGiftCard}
-                  reference={`Table ${table.label}`}
+                  // Names the bill's first order, as tickets print it, so the
+                  // payment can be told apart from the table's next one.
+                  reference={billOrders[0]
+                    ? `Table ${table.label} ${fullOrderNumber(billOrders[0].id)}`
+                    : `Table ${table.label}`}
                   currencySymbol={sym}
                   busy={paying}
                   scope="waiter"
-                  onApproved={(r) => { setCardFlow("none"); payBill("card", r); }}
+                  // Stays on the card machine screen until the bill is settled,
+                  // so a failed save can be retried without charging again.
+                  onApproved={async (r) => {
+                    const message = await payBill("card", r);
+                    if (!message) setCardFlow("none");
+                    return message ?? true;
+                  }}
                   onManualFallback={() => { setCardFlow("none"); payBill("card"); }}
                   onBack={() => setCardFlow("none")}
                   onActiveChange={setDojoActive}

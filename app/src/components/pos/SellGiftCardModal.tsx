@@ -57,10 +57,16 @@ export default function SellGiftCardModal({ card, currencySymbol, onClose, onSol
     void handleSell();
   }
 
-  async function handleSell(dojo?: DojoSaleResult) {
+  /** Activate the card. Returns null when sold, else the reason (also shown in
+   *  the modal), so a card machine payment's screen can retry the save. */
+  async function handleSell(dojo?: DojoSaleResult): Promise<string | null> {
     // Email is required — every till sale captures a marketing contact (with
     // the consent tick), same policy as the admin counter sale.
-    if (!email.trim()) { setError("Customer email is required to sell the card."); return; }
+    if (!email.trim()) {
+      const message = "Customer email is required to sell the card.";
+      setError(message);
+      return message;
+    }
     setBusy(true);
     setError(null);
     try {
@@ -76,15 +82,19 @@ export default function SellGiftCardModal({ card, currencySymbol, onClose, onSol
           ...(dojo ? { dojo } : {}),
         }),
       });
-      const json = await res.json() as { ok: boolean; error?: string };
+      const json = await res.json().catch(() => ({ ok: false })) as { ok: boolean; error?: string };
       if (!res.ok || !json.ok) {
-        setError(json.error ?? "Couldn't activate the card. Try again.");
-        return;
+        const message = json.error ?? "Couldn't activate the card. Try again.";
+        setError(message);
+        return message;
       }
       setSold(true);
       onSold();
+      return null;
     } catch {
-      setError("Connection error — the card was NOT sold. Check the network and retry.");
+      const message = "Connection error — the card was NOT sold. Check the network and retry.";
+      setError(message);
+      return message;
     } finally {
       setBusy(false);
     }
@@ -127,7 +137,13 @@ export default function SellGiftCardModal({ card, currencySymbol, onClose, onSol
               reference={`Gift card ending ${card.code.slice(-4)}`}
               currencySymbol={currencySymbol}
               busy={busy}
-              onApproved={(r) => { setCardFlow("none"); void handleSell(r); }}
+              // Stays on the card machine screen until the card is activated,
+              // so a failed save can be retried without charging again.
+              onApproved={async (r) => {
+                const message = await handleSell(r);
+                if (!message) setCardFlow("none");
+                return message ?? true;
+              }}
               onManualFallback={() => { setCardFlow("none"); void handleSell(); }}
               onBack={() => setCardFlow("none")}
               onActiveChange={setDojoActive}

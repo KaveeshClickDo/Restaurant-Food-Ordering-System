@@ -24,7 +24,7 @@ import { parseBody } from "@/lib/apiValidation";
 import { PosGiftCardActivateSchema } from "@/lib/schemas/giftCard";
 import { sendGiftCardDeliveredEmail } from "@/lib/emailServer";
 import { upsertMarketingContact } from "@/lib/marketingContacts";
-import { recordDojoPayment } from "@/lib/dojo";
+import { recordDojoPayment, isDojoPaymentRecorded } from "@/lib/dojo";
 
 const GIFT_CARD_EXPIRY_MONTHS = 12;
 
@@ -40,6 +40,11 @@ export async function POST(
   const parsed = await parseBody(req, PosGiftCardActivateSchema);
   if (!parsed.ok) return NextResponse.json({ ok: false, error: parsed.error }, { status: parsed.status });
   const { paymentMethod, recipientEmail, recipientName, notes, sendEmail, marketingOptIn, dojo } = parsed.data;
+
+  // A retried save after a card payment: already done if the payment is recorded.
+  if (dojo?.paymentIntentId && await isDojoPaymentRecorded(dojo.paymentIntentId, "gift_card")) {
+    return NextResponse.json({ ok: true, duplicate: true });
+  }
 
   const { data: card, error: cardErr } = await supabaseAdmin
     .from("gift_cards")

@@ -239,9 +239,13 @@ export default function ReservationsView() {
     void submitBooking();
   }
 
-  async function submitBooking(dojo?: DojoSaleResult) {
-    if (!addTableMeta) return;
+  /** Book the table. Returns null when booked, else the reason. After a card
+   *  machine payment a failed save stays on its screen (the reason, and a retry
+   *  that doesn't charge again); otherwise the reason shows on the form. */
+  async function submitBooking(dojo?: DojoSaleResult): Promise<string | null> {
+    if (!addTableMeta) return "Choose a table first.";
     setAddSaving(true); setAddError("");
+    let message: string | null = null;
     try {
       const res  = await fetch(apiBase() + "/api/pos/reservations", {
         method: "POST", headers: { "Content-Type": "application/json" },
@@ -257,11 +261,15 @@ export default function ReservationsView() {
           ...(dojo ? { dojo } : {}),
         }),
       });
-      const json = await res.json() as { ok: boolean; error?: string };
+      const json = await res.json().catch(() => ({ ok: false })) as { ok: boolean; error?: string };
       if (json.ok) { setShowAdd(false); fetchRows(false); }
-      else setAddError(json.error ?? "Failed to create booking.");
-    } catch { setAddError("Network error — please try again."); }
-    finally { setAddSaving(false); setCardStage("none"); }
+      else message = json.error ?? "Failed to create booking.";
+    } catch { message = "Network error — please try again."; }
+    finally { setAddSaving(false); }
+    if (message && dojo) return message;
+    if (message) setAddError(message);
+    setCardStage("none");
+    return message;
   }
 
   // ── Main list ──────────────────────────────────────────────────────────────
@@ -857,7 +865,9 @@ export default function ReservationsView() {
                 reference={`VIP ${addTableMeta.label}`}
                 currencySymbol={currencySymbol}
                 busy={addSaving}
-                onApproved={(r) => { setCardStage("none"); void submitBooking(r); }}
+                // Stays on the card machine screen until the booking is saved,
+                // so a failed save can be retried without charging again.
+                onApproved={async (r) => (await submitBooking(r)) ?? true}
                 onManualFallback={() => { setCardStage("none"); void submitBooking(); }}
                 onBack={() => setCardStage("choose")}
               />

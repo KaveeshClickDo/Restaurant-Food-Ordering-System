@@ -10,6 +10,10 @@
  *   - Requires `canVoidSale` permission on the caller's pos_staff row, OR an
  *     admin session. A bare cashier session is not enough.
  *   - When a refundAmount is supplied, additionally requires `canIssueRefund`.
+ *
+ * A card refund of a sale paid on the Dojo card machine is sent to Dojo FIRST
+ * (lib/dojo/refund.ts, idempotent on body.refundRequestId); only if Dojo
+ * accepts is the sale voided. Other card refunds stay a record only.
  */
 
 import { NextRequest, NextResponse } from "next/server";
@@ -20,6 +24,8 @@ import { requirePosPermission }      from "@/lib/posPermissions";
 import { restoreStock, type StockItem } from "@/lib/stockMutation";
 import { deductLoyaltyPoints }       from "@/lib/loyaltyUtils";
 import type { POSCartItem }          from "@/types/pos";
+import { findDojoPayment, hasDojoRefund, refundDojoPayment, type DojoRefundOutcome } from "@/lib/dojo/refund";
+import { dojoErrorResponse }         from "@/lib/dojo/respond";
 
 export async function PATCH(
   req: NextRequest,
@@ -42,6 +48,8 @@ export async function PATCH(
   const reason = body.voidReason;
   const refundMethod = body.refundMethod ?? "none";
   const refundAmount = body.refundAmount && body.refundAmount > 0 ? body.refundAmount : null;
+  /** Set when this request refunded the card through Dojo. */
+  let cardRefund: DojoRefundOutcome | null = null;
 
   // Refund-side gate: only managers/admins (canIssueRefund) can move money.
   if (refundAmount !== null) {
@@ -60,6 +68,28 @@ export async function PATCH(
           { ok: false, error: `Refund (${refundAmount}) cannot exceed the ${moneyPaid.toFixed(2)} paid by cash/card. The gift-card portion is non-refundable.` },
           { status: 400 },
         );
+      }
+
+      // A card machine sale is refunded to the card through Dojo FIRST: if Dojo
+      // refuses, nothing is voided. A sale already refunded through Dojo (an
+      // earlier try whose void didn't save) isn't refunded again.
+      if (refundMethod === "card") {
+        const payment = await findDojoPayment("pos_sale", id);
+        if (payment && !(await hasDojoRefund("pos_sale", id))) {
+          try {
+            cardRefund = await refundDojoPayment({
+              paymentIntentId: payment.paymentIntentId,
+              amount: refundAmount,
+              requestId: body.refundRequestId ?? `pos-sale-void-${id}`,
+              reason,
+              sourceType: "pos_sale",
+              sourceId: id,
+              staffId: actor?.id ?? null,
+            });
+          } catch (err) {
+            return dojoErrorResponse(err, "refund");
+          }
+        }
       }
     }
   }
@@ -154,5 +184,9 @@ export async function PATCH(
     .update(orderPatch)
     .eq("id", id);
 
-  return NextResponse.json({ ok: true, id: updated.id });
+  return NextResponse.json({
+    ok: true,
+    id: updated.id,
+    cardRefund: cardRefund ? { status: cardRefund.status, refundedAmount: cardRefund.refundedAmount } : null,
+  });
 }

@@ -2,9 +2,11 @@
  * POST /api/pos/dojo/refunds — server-side ("customer not present") refund on a
  * previously captured Dojo payment intent. Dojo's recommended refund method.
  *
- * Gated by `canIssueRefund` (or admin), mirroring the POS void/refund flow. No
- * route opens a refund on the card machine (MatchedRefund/UnlinkedRefund):
- * those pay money out too, so one would need this same gate.
+ * Gated by `canIssueRefund` (or admin), mirroring the POS void/refund flow. The
+ * till's Void & Refund refunds card machine sales through the same helper
+ * (lib/dojo/refund.ts). No route opens a refund on the card machine
+ * (MatchedRefund/UnlinkedRefund): those pay money out too, so one would need
+ * this same gate.
  *
  * `requestId` is required: make one per refund and send the same one when
  * retrying it. It is Dojo's idempotency key, so a double tap or a network retry
@@ -24,9 +26,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { requirePosPermission } from "@/lib/posPermissions";
 import { parseBody } from "@/lib/apiValidation";
 import { DojoRefundSchema } from "@/lib/schemas/dojo";
-import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import { getDojoGateway } from "@/lib/dojo";
-import { dojoErrorResponse, toMinorUnits } from "@/lib/dojo/respond";
+import { refundDojoPayment } from "@/lib/dojo/refund";
+import { dojoErrorResponse } from "@/lib/dojo/respond";
 
 export async function POST(req: NextRequest) {
   const gate = await requirePosPermission("canIssueRefund");
@@ -37,39 +38,16 @@ export async function POST(req: NextRequest) {
   const body = parsed.data;
 
   try {
-    const gateway = getDojoGateway();
-    const result = await gateway.createRefund({
+    // Sends, records (with who issued it) and reads back; see lib/dojo/refund.
+    const outcome = await refundDojoPayment({
       paymentIntentId: body.paymentIntentId,
-      amount: toMinorUnits(body.amount),
-      refundReason: body.refundReason,
+      amount: body.amount,
+      requestId: body.requestId,
+      reason: body.refundReason,
       notes: body.notes,
-      idempotencyKey: body.requestId,
+      staffId: gate.staff?.id ?? null,
     });
-
-    // Read the outcome back; the refund itself already succeeded, so a failed
-    // read only means the status isn't confirmed yet (the webhook updates it).
-    let status: string | null = null;
-    let refundedAmount: number | null = null;
-    try {
-      const intent = await gateway.getPaymentIntent(body.paymentIntentId);
-      status = intent.status;
-      refundedAmount = typeof intent.refundedAmount === "number" ? intent.refundedAmount / 100 : null;
-      const { error } = await supabaseAdmin
-        .from("dojo_payments")
-        .update({ status })
-        .eq("payment_intent_id", body.paymentIntentId);
-      if (error) console.error("[dojo/refunds] dojo_payments status update:", error.message);
-    } catch (err) {
-      console.error("[dojo/refunds] reading the intent back:", err instanceof Error ? err.message : err);
-    }
-
-    return NextResponse.json({
-      ok: true,
-      refundId: result.refundId,
-      message: result.message ?? null,
-      status,
-      refundedAmount,
-    });
+    return NextResponse.json({ ok: true, ...outcome });
   } catch (err) {
     return dojoErrorResponse(err, "refund");
   }

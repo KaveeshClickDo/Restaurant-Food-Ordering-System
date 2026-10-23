@@ -2,8 +2,9 @@
  * Shared Dojo terminal-session route logic. SERVER-SIDE ONLY.
  *
  * The POS (/api/pos/dojo/*) and waiter (/api/waiter/dojo/*) surfaces expose the
- * same four operations, and each surface owns its OWN auth gate — the POS uses a
- * POS/any-staff session, the waiter uses requireWaiterAuth(). Only the gate
+ * same operations (start, poll, sign, cancel, list machines), and each surface
+ * owns its OWN auth gate — the POS takes a POS or collection session
+ * (getTillStaffSession), the waiter uses requireWaiterAuth(). Only the gate
  * differs, so the actual work lives here once: a bug fixed in the card flow is
  * fixed for every surface, and the two can never drift apart.
  *
@@ -65,6 +66,25 @@ export async function handleCreateSession(req: NextRequest): Promise<NextRespons
     return NextResponse.json({ ok: true, ...started, test });
   } catch (err) {
     return dojoErrorResponse(err, "create");
+  }
+}
+
+/**
+ * The account's card machines, for the payment screen's machine picker. Every
+ * status by default, so staff see a busy or offline machine for what it is;
+ * `availableOnly` keeps only the free ones. `test` as on create.
+ */
+export async function handleListTerminals(availableOnly = false): Promise<NextResponse> {
+  try {
+    const cfg = dojoConfig();
+    const terminals = await getDojoGateway().listTerminals(availableOnly);
+    return NextResponse.json({
+      ok: true,
+      terminals: terminals.map((t) => ({ id: t.id, status: t.status, tid: t.properties?.tid ?? null })),
+      test: cfg.mode === "mock" || isDojoSandboxKey(),
+    });
+  } catch (err) {
+    return dojoErrorResponse(err, "terminals");
   }
 }
 

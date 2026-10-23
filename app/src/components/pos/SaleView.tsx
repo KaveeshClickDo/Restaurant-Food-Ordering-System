@@ -144,12 +144,16 @@ export default function SaleView({ isOffline = false }: { isOffline?: boolean })
       // available on the menu", "Insufficient stock") instead of a generic
       // network message. Falls back to the network copy when the request
       // never reached the server.
-      alert(error ?? "Couldn't save the sale to the server. Check your network and try again.");
-      return;
+      const message = error ?? "Couldn't save the sale to the server. Check your network and try again.";
+      // After a card machine payment the payment screen shows it and retries
+      // the save under the same sale id; otherwise alert as before.
+      if (!dojo) alert(message);
+      return message;
     }
     setPaymentSaleId(null);
     setShowMobileCart(false);
     setCompletedSale(sale);
+    return true;
   }
 
   const filteredCustomers = customers.filter((c) =>

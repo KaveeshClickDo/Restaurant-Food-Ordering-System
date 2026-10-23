@@ -330,7 +330,9 @@ interface POSContextValue {
   // voidSale returns `{ ok, error? }` so callers can surface the server's
   // actual reason (insufficient permission, sale already voided, refund
   // amount exceeds total, etc.) instead of a generic network message.
-  voidSale: (saleId: string, reason: string, refundMethod?: "cash" | "card" | "none", refundAmount?: number) => Promise<{ ok: boolean; error?: string }>;
+  // refundRequestId: for a card machine sale's refund to the card, one id per
+  // Void & Refund screen, resent on its retries, so Dojo can't refund twice.
+  voidSale: (saleId: string, reason: string, refundMethod?: "cash" | "card" | "none", refundAmount?: number, refundRequestId?: string) => Promise<{ ok: boolean; error?: string }>;
   // Clock in/out return `{ ok, error? }` so the Staff tab can toast the
   // server's actual reason (409 already clocked in / 404 nothing to close)
   // instead of failing silently — a stale button state was untraceable before.
@@ -1592,6 +1594,7 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
     reason: string,
     refundMethod?: "cash" | "card" | "none",
     refundAmount?: number,
+    refundRequestId?: string,
   ): Promise<{ ok: boolean; error?: string }> => {
     // v1 OFFLINE VOID (full cancel). If this sale is still queued in the outbox
     // (rung this session, not yet synced), "voiding" it is a full undo: drop the
@@ -1620,7 +1623,7 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
       const res = await fetch(`${apiBase()}/api/pos/sales/${saleId}`, {
         method:  "PATCH",
         headers: { "Content-Type": "application/json" },
-        body:    JSON.stringify({ voidReason: reason, refundMethod, refundAmount }),
+        body:    JSON.stringify({ voidReason: reason, refundMethod, refundAmount, refundRequestId }),
       });
       if (!res.ok) {
         const json = await res.json().catch(() => ({})) as { error?: string };

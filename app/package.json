@@ -14,7 +14,8 @@
     "android": "npx cap sync android && npx cap open android",
     "android:build": "npm run build && npx cap sync android",
     "dojo:demo": "npx tsx scripts/dojo-demo.ts",
-    "dojo:sandbox": "npx tsx --env-file=.env.local scripts/dojo-sandbox.ts"
+    "dojo:sandbox": "npx tsx --env-file=.env.local scripts/dojo-sandbox.ts",
+    "dojo:routes": "npx tsx --env-file=.env.local scripts/dojo-routes.ts"
   },
   "dependencies": {
     "@capacitor-community/sqlite": "^7.0.3",

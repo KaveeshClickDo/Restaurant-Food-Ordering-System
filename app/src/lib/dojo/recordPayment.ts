@@ -89,6 +89,24 @@ export async function recordDojoPayment(args: {
   if (error) console.error("[dojo] recordDojoPayment:", error.message);
 }
 
+/**
+ * Has this Dojo payment already been saved against a record of this kind?
+ * The card machine screen retries a save that failed after the card was
+ * charged, so a save route treats a payment it has already recorded as done
+ * (the first attempt went through and only its reply was lost), instead of
+ * refusing it or saving the record twice.
+ */
+export async function isDojoPaymentRecorded(paymentIntentId: string, sourceType: DojoSource): Promise<boolean> {
+  const { data, error } = await supabaseAdmin
+    .from("dojo_payments")
+    .select("payment_intent_id")
+    .eq("payment_intent_id", paymentIntentId)
+    .eq("source_type", sourceType)
+    .maybeSingle();
+  if (error) console.error("[dojo] isDojoPaymentRecorded:", error.message);
+  return !!data;
+}
+
 /** The intent as Dojo reports it, or null if it can't be read (Dojo down, or
  *  switched off since the payment), in which case the till's copy is kept. */
 async function readIntent(id: string): Promise<DojoPaymentIntent | null> {

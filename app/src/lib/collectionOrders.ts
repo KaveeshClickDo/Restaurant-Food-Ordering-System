@@ -12,7 +12,7 @@
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { rewardLoyaltyPoints } from "@/lib/loyaltyUtils";
 import { sendOrderStatusEmail } from "@/lib/emailServer";
-import { recordDojoPayment, type DojoResultInput } from "@/lib/dojo";
+import { recordDojoPayment, isDojoPaymentRecorded, type DojoResultInput } from "@/lib/dojo";
 
 const POS_CUSTOMER_ID = "pos-walk-in";
 const ACTIVE_STATUSES = ["pending", "confirmed", "preparing", "ready"];
@@ -87,6 +87,11 @@ export async function settleCollectionOrder(
   paymentMethod: CollectionTender,
   opts?: { dojo?: DojoResultInput; staffId?: string | null },
 ): Promise<MutationResult> {
+  // A retried save after a card payment: already done if the payment is recorded.
+  if (opts?.dojo?.paymentIntentId && await isDojoPaymentRecorded(opts.dojo.paymentIntentId, "collection")) {
+    return { ok: true, status: 200 };
+  }
+
   const { data: order, error: fetchErr } = await supabaseAdmin
     .from("orders")
     .select("status, fulfillment, payment_status, customer_id, total")

@@ -151,7 +151,14 @@ export function useDojoTerminal(scope: DojoScope = "pos"): UseDojoTerminal {
     try {
       // CancelRequested keeps the poll loop going until Dojo reports Canceled.
       const { snapshot } = await cancelDojoSession(id, scope);
-      if (activeRef.current && mountedRef.current) applySnapshot(snapshot);
+      if (activeRef.current && mountedRef.current) {
+        applySnapshot(snapshot);
+        // Dojo can accept a cancel and still take the payment when the card
+        // is already in (the sandbox did, 2026-10-22): staff wait for the result.
+        if (!snapshot.done) {
+          setNotice("Cancel sent. If the customer's card is already in, the payment can still go through: wait for the result.");
+        }
+      }
     } catch (e) {
       // Refused once the card is in: the payment carries on and polling shows its outcome.
       const tooLate = e instanceof DojoRequestError && e.code === "cancel_too_late";

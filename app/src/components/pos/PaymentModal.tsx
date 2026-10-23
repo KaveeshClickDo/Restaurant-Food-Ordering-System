@@ -4,7 +4,7 @@ import { useRef, useState } from "react";
 import { apiBase } from "@/lib/apiBase";
 import { X, Banknote, CreditCard, Shuffle, ChevronRight, AlertTriangle, Gift, Loader2 } from "lucide-react";
 import { fmt } from "./_utils";
-import DojoChargePanel from "./DojoChargePanel";
+import DojoChargePanel, { type DojoSaveOutcome } from "./DojoChargePanel";
 import type { DojoSaleResult } from "@/lib/dojo/types";
 
 export default function PaymentModal({
@@ -19,6 +19,9 @@ export default function PaymentModal({
 }: {
   total: number;
   onClose: () => void;
+  /** Save the sale. For a card machine payment, return false or a message when
+   *  the save failed: the card machine screen keeps the approval and retries
+   *  this with the same result (and the same sale), without charging again. */
   onComplete: (
     method: "cash" | "card" | "split" | "gift_card",
     payments: { method: "cash" | "card"; amount: number }[],
@@ -26,7 +29,7 @@ export default function PaymentModal({
     giftCard?: { code: string; amount: number },
     /** Set only when the card leg was collected on an integrated Dojo terminal. */
     dojo?: DojoSaleResult,
-  ) => void;
+  ) => DojoSaveOutcome | Promise<DojoSaveOutcome>;
   currencySymbol: string;
   isOffline?: boolean;
   /** Show the gift-card tender step. Off for flows where any gift card was
@@ -136,9 +139,13 @@ export default function PaymentModal({
     setCardMode(useDojoCard ? "choose" : "manual");
   }
 
-  /** DojoChargePanel → terminal payment approved: stamp it on the sale. */
+  /** DojoChargePanel → terminal payment approved: stamp it on the sale. The
+   *  panel calls this again to retry a failed save, one call at a time, so it
+   *  locks the other tenders without lock()'s once-only guard. */
   function onDojoApproved(result: DojoSaleResult) {
-    if (lock()) onComplete("card", [{ method: "card", amount: due }], undefined, giftCardArg, result);
+    submittingRef.current = true;
+    setSubmitting(true);
+    return onComplete("card", [{ method: "card", amount: due }], undefined, giftCardArg, result);
   }
 
   /** Record the card sale manually (no Dojo txn) — used for the Expired fallback
