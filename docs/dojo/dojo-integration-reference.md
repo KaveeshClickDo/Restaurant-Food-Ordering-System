@@ -216,7 +216,10 @@ each simulates, and what the sandbox actually returned, is in
 - API key **configurable, never hard-coded**; a wrong key shows a clear error.
 - Terminal discovery via `GET /terminals` or a configurable TID — **never hard-coded**.
 - Create intent (Auto; Manual optional), retrieve, cancel, list/search.
-- MOTO: `cardHolderNotPresent: true` skips "Present Card" → key entry.
+- MOTO: `cardHolderNotPresent: true` skips "Present Card" → key entry. It's a
+  top-level field of `CreatePaymentIntentRequest`, and the intent echoes it
+  (spec checked 2026-10-28). No `notificationType` exists for key entry. The
+  sandbox's virtual machines ignore the flag and run their usual prompts.
 - **At least one refund path** (mandatory), full and partial.
 - Handle every outcome: declined (and intent reuse), expired, signature
   accept/reject/80s-timeout, cancel from POS **and** from the PDQ, busy terminal.

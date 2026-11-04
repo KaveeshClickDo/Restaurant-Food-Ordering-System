@@ -9,7 +9,7 @@ import DojoChargePanel from "./DojoChargePanel";
 import type { DojoSaleResult } from "@/lib/dojo/types";
 import {
   AlertTriangle, Calendar, CalendarDays, CheckCircle2, Clock, Loader2,
-  LogIn, LogOut, RefreshCw, Search, UserPlus, Users, UtensilsCrossed, X, Crown, CreditCard,
+  LogIn, LogOut, RefreshCw, Search, UserPlus, Users, UtensilsCrossed, X, Crown, CreditCard, Phone,
 } from "lucide-react";
 import { type ResRow, fmt12Pos, fmtTsPos } from "./_reservations";
 import { cleanPhone } from "@/lib/inputUtils";
@@ -121,8 +121,9 @@ export default function ReservationsView() {
   const [addSaving,      setAddSaving]      = useState(false);
   const [addError,       setAddError]       = useState("");
   // VIP-fee card flow: "choose" = terminal-vs-manual choice; "dojo" = driving the
-  // terminal. "none" = no overlay.
-  const [cardStage,      setCardStage]      = useState<"none" | "choose" | "dojo">("none");
+  // terminal; "keyed" = the same, with the card details typed in (phone
+  // bookings: the guest isn't there). "none" = no overlay.
+  const [cardStage,      setCardStage]      = useState<"none" | "choose" | "dojo" | "keyed">("none");
 
   // Fetch available tables for the add modal. Both walk-in and phone bookings
   // use the same availability check so staff can't accidentally double-book a
@@ -847,10 +848,17 @@ export default function ReservationsView() {
             {cardStage === "choose" ? (
               <div className="p-5 space-y-3">
                 <p className="text-slate-400 text-sm">Take {currencySymbol}{(addTableMeta.vipPrice ?? 0).toFixed(2)} by card</p>
+                {addSource === "phone" && (
+                  <button onClick={() => setCardStage("keyed")}
+                    className="w-full flex items-center gap-3 p-4 bg-slate-900 hover:bg-slate-700 border border-slate-600 hover:border-blue-500/50 rounded-xl transition">
+                    <Phone size={20} className="text-blue-400 flex-shrink-0" />
+                    <div className="text-left flex-1 min-w-0"><p className="text-white font-semibold text-sm">Key in card</p><p className="text-slate-400 text-xs">Guest on the phone: type their card details into the Dojo terminal</p></div>
+                  </button>
+                )}
                 <button onClick={() => setCardStage("dojo")}
                   className="w-full flex items-center gap-3 p-4 bg-slate-900 hover:bg-slate-700 border border-slate-600 hover:border-blue-500/50 rounded-xl transition">
                   <CreditCard size={20} className="text-blue-400 flex-shrink-0" />
-                  <div className="text-left flex-1 min-w-0"><p className="text-white font-semibold text-sm">Card machine</p><p className="text-slate-400 text-xs">Send to the Dojo terminal</p></div>
+                  <div className="text-left flex-1 min-w-0"><p className="text-white font-semibold text-sm">Card machine</p><p className="text-slate-400 text-xs">{addSource === "phone" ? "Guest here with their card: send to the Dojo terminal" : "Send to the Dojo terminal"}</p></div>
                 </button>
                 <button onClick={() => { setCardStage("none"); void submitBooking(); }}
                   className="w-full flex items-center gap-3 p-4 bg-slate-900 hover:bg-slate-700 border border-slate-600 hover:border-slate-400/50 rounded-xl transition">
@@ -861,6 +869,8 @@ export default function ReservationsView() {
               </div>
             ) : (
               <DojoChargePanel
+                key={cardStage}
+                keyed={cardStage === "keyed"}
                 amount={addTableMeta.vipPrice ?? 0}
                 reference={`VIP ${addTableMeta.label}`}
                 currencySymbol={currencySymbol}

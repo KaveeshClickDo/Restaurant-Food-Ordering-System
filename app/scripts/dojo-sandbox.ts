@@ -6,7 +6,7 @@
  *
  * Run:  npm run dojo:sandbox                        (from app/; everything)
  *       npm run dojo:sandbox -- refunds signature   (only those sections)
- * Sections: machines, signature, retry, paid, cancel, busy, unknown, wrongkey, references, refunds.
+ * Sections: machines, signature, retry, paid, cancel, busy, unknown, wrongkey, references, keyed, refunds.
  *
  * It refuses any key that isn't a sandbox key and never prints the key. It
  * prints what Dojo actually returns (statuses with their timing, terminal
@@ -28,7 +28,7 @@ const AMOUNT = { value: 1000, currencyCode: "GBP" }; // £10.00, so a 10% tip is
 const POLL_MS = 1000;
 const SCENARIO_TIMEOUT_MS = 180_000;
 
-const SECTIONS = ["machines", "signature", "retry", "paid", "cancel", "busy", "unknown", "wrongkey", "references", "refunds"] as const;
+const SECTIONS = ["machines", "signature", "retry", "paid", "cancel", "busy", "unknown", "wrongkey", "references", "keyed", "refunds"] as const;
 type Section = (typeof SECTIONS)[number];
 
 type Expect = "paid" | "declined" | "expired" | "canceled" | "rejected";
@@ -185,6 +185,8 @@ async function runSale(
     sessionType?: "Sale" | "MatchedRefund" | "UnlinkedRefund";
     /** The screen's reference; null sends none. Default: "sandbox-<label>". */
     reference?: string | null;
+    /** A keyed sale (cardHolderNotPresent). */
+    keyed?: boolean;
   } = {},
 ): Promise<Run> {
   const t0 = Date.now();
@@ -198,6 +200,7 @@ async function runSale(
       description: `Sandbox check: ${label}`,
       terminal,
       paymentIntentId: opts.paymentIntentId,
+      cardHolderNotPresent: opts.keyed,
     });
     run.paymentIntentId = started.paymentIntentId;
 
@@ -390,6 +393,23 @@ async function references(gw: DojoGateway): Promise<void> {
   }
 }
 
+/**
+ * Keyed payments (MOTO). The virtual machines ignore cardHolderNotPresent and
+ * run their usual chip & PIN prompts (2026-10-28), so this checks our side:
+ * Dojo holds the payment as card not present, and it settles like any other.
+ */
+async function keyed(gw: DojoGateway): Promise<void> {
+  console.log("\n── Keyed payment (MOTO, card not present) ──");
+  const run = await runSale(gw, "keyed", "VCMSEEKSIP0", { keyed: true });
+  const pi = run.paymentIntentId ? await gw.getPaymentIntent(run.paymentIntentId) : null;
+  check(matches(run, "paid") && pi?.cardHolderNotPresent === true,
+    `keyed on VCMSEEKSIP0: ${describeRun(run)}; Dojo holds cardHolderNotPresent: ${pi?.cardHolderNotPresent}`);
+  details(run);
+  if (run.prompts.includes("PresentCard")) {
+    console.log("      the virtual machine still asked for a card: it ignores the flag (a real one asks for the card number)");
+  }
+}
+
 /** Dojo's processing failure for API refunds of terminal payments on the sandbox. */
 const SANDBOX_REFUND_FAILURE = "Your refund request was not successful";
 
@@ -471,6 +491,7 @@ async function main(): Promise<void> {
   if (wants("unknown")) await unknown(gw);
   if (wants("wrongkey")) await wrongKey(gw);
   if (wants("references")) await references(gw);
+  if (wants("keyed")) await keyed(gw);
   if (wants("refunds")) await refunds(gw);
 
   if (dojoQuestions.length) {

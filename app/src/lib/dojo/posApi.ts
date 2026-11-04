@@ -26,7 +26,7 @@ export interface DojoClientConfig {
   sandbox: boolean;
 }
 
-/** Starting a card-present sale (the routes take nothing else). */
+/** Starting a sale (the routes take nothing else). */
 export interface CreateDojoSessionBody {
   amount: number;               // major units (e.g. 12.50)
   currencyCode?: string;
@@ -35,6 +35,8 @@ export interface CreateDojoSessionBody {
   terminalId?: string;
   /** The earlier attempt's intent, so a retry reuses it. */
   paymentIntentId?: string;
+  /** Keyed (MOTO): staff type in the card details. Till logins only. */
+  cardHolderNotPresent?: boolean;
 }
 
 export interface CreateDojoSessionResult {

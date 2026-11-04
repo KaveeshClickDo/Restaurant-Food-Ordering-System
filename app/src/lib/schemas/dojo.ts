@@ -12,7 +12,7 @@ import { z } from "zod";
 const MajorAmount = z.number().positive().max(1_000_000);
 
 /**
- * Starting a card-present SALE. Deliberately no `sessionType` or `captureMode`:
+ * Starting a SALE on a card machine. Deliberately no `sessionType` or `captureMode`:
  * refund sessions pay money out (they'd need a canIssueRefund-gated route) and
  * nothing captures a pre-authorisation, so the routes only ever take sales with
  * automatic capture. Unknown keys are stripped, so sending them does nothing.
@@ -30,6 +30,9 @@ export const DojoCreateSessionSchema = z.object({
   terminalId: z.string().max(80).optional(),
   /** The earlier attempt's intent, reused on retry. */
   paymentIntentId: z.string().max(120).optional(),
+  /** Keyed (MOTO): the guest isn't there, so staff type the card details into
+   *  the machine. Only the till's route takes it (lib/dojo/sessionHandlers). */
+  cardHolderNotPresent: z.boolean().optional(),
 });
 
 export const DojoSignatureSchema = z.object({

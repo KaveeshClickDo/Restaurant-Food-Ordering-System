@@ -14,7 +14,9 @@
  *
  * Statuses and prompts follow what Dojo's sandbox returned on 2026-10-12
  * (npm run dojo:sandbox). SIP1 wasn't on our account then, so its tip is
- * modelled from the API spec (tipsAmount / totalAmount).
+ * modelled from the API spec (tipsAmount / totalAmount). A keyed sale
+ * (cardHolderNotPresent) keeps the flag on its intent and runs the usual
+ * prompts: the sandbox's virtual machines ignore the flag too (2026-10-28).
  *
  * It also behaves like Dojo where the POS has to cope: a busy terminal refuses
  * a second session (409), a cancel after the card is in is refused (422), a
@@ -302,6 +304,7 @@ export function createDojoMock(): DojoGateway {
         refundedAmount: 0,
         reference: input.reference,
         description: input.description,
+        cardHolderNotPresent: input.cardHolderNotPresent === true,
         paymentLink: `https://pay.dojo.tech/checkout/${id}`,
         paymentEvents: [],
         terminalSessionHistory: [],

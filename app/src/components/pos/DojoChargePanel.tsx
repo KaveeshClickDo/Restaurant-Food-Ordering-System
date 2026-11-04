@@ -25,6 +25,10 @@
  * shows, because testers switch between the virtual terminals. Result screens
  * offer "Use another" when there's more than one.
  *
+ * keyed: the guest isn't there (a phone booking), so staff type the card
+ * details into the machine (MOTO). The machine skips "Present card"; only the
+ * till's routes accept it.
+ *
  * All Dojo logic lives in useDojoTerminal; this is presentation and the save.
  *
  * Pass scope="waiter" when mounting inside the /waiter app so its calls stay on
@@ -90,6 +94,7 @@ export default function DojoChargePanel({
   currencySymbol,
   busy = false,
   scope = "pos",
+  keyed = false,
   onApproved,
   onManualFallback,
   onBack,
@@ -103,6 +108,8 @@ export default function DojoChargePanel({
   busy?: boolean;
   /** Which surface's API routes to drive. "waiter" for the /waiter app. */
   scope?: DojoScope;
+  /** Card not present: staff key in the card details (MOTO). */
+  keyed?: boolean;
   onApproved: (result: DojoSaleResult) => DojoSaveOutcome | Promise<DojoSaveOutcome>;
   onManualFallback?: () => void;
   onBack: () => void;
@@ -140,6 +147,7 @@ export default function DojoChargePanel({
       reference,
       description: description ?? (reference ? `Card sale ${reference}` : "Card sale"),
       ...(terminalId ? { terminalId } : {}),
+      ...(keyed ? { cardHolderNotPresent: true } : {}),
     });
   }
 
@@ -250,6 +258,12 @@ export default function DojoChargePanel({
   useEffect(() => () => onActiveChange?.(false), []);
 
   const tip = dojo.result?.tipAmount ?? 0;
+  const machineName = machine?.tid ? `card machine ${machine.tid}` : "the terminal";
+  // Keyed: a real machine goes straight to card number entry, which has no
+  // prompt of its own, so the screen says it. (The sandbox's virtual machines
+  // ignore the flag and still send "Present card".)
+  const keyedPrompt = keyed && dojo.phase === "processing"
+    && (!dojo.notification || dojo.notification === "PresentCard");
 
   /** "Use another machine" under a result screen. */
   const machineSwitch = severalMachines && (
@@ -325,10 +339,13 @@ export default function DojoChargePanel({
           <p className="text-white font-bold text-lg mb-1">
             {dojo.cancelState === "cancelling"
               ? "Cancelling…"
+              : keyedPrompt ? "Key in the card number"
               : dojo.notification ? (NOTIF_TEXT[dojo.notification] ?? dojo.notification) : "Sending to card machine…"}
           </p>
           <p className="text-slate-400 text-sm">
-            Follow the prompts on {machine?.tid ? `card machine ${machine.tid}` : "the terminal"}
+            {keyed
+              ? `On ${machineName}, type in the card details the guest reads out`
+              : `Follow the prompts on ${machineName}`}
           </p>
           <p className="text-lg sm:text-xl font-bold text-blue-400 mt-4 flex items-center justify-center gap-2">
             <Loader2 size={16} className="animate-spin" /> {fmt(amount, currencySymbol)}

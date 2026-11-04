@@ -4,8 +4,9 @@
  * which calls the payment logic (lib/dojo/flow.ts) directly.
  *
  * It starts a local HTTP server that hands requests straight to the shared
- * route handlers (lib/dojo/sessionHandlers), skipping only the one-line login
- * gate each route has, and calls it with the tablet's own request helper
+ * route handlers (lib/dojo/sessionHandlers), skipping only the login gate each
+ * route has (the till's routes act as for a POS login, which may key in a
+ * card), and calls it with the tablet's own request helper
  * (lib/dojo/posApi), polling like useDojoTerminal. So it tests: tablet helper →
  * route handlers → payment logic → Dojo, and the answers the screens read.
  *
@@ -78,7 +79,7 @@ function startServer(): Promise<http.Server> {
     else {
       const id = m[3] ? decodeURIComponent(m[3]) : "";
       const action = m[4];
-      if (!id && req.method === "POST") out = await handleCreateSession(asNext);
+      if (!id && req.method === "POST") out = await handleCreateSession(asNext, { allowKeyed: m[1] === "pos" });
       else if (id && !action && req.method === "GET") out = await handleGetSession(id);
       else if (id && action === "signature" && req.method === "PUT") out = await handleSignSession(asNext, id);
       else if (id && action === "cancel" && req.method === "PUT") out = await handleCancelSession(id);
@@ -283,6 +284,19 @@ async function main(): Promise<void> {
   console.log("\n── The waiter's routes (same handlers) ──");
   const waiter = await pay({ amount: 10, reference: "Table 5 #ORD-ROUTES", terminalId: "VCMSEEKSCN0" }, { scope: "waiter" });
   check(!!waiter.snap?.result, `waiter sale: ${describe(waiter)}`);
+
+  console.log("\n── Keyed payment (a phone booking's VIP fee) ──");
+  const keyed = await pay({ amount: 10, reference: "VIP T5", terminalId: "VCMSEEKSIP0", cardHolderNotPresent: true });
+  show(keyed);
+  const keyedPi = keyed.paymentIntentId ? await dojo.getPaymentIntent(keyed.paymentIntentId) : null;
+  check(!keyed.error && !!keyed.snap?.result && settledOnce(keyed) && keyedPi?.cardHolderNotPresent === true,
+    `till: ${describe(keyed)}; Dojo holds it as card not present (${keyedPi?.cardHolderNotPresent})`);
+  const waiterKeyed = await pay(
+    { amount: 10, reference: "dojo-routes waiter keyed", terminalId: "VCMSEEKSCN0", cardHolderNotPresent: true },
+    { scope: "waiter" },
+  );
+  check(waiterKeyed.error?.code === "rejected" && waiterKeyed.error.httpStatus === 403 && !waiterKeyed.error.paymentIntentId,
+    `the waiter's routes refuse it before Dojo: ${describe(waiterKeyed)}`);
 
   console.log("\n── Admin switch turned off ──");
   adminEnabled = false;

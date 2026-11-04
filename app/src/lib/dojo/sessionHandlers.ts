@@ -24,7 +24,7 @@ const missingId = () =>
   NextResponse.json({ ok: false, error: "Missing terminal session id." }, { status: 400 });
 
 /**
- * Start a card-present sale on a terminal.
+ * Start a sale on a terminal.
  *
  * The work is in lib/dojo/flow: resolve the terminal (explicit body.terminalId
  * → pinned DOJO_TERMINAL_ID → first Available; an id or a TID), reuse the
@@ -36,12 +36,25 @@ const missingId = () =>
  * pre-authorisation. So the schema doesn't accept either from the client.
  * `test` tells the screen to show a test-mode badge (simulator or sandbox key).
  *
+ * A keyed sale (`cardHolderNotPresent`, MOTO) only where the route allows it:
+ * the till, for phone bookings. A keyed payment has no chip & PIN check, so
+ * the routes for the waiter app and the collection login refuse one.
+ *
  * Body amounts are in MAJOR units (12.50); we convert to Dojo's minor units.
  */
-export async function handleCreateSession(req: NextRequest): Promise<NextResponse> {
+export async function handleCreateSession(
+  req: NextRequest,
+  opts: { allowKeyed?: boolean } = {},
+): Promise<NextResponse> {
   const parsed = await parseBody(req, DojoCreateSessionSchema);
   if (!parsed.ok) return NextResponse.json({ ok: false, error: parsed.error }, { status: parsed.status });
   const body = parsed.data;
+  if (body.cardHolderNotPresent && !opts.allowKeyed) {
+    return NextResponse.json(
+      { ok: false, error: "Keyed card payments can only be taken on the till.", code: "rejected" },
+      { status: 403 },
+    );
+  }
 
   try {
     // The admin toggle hides the option in every UI; enforce it here too, so a
@@ -61,6 +74,7 @@ export async function handleCreateSession(req: NextRequest): Promise<NextRespons
       description: body.description,
       terminal: body.terminalId || cfg.terminalId || undefined,
       paymentIntentId: body.paymentIntentId,
+      cardHolderNotPresent: body.cardHolderNotPresent,
     });
     const test = cfg.mode === "mock" || isDojoSandboxKey();
     return NextResponse.json({ ok: true, ...started, test });

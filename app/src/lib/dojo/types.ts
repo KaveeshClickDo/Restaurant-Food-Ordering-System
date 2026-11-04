@@ -69,6 +69,8 @@ export interface DojoPaymentIntent {
   refundedAmount?: number;
   reference?: string;
   description?: string;
+  /** Keyed (MOTO): the intent was created with cardHolderNotPresent. */
+  cardHolderNotPresent?: boolean;
   paymentLink?: string;
   paymentDetails?: DojoPaymentDetails;
   paymentEvents?: unknown[];
@@ -83,7 +85,8 @@ export interface CreatePaymentIntentInput {
   reference: string;
   description?: string;
   captureMode?: DojoCaptureMode; // defaults to "Auto"
-  /** Card-not-present (MOTO): skips the "Present Card" screen. */
+  /** Card-not-present (MOTO): the machine skips "Present Card" and asks for
+   *  the card number. Top-level in Dojo's CreatePaymentIntentRequest. */
   cardHolderNotPresent?: boolean;
 }
 

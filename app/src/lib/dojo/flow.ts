@@ -1,5 +1,5 @@
 /**
- * Starting a card-present payment, independent of HTTP. SERVER-SIDE ONLY.
+ * Starting a card machine payment, independent of HTTP. SERVER-SIDE ONLY.
  *
  * Used by the POS and waiter session routes (through sessionHandlers) and by
  * the dojo:demo script, so the simulator runs exactly the logic the tills do.
@@ -36,6 +36,9 @@ export interface StartPaymentInput {
   terminal?: string;
   /** Sale: the earlier attempt's intent, reused on retry. MatchedRefund: the intent to refund. */
   paymentIntentId?: string;
+  /** Sale: keyed (MOTO, card not present). The machine skips "Present card"
+   *  and staff type in the card details. */
+  cardHolderNotPresent?: boolean;
 }
 
 export interface StartPaymentResult {
@@ -77,7 +80,10 @@ export async function startTerminalPayment(
       && earlier.amount.value === input.amount.value
       && earlier.amount.currencyCode === input.amount.currencyCode;
     if (sameCharge && isFundsTaken(earlier.status)) return alreadyPaid(earlier);
-    reuseIntent = sameCharge && earlier.status === "Created";
+    // An intent is keyed or card-present for good, so a retry in the other
+    // mode needs a new one.
+    reuseIntent = sameCharge && earlier.status === "Created"
+      && Boolean(earlier.cardHolderNotPresent) === Boolean(input.cardHolderNotPresent);
   }
 
   const terminalId = await resolveTerminalId(gateway, input.terminal);
@@ -88,6 +94,7 @@ export async function startTerminalPayment(
       reference: paymentReference(input.reference),
       description: input.description,
       captureMode: input.captureMode ?? "Auto",
+      cardHolderNotPresent: input.cardHolderNotPresent,
     });
     paymentIntentId = intent.id;
   }

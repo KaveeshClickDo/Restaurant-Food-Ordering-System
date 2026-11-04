@@ -5,8 +5,9 @@ account pass (2026-10-20, run again after a second review on 2026-10-21, and on
 2026-10-22 with the payment reference fix), along with the go-live edge cases.
 On 2026-10-23 the refund screen, the card machine picker and the save retry were
 added, and every screen's payment ran end to end (real logins, real routes, a
-test database, the sandbox). Before the accreditation session (UAT) with Dojo:
-click through the screens in a browser, then book it. The script for both is
+test database, the sandbox). On 2026-10-28 keyed payments (MOTO) were added for
+a phone booking's VIP fee (§3). Before the accreditation session (UAT) with
+Dojo, click through the screens in a browser. The script for both is
 [UAT.md](./UAT.md); open items are in §9.
 
 API facts: [dojo-integration-reference.md](./dojo-integration-reference.md)
@@ -77,6 +78,16 @@ Untouched by design: the customer website (Stripe) and admin bill settle.
 One shared component, `components/pos/DojoChargePanel.tsx`, renders the entire
 driven flow (present card → PIN → signature → settle) for all five.
 
+**Keyed payments (MOTO)**, for a **phone booking's VIP fee** only: its card
+choice also offers **Key in card**. The guest reads out their card details and
+staff type them into the card machine (`cardHolderNotPresent: true`, so the
+machine skips "Present card"; `<DojoChargePanel keyed />`). Nowhere else, on
+purpose: on every other screen the customer is there with the card, and a
+keyed payment has no chip & PIN check, so a fraudulent one usually ends as a
+chargeback the restaurant pays. The server holds to it: only the till's
+`/api/pos/dojo/sessions` with a POS login takes the flag; the waiter's routes
+and the collection login get a 403.
+
 ---
 
 ## 4. Runtime flow
@@ -120,7 +131,8 @@ the surface's own settle call ─▶ recordDojoPayment(...) ─▶ dojo_payments
 - **Retry reuses the payment intent** (Dojo's checklist). The server first checks
   whether the earlier attempt for the same amount actually went through, and if
   so reports it as paid rather than charging again (`lib/dojo/flow.ts`). An
-  earlier intent for a different amount is never reused.
+  earlier intent for a different amount is never reused, and neither is a
+  keyed one for a card-present retry (or the other way round).
 - **Cancel** asks Dojo and keeps polling until Dojo reports the result. Once the
   card is in, Dojo may refuse (422; staff see "too late to cancel"), or accept
   the cancel and still take the payment (the sandbox did, 2026-10-22; staff see
@@ -137,7 +149,8 @@ the surface's own settle call ─▶ recordDojoPayment(...) ─▶ dojo_payments
   the same payment.
 - **Sales only:** the payment routes start sales with automatic capture and
   nothing else. A `sessionType` or `captureMode` in the request body is dropped,
-  so no screen can open a refund or a pre-auth through them.
+  so no screen can open a refund or a pre-auth through them. A keyed sale
+  (`cardHolderNotPresent`) is taken only on the till's route (§3).
 - **Timeouts:** each call to Dojo gives up after 15s, which counts as a network
   problem (result unknown). The tablet waits up to 20s for a poll, signature or
   cancel, and 90s to start a payment. Starting can take up to four Dojo calls,
@@ -231,7 +244,7 @@ Apply with `cd app && npm run db:migrate` — idempotent, safe to re-run.
 
 ```bash
 cd app
-npm run dojo:demo        # every terminal + retry, cancel, busy, timeouts, refunds, webhook signatures; exits 1 on a failure
+npm run dojo:demo        # every terminal + retry, cancel, busy, timeouts, keyed payments, refunds, webhook signatures; exits 1 on a failure
 ```
 
 With a sandbox key, two more (both exit 1 on a failure):
@@ -291,6 +304,11 @@ What it shows (first run 2026-10-12; all nine terminals 2026-10-20; full re-run
 - On 2026-10-22 a signature payment stayed `SignatureVerificationAccepted` for
   about 90 seconds before Dojo captured it (session then `Captured`); before,
   the capture followed at once. The till keeps waiting until it's captured.
+- A **keyed payment** (`cardHolderNotPresent: true`) is accepted and captured,
+  and the intent keeps the flag. But the virtual machines ignore it: SIP0
+  still asked to present a card and for the PIN, and reported chip & PIN
+  (2026-10-28). So the card number screen only shows on a real machine. The
+  `keyed` section checks that the flag reaches Dojo.
 
 Dojo's other answers (2026-10-13): terminal gratuity is optional for
 accreditation; the physical test device isn't needed for any checklist item.
@@ -344,9 +362,9 @@ Dojo payment (each treats an already-recorded payment as saved):
 the card refund: `api/pos/sales/[id]` (PATCH).
 
 **UI** — `components/pos/DojoChargePanel.tsx` (machine picker, payment, save
-retry), `useDojoTerminal.ts`, `PaymentModal.tsx`, `SaleView.tsx`,
+retry, keyed entry), `useDojoTerminal.ts`, `PaymentModal.tsx`, `SaleView.tsx`,
 `CollectionView.tsx`, `app/collection/page.tsx`, `SellGiftCardModal.tsx`,
-`ReservationsView.tsx`, `components/waiter/BillView.tsx`,
+`ReservationsView.tsx` (Key in card on phone bookings), `components/waiter/BillView.tsx`,
 `components/pos/dashboard/VoidSaleModal.tsx` (refund to card),
 `components/admin/IntegrationsPanel.tsx`.
 
@@ -392,8 +410,9 @@ through the routes). The UAT script: [UAT.md](./UAT.md).
   (`dojo_payments.tip_amount`, with Dojo's `total_amount`) and shown on the
   approval screen, but the sale's own totals and reports don't include it yet.
   Tips agreed at the table are still part of the amount sent to the terminal.
-- **MOTO (`cardHolderNotPresent`):** the flag reaches the wire, but no surface
-  sets it.
+- **MOTO (`cardHolderNotPresent`):** offered only for a phone booking's VIP
+  fee (§3), by choice. The sandbox's virtual machines don't show card number
+  entry (§6a), so that screen hasn't been seen on a machine yet.
 - **Receipt:** `ReceiptModal` does not yet print the captured scheme/last-4/auth,
   though `dojo_payments` holds them.
 - **A gift card spent before the card payment is saved:** the gift card part of

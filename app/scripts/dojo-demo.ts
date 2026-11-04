@@ -221,6 +221,38 @@ async function references(gw: DojoGateway): Promise<void> {
     "the sales search finds the sale from it, pasted whole or as the 8 characters; not from 1 character");
 }
 
+/** Keyed payments (MOTO): the flag reaches Dojo, and a retry stays in its mode. */
+async function keyed(gw: DojoGateway): Promise<void> {
+  console.log("\n── Keyed payments (MOTO, card not present) ──");
+  const keyedSale = (terminal: string, paymentIntentId?: string) => startTerminalPayment(gw, {
+    sessionType: "Sale", amount: AMOUNT, reference: "VIP T5", terminal, paymentIntentId, cardHolderNotPresent: true,
+  });
+  const started = await keyedSale("VCMSEEKSIP0");
+  const snap = await finish(gw, started);
+  check(!!snap.result && (await gw.getPaymentIntent(started.paymentIntentId!)).cardHolderNotPresent === true,
+    "a keyed payment is approved, and Dojo holds it as card not present");
+  const present = await sale(gw, "VCMSEEKSIP0");
+  await finish(gw, present);
+  check((await gw.getPaymentIntent(present.paymentIntentId!)).cardHolderNotPresent !== true,
+    "a card-present payment isn't marked keyed");
+
+  const declined = await keyedSale("VCMSEEKDIP0");
+  await finish(gw, declined);
+  const retried = await keyedSale("VCMSEEKSIP0", declined.paymentIntentId!);
+  check(retried.paymentIntentId === declined.paymentIntentId && !!(await finish(gw, retried)).result,
+    "a keyed retry after a decline reuses its intent and is approved");
+
+  const declinedAgain = await keyedSale("VCMSEEKDIP0");
+  await finish(gw, declinedAgain);
+  const switched = await sale(gw, "VCMSEEKSIP0", declinedAgain.paymentIntentId!);
+  check(switched.paymentIntentId !== declinedAgain.paymentIntentId,
+    "a card-present retry of a keyed attempt gets an intent of its own");
+  await finish(gw, switched);
+
+  const body = DojoCreateSessionSchema.safeParse({ amount: 12.5, cardHolderNotPresent: true });
+  check(body.success && body.data.cardHolderNotPresent === true, "the payment routes take the keyed flag");
+}
+
 /** What the routes take from a screen (lib/schemas/dojo.ts). */
 function routeBodies(): void {
   console.log("\n── What the routes accept ──");
@@ -308,6 +340,7 @@ async function main(): Promise<void> {
   staffMessages();
   await noAnswer();
   await references(gw);
+  await keyed(gw);
   routeBodies();
   await refunds(gw);
   webhookSignatures();
