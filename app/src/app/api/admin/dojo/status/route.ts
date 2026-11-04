@@ -1,13 +1,16 @@
 /**
  * GET /api/admin/dojo/status — powers the Admin → Integrations → Card Terminal
  * panel. Admin-only. Reports whether the DOJO_MODE env master is on (so the
- * panel can LOCK the toggle when it isn't), the mode, and the current effective
- * state. It never returns the API key or any secret.
+ * panel can LOCK the toggle when it isn't), the mode, the current effective
+ * state, and the names of settings live mode is missing. It never returns the
+ * API key or any setting's value.
  */
 
 import { NextResponse } from "next/server";
 import { isAdminAuthenticated } from "@/lib/adminAuth";
-import { dojoMode, isDojoEnabled, isDojoSandboxKey, getDojoAdminEnabled, isDojoEffectivelyEnabled } from "@/lib/dojo";
+import {
+  dojoMode, isDojoEnabled, isDojoSandboxKey, getDojoAdminEnabled, isDojoEffectivelyEnabled, missingDojoSettings,
+} from "@/lib/dojo";
 
 export async function GET() {
   if (!(await isAdminAuthenticated())) {
@@ -21,5 +24,6 @@ export async function GET() {
     sandbox: mode === "live" ? isDojoSandboxKey() : mode === "mock",
     adminEnabled: await getDojoAdminEnabled(),
     effectiveEnabled: await isDojoEffectivelyEnabled(),
+    missingSettings: missingDojoSettings(), // e.g. ["DOJO_SOFTWARE_HOUSE_ID"]: card payments will fail
   });
 }

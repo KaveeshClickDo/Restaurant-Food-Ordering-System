@@ -10,8 +10,10 @@
  */
 
 import { createDojoClient } from "../src/lib/dojo/client";
-import { DojoApiError, describeDojoError, type DojoOp } from "../src/lib/dojo/errors";
+import { missingDojoSettings } from "../src/lib/dojo/config";
+import { DojoApiError, DojoConfigError, describeDojoError, type DojoOp } from "../src/lib/dojo/errors";
 import { DojoStartError, startTerminalPayment, type StartPaymentResult } from "../src/lib/dojo/flow";
+import { dojoErrorResponse } from "../src/lib/dojo/respond";
 import { resolveSnapshot, type DojoGateway } from "../src/lib/dojo/gateway";
 import { createDojoMock } from "../src/lib/dojo/mock";
 import type { DojoSaleResult, DojoSessionSnapshot } from "../src/lib/dojo/types";
@@ -54,6 +56,23 @@ async function dojoError(fn: () => Promise<unknown>): Promise<{ err: DojoApiErro
     const err = e instanceof DojoStartError ? e.original : e;
     if (!(err instanceof DojoApiError)) throw e;
     return { err, paymentIntentId: e instanceof DojoStartError ? e.paymentIntentId : null };
+  }
+}
+
+/** Run `fn` with some env vars set (undefined = unset), then put them back. */
+async function withEnv(vars: Record<string, string | undefined>, fn: () => Promise<void>): Promise<void> {
+  const saved = Object.fromEntries(Object.keys(vars).map((k) => [k, process.env[k]]));
+  const apply = (v: Record<string, string | undefined>) => {
+    for (const [k, val] of Object.entries(v)) {
+      if (val === undefined) delete process.env[k];
+      else process.env[k] = val;
+    }
+  };
+  apply(vars);
+  try {
+    await fn();
+  } finally {
+    apply(saved);
   }
 }
 
@@ -189,12 +208,39 @@ async function noAnswer(): Promise<void> {
     throw new DOMException("The operation was aborted due to timeout", "TimeoutError");
   }) as typeof fetch;
   try {
-    const timedOut = await dojoError(() => createDojoClient().getTerminalSession("ts_demo"));
-    check(timedOut !== null && timedOut.err.status === 0 && describeDojoError(timedOut.err, "poll").code === "network",
-      `a call that times out counts as a network problem, so the result stays unknown: "${timedOut?.err.message}"`);
+    await withEnv({ DOJO_SOFTWARE_HOUSE_ID: "demo-software-house" }, async () => {
+      const timedOut = await dojoError(() => createDojoClient().getTerminalSession("ts_demo"));
+      check(timedOut !== null && timedOut.err.status === 0 && describeDojoError(timedOut.err, "poll").code === "network",
+        `a call that times out counts as a network problem, so the result stays unknown: "${timedOut?.err.message}"`);
+    });
   } finally {
     globalThis.fetch = realFetch;
   }
+}
+
+/** Live mode without DOJO_SOFTWARE_HOUSE_ID: every call is refused before it reaches Dojo. */
+async function missingSoftwareHouseId(): Promise<void> {
+  console.log("\n── A missing software-house-id ──");
+  const live = { DOJO_MODE: "live", DOJO_API_KEY: "sk_sandbox_demo" };
+  await withEnv({ ...live, DOJO_SOFTWARE_HOUSE_ID: undefined }, async () => {
+    check(missingDojoSettings().join() === "DOJO_SOFTWARE_HOUSE_ID", "live mode reports DOJO_SOFTWARE_HOUSE_ID as missing");
+    let calls = 0;
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = (async () => { calls += 1; throw new Error("the demo makes no network calls"); }) as typeof fetch;
+    try {
+      const err = await createDojoClient().listTerminals(false).then(() => null, (e: unknown) => e);
+      check(err instanceof DojoConfigError && calls === 0,
+        `refused before calling Dojo: "${err instanceof Error ? err.message : String(err)}"`);
+      const res = dojoErrorResponse(err, "create");
+      const body = await res.json() as { code?: string; error?: string };
+      check(res.status === 503 && body.code === "config", `the till is told (HTTP ${res.status}): "${body.error}"`);
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+  });
+  await withEnv({ ...live, DOJO_SOFTWARE_HOUSE_ID: "demo-software-house" }, async () => {
+    check(missingDojoSettings().length === 0, "with it set, nothing is missing");
+  });
 }
 
 /** Dojo needs a reference of 1–60 characters; the till's names its sale. */
@@ -339,6 +385,7 @@ async function main(): Promise<void> {
   await unavailableTerminals(gw);
   staffMessages();
   await noAnswer();
+  await missingSoftwareHouseId();
   await references(gw);
   await keyed(gw);
   routeBodies();

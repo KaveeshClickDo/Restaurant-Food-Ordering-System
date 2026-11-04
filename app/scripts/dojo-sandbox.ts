@@ -465,6 +465,10 @@ async function main(): Promise<void> {
     console.error("This script only runs against the sandbox.");
     process.exit(2);
   }
+  if (!cfg.softwareHouseId) {
+    console.error("Put our software-house-id in app/.env.local:  DOJO_SOFTWARE_HOUSE_ID=…  (see example.env).");
+    process.exit(2);
+  }
   const asked = process.argv.slice(2);
   const unknownSections = asked.filter((a) => !(SECTIONS as readonly string[]).includes(a));
   if (unknownSections.length) {

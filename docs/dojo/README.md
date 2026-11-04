@@ -318,15 +318,22 @@ Accreditation is booked through the "Partner UAT Session" link Dojo sent.
 
 ## 7. Going live
 
-**Sandbox:** `DOJO_MODE=live`, `DOJO_API_KEY=sk_sandbox_…`, keep the dummy
-`DOJO_SOFTWARE_HOUSE_ID=softwareHouse1`, and restart. Pick a virtual terminal
-on the payment screen (test mode always shows the picker), or pin one for the
-whole server by its TID (e.g. `DOJO_TERMINAL_ID=VCMSEEKSIP0`). Dojo's virtual
-terminals give you every outcome without hardware.
+**Sandbox:** `DOJO_MODE=live`, `DOJO_API_KEY=sk_sandbox_…`,
+`DOJO_SOFTWARE_HOUSE_ID=SL750Q59` (ours, assigned by Dojo on 2026-11-04), and
+restart. Pick a virtual terminal on the payment screen (test mode always shows
+the picker), or pin one for the whole server by its TID (e.g.
+`DOJO_TERMINAL_ID=VCMSEEKSIP0`). Dojo's virtual terminals give you every outcome
+without hardware.
+
+**The software-house-id is required in live mode.** There is no built-in
+fallback: without `DOJO_SOFTWARE_HOUSE_ID`, every call to Dojo is refused before
+it is sent (`DojoConfigError`, so nothing is created or charged). Staff see "The
+card machine isn't set up correctly. Ask an admin to check the Dojo settings.",
+and Admin → Integrations → Card Terminal names the missing setting.
 
 **Production:** pass Dojo's UAT (script: [UAT.md](./UAT.md)); the refund path it
-needs is the till's Void & Refund (§4 Refunds). Then `sk_prod_…` plus the
-Dojo-assigned `software-house-id`, and repoint webhooks.
+needs is the till's Void & Refund (§4 Refunds). Then `sk_prod_…` with the same
+software-house-id, and repoint webhooks.
 
 **Android POS needs no rebuild** for sandbox↔prod, because it is all server-side.
 The APK only had to ship the UI once.

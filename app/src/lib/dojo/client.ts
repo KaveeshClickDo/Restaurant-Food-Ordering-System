@@ -9,7 +9,7 @@
  */
 
 import { dojoConfig } from "./config";
-import { DojoApiError } from "./errors";
+import { DojoApiError, DojoConfigError } from "./errors";
 import type { DojoGateway } from "./gateway";
 import type {
   CreatePaymentIntentInput,
@@ -40,6 +40,9 @@ const DOJO_TIMEOUT_MS = 15_000;
 
 async function request<T>(opts: RequestOpts): Promise<T> {
   const cfg = dojoConfig();
+  // Dojo requires it on the terminal endpoints. Refusing every call without it,
+  // not just those, stops a payment before its intent is created.
+  if (!cfg.softwareHouseId) throw new DojoConfigError("DOJO_SOFTWARE_HOUSE_ID");
   const headers: Record<string, string> = {
     Authorization: `Basic ${cfg.apiKey}`,
     version: cfg.version,

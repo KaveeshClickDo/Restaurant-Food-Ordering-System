@@ -4,7 +4,7 @@
  */
 
 import { NextResponse } from "next/server";
-import { DojoApiError, DojoDisabledError, describeDojoError, type DojoOp } from "./errors";
+import { DojoApiError, DojoConfigError, DojoDisabledError, describeDojoError, type DojoOp } from "./errors";
 import { DojoStartError } from "./flow";
 
 /** Convert to minor units (pence) for the Dojo API. */
@@ -25,6 +25,20 @@ export function dojoErrorResponse(err: unknown, op: DojoOp): NextResponse {
   if (cause instanceof DojoDisabledError) {
     return NextResponse.json(
       { ok: false, error: cause.message, code: "disabled", paymentIntentId },
+      { status: 503 },
+    );
+  }
+  if (cause instanceof DojoConfigError) {
+    // Staff can't fix it; the admin panel names the setting (api/admin/dojo/status).
+    console.error(`[dojo] ${op} refused: ${cause.message}`);
+    return NextResponse.json(
+      {
+        ok: false,
+        error: "The card machine isn't set up correctly. Ask an admin to check the Dojo settings.",
+        code: "config",
+        detail: cause.message,
+        paymentIntentId,
+      },
       { status: 503 },
     );
   }

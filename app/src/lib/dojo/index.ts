@@ -7,8 +7,8 @@
 
 export type { DojoGateway } from "./gateway";
 export { getDojoGateway } from "./select";
-export { DojoApiError, DojoDisabledError } from "./errors";
-export { isDojoEnabled, dojoMode, dojoConfig, isDojoSandboxKey } from "./config";
+export { DojoApiError, DojoConfigError, DojoDisabledError } from "./errors";
+export { isDojoEnabled, dojoMode, dojoConfig, isDojoSandboxKey, missingDojoSettings } from "./config";
 export { isDojoEffectivelyEnabled, getDojoAdminEnabled } from "./effectiveFlag";
 export { recordDojoPayment, isDojoPaymentRecorded, type DojoSource, type DojoResultInput } from "./recordPayment";
 export { resolveSnapshot } from "./gateway";

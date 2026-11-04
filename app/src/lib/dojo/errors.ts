@@ -28,6 +28,17 @@ export class DojoDisabledError extends Error {
   }
 }
 
+/** A setting live mode needs is missing from the server env. Thrown before
+ *  any call to Dojo, so nothing was created or charged. */
+export class DojoConfigError extends Error {
+  setting: string;
+  constructor(setting: string) {
+    super(`${setting} is not set in the server settings.`);
+    this.name = "DojoConfigError";
+    this.setting = setting;
+  }
+}
+
 export type DojoOp = "create" | "poll" | "signature" | "cancel" | "terminals" | "refund";
 
 export type DojoErrorCode =

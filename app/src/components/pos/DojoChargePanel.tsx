@@ -66,7 +66,7 @@ const NOTIF_TEXT: Record<string, string> = {
  *  began, so nothing can have been charged. Anything else, including a timeout
  *  or an unrecognised server error, may have reached the machine. "Busy" is
  *  left out too: what holds the machine may be an earlier try of this payment. */
-const REFUSED_BEFORE_START = new Set(["auth", "terminal_unavailable", "rejected", "disabled"]);
+const REFUSED_BEFORE_START = new Set(["auth", "terminal_unavailable", "rejected", "disabled", "config"]);
 
 /** A machine's status as staff read it. */
 const MACHINE_STATUS: Record<string, { text: string; className: string }> = {

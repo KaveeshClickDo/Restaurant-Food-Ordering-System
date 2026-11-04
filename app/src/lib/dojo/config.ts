@@ -12,12 +12,14 @@
  *                                    DOJO_API_KEY. The key PREFIX decides the
  *                                    Dojo environment: sk_sandbox_ = sandbox,
  *                                    sk_prod_ = production. (Base URL is the same
- *                                    for both — Dojo routes by key.)
+ *                                    for both — Dojo routes by key.) Also needs
+ *                                    DOJO_SOFTWARE_HOUSE_ID: without it every
+ *                                    call to Dojo is refused (client.ts).
  *
  * Cutover path (per docs/dojo/README.md §2 + reference §1):
  *   build now:  DOJO_MODE=mock
- *   sandbox:    DOJO_MODE=live  DOJO_API_KEY=sk_sandbox_…   (+ real software-house-id/reseller-id if issued)
- *   production: DOJO_MODE=live  DOJO_API_KEY=sk_prod_…      + Dojo-assigned software-house-id/reseller-id
+ *   sandbox:    DOJO_MODE=live  DOJO_API_KEY=sk_sandbox_…  DOJO_SOFTWARE_HOUSE_ID=<ours>
+ *   production: DOJO_MODE=live  DOJO_API_KEY=sk_prod_…     DOJO_SOFTWARE_HOUSE_ID=<ours>
  * No code change between them — only env values.
  *
  * SECURITY: DOJO_API_KEY / DOJO_WEBHOOK_SECRET are secrets. They live in the
@@ -76,10 +78,21 @@ export function isDojoSandboxKey(): boolean {
   return env("DOJO_API_KEY").startsWith("sk_sandbox_");
 }
 
+/**
+ * Settings live mode needs that aren't set, by name (never values). Empty when
+ * nothing is missing or the mode isn't live. A missing DOJO_API_KEY isn't
+ * listed: without it the mode is "off".
+ */
+export function missingDojoSettings(): string[] {
+  if (dojoMode() !== "live") return [];
+  return env("DOJO_SOFTWARE_HOUSE_ID") ? [] : ["DOJO_SOFTWARE_HOUSE_ID"];
+}
+
 export function dojoConfig(): DojoConfig {
-  // Sandbox dummies are Dojo's documented public values; production values are
-  // assigned by Dojo once the partner agreement is signed.
-  const softwareHouseId = env("DOJO_SOFTWARE_HOUSE_ID", "softwareHouse1");
+  // Dojo assigns the software-house-id to us as the EPOS company, the same for
+  // every restaurant. No built-in fallback: client.ts refuses to call Dojo
+  // without it.
+  const softwareHouseId = env("DOJO_SOFTWARE_HOUSE_ID");
   return {
     mode: dojoMode(),
     baseUrl: DOJO_API_BASE_URL,

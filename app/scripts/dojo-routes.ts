@@ -185,6 +185,10 @@ async function main(): Promise<void> {
     console.error("Put a Dojo SANDBOX key in app/.env.local (DOJO_API_KEY=sk_sandbox_…). This script only runs against the sandbox.");
     process.exit(2);
   }
+  if (!dojoConfig().softwareHouseId) {
+    console.error("Put our software-house-id in app/.env.local (DOJO_SOFTWARE_HOUSE_ID=…, see example.env).");
+    process.exit(2);
+  }
   const db = await startDb();
   const server = await startServer();
   process.env.NEXT_PUBLIC_API_BASE_URL = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;

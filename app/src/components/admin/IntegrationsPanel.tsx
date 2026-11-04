@@ -1296,7 +1296,7 @@ function AdminEmailsTab() {
 
 function CardTerminalTab() {
   const { settings, updateSettings } = useApp();
-  const [status, setStatus] = useState<{ envAvailable: boolean; envMode: string; sandbox: boolean } | null>(null);
+  const [status, setStatus] = useState<{ envAvailable: boolean; envMode: string; sandbox: boolean; missingSettings: string[] } | null>(null);
   const [loading, setLoading] = useState(true);
   const [saved, setSaved] = useState(false);
 
@@ -1304,7 +1304,7 @@ function CardTerminalTab() {
     let cancelled = false;
     fetch("/api/admin/dojo/status")
       .then((r) => r.json())
-      .then((j) => { if (!cancelled && j.ok) setStatus({ envAvailable: j.envAvailable, envMode: j.envMode, sandbox: j.sandbox }); })
+      .then((j) => { if (!cancelled && j.ok) setStatus({ envAvailable: j.envAvailable, envMode: j.envMode, sandbox: j.sandbox, missingSettings: j.missingSettings ?? [] }); })
       .catch(() => {})
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
@@ -1313,6 +1313,7 @@ function CardTerminalTab() {
   const envAvailable = status?.envAvailable ?? false;
   const adminEnabled = settings.dojoTerminal?.enabled ?? true; // default on when unset (matches server)
   const effective = envAvailable && adminEnabled;
+  const missing = status?.missingSettings ?? [];
 
   function toggle() {
     if (!envAvailable) return; // locked while env master is off
@@ -1331,6 +1332,7 @@ function CardTerminalTab() {
           <p className="font-bold text-gray-900 text-sm">Dojo card terminal</p>
           <p className="text-xs text-gray-400 mt-0.5">
             {loading ? "Checking server…"
+              : effective && missing.length > 0 ? "Set up incomplete — card machine payments will fail"
               : effective ? `Active${status?.sandbox ? " · sandbox/test" : ""} — card payments can use the Dojo machine`
               : envAvailable ? "Turned off — card payments use the manual method"
               : "Unavailable — configure the server first"}
@@ -1340,6 +1342,23 @@ function CardTerminalTab() {
           <Toggle enabled={effective} onToggle={toggle} />
         </div>
       </div>
+
+      {/* Live mode with a required setting missing: every Dojo call is refused */}
+      {!loading && missing.length > 0 && (
+        <div className="flex items-start gap-3 bg-red-50 border border-red-200 rounded-2xl px-5 py-4">
+          <AlertTriangle size={18} className="text-red-500 flex-shrink-0 mt-0.5" />
+          <div>
+            <p className="font-semibold text-red-800 text-sm">Missing on the server</p>
+            <p className="text-red-700 text-xs mt-1 leading-relaxed">
+              {missing.map((name) => (
+                <code key={name} className="font-mono bg-red-100 px-1 rounded mr-1">{name}</code>
+              ))}
+              is not set, so card machine payments are refused before anything reaches Dojo. Add it
+              to the server&apos;s environment settings and restart the server.
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* Env lock notice */}
       {!loading && !envAvailable && (
