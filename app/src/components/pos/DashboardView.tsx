@@ -927,6 +927,9 @@ export default function DashboardView() {
                                     <Gift size={9} className="flex-shrink-0" /> −{fmt(sale.giftCardUsed ?? 0, sym)}
                                   </p>
                                 )}
+                                {(sale.cardTipAmount ?? 0) > 0 && (
+                                  <p className="text-[10px] text-amber-300">+{fmt(sale.cardTipAmount ?? 0, sym)} tip on card</p>
+                                )}
                               </div>
                               <button onClick={() => setViewingPosReceipt(sale)} className="text-slate-500 hover:text-orange-400 transition-colors flex-shrink-0" title="View receipt">
                                 <Receipt size={14} />
@@ -1588,6 +1591,9 @@ export default function DashboardView() {
                                     <div className="text-[10px] text-purple-300 mt-0.5 flex items-center gap-0.5 justify-end">
                                       <Gift size={9} className="flex-shrink-0" /> −{fmt(sale.giftCardUsed ?? 0, sym)}
                                     </div>
+                                  )}
+                                  {(sale.cardTipAmount ?? 0) > 0 && (
+                                    <div className="text-[10px] text-amber-300 mt-0.5">+{fmt(sale.cardTipAmount ?? 0, sym)} tip on card</div>
                                   )}
                                   {sale.voided && net > 0 && (
                                     <div className="text-[10px] text-amber-400 mt-0.5">{fmt(net, sym)} kept</div>

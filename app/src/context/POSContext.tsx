@@ -1535,6 +1535,7 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
           tipAmount:      payload.tipAmount,
           serviceFeeAmount: payload.serviceFeeAmount,
           total:          payload.total,
+          cardTipAmount:  dojo?.tipAmount ?? undefined,
           paymentMethod:  payload.paymentMethod,
           payments:       payload.payments,
           cashTendered:   payload.cashTendered,

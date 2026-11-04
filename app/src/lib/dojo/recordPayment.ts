@@ -8,7 +8,8 @@
  * stored: the row holds what Dojo reports for the payment intent (status, card,
  * tip, total). A payment Dojo doesn't show as taken, or a charge that differs
  * from what the sale says, is logged. If Dojo can't be read, the till's copy is
- * stored rather than losing the record.
+ * stored rather than losing the record. Returns what was stored, so a caller
+ * can use the checked figures (the till sale keeps the tip on its own row).
  *
  * Idempotent on the payment intent id, so an outbox/webhook replay can't
  * double-insert.
@@ -47,9 +48,9 @@ export async function recordDojoPayment(args: {
   amount?: number | null;
   currency?: string | null;
   staffId?: string | null;
-}): Promise<void> {
+}): Promise<DojoResultInput | null> {
   const { result, sourceType, sourceId, amount, currency, staffId } = args;
-  if (!result?.paymentIntentId) return;
+  if (!result?.paymentIntentId) return null;
 
   const intent = await readIntent(result.paymentIntentId);
   const stored: DojoResultInput = intent
@@ -87,6 +88,7 @@ export async function recordDojoPayment(args: {
     { onConflict: "payment_intent_id", ignoreDuplicates: true },
   );
   if (error) console.error("[dojo] recordDojoPayment:", error.message);
+  return stored;
 }
 
 /**

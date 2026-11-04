@@ -118,6 +118,12 @@ export function buildPOSReceiptBytes(
   } else if (sale.paymentMethod !== "gift_card") {
     b.twoCol(sale.paymentMethod, money(sale.total, sym), W);
   }
+  // A tip the customer added on the card machine, apart from the total.
+  const cardTip = sale.cardTipAmount ?? 0;
+  if (cardTip > 0) {
+    b.twoCol("Tip on card machine", money(cardTip, sym), W);
+    b.twoCol("Card total", money(Math.round((sale.total + cardTip) * 100) / 100, sym), W);
+  }
 
   // ── Footer ──────────────────────────────────────────────────────────────--
   b.separator("=", W).align("center").feed(1);

@@ -1275,6 +1275,12 @@ alter table pos_sales add column if not exists synced_at          timestamptz de
 create index if not exists idx_pos_sales_terminal_id
   on pos_sales (terminal_id) where terminal_id is not null;
 
+-- A tip the customer added on the Dojo card machine, from Dojo's own record of
+-- the payment (dojo_payments.tip_amount). NOT part of `total`: the till charged
+-- `total` and the card paid total + this. Kept apart so receipts and the
+-- transaction list show it on its own line (Dojo's gratuity check).
+alter table pos_sales add column if not exists card_tip_amount numeric(10,2) not null default 0;
+
 -- ── Dojo card-terminal payments (feat/dojo-payments) ─────────────────────────
 -- Every card payment collected on an integrated Dojo terminal — across POS
 -- sales, collection/dine-in settle, gift-card sales and reservation deposits —

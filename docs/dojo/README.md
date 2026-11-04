@@ -422,7 +422,13 @@ through the routes). The UAT script: [UAT.md](./UAT.md).
 - **Cashback and `itemLines`:** not implemented.
 - **Gratuity:** a tip the customer adds on the card machine is recorded
   (`dojo_payments.tip_amount`, with Dojo's `total_amount`) and shown on the
-  approval screen, but the sale's own totals and reports don't include it yet.
+  approval screen. On a till sale it's also kept on the sale, apart from the
+  total (`pos_sales.card_tip_amount`, taken from Dojo's record of the payment):
+  the receipt (screen, browser print, thermal) shows "Tip on card machine" and
+  "Card total" under the payment, the transaction list shows "+£x tip on card"
+  under the total, and the CSV export has its own column. Still to do: the
+  dashboard and admin report tip totals, the waiter / collection / gift card /
+  VIP fee screens, and a refund, which gives back the sale total, not the tip.
   Tips agreed at the table are still part of the amount sent to the terminal.
 - **MOTO (`cardHolderNotPresent`):** offered only for a phone booking's VIP
   fee (§3), by choice. The sandbox's virtual machines don't show card number

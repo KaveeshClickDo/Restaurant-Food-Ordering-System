@@ -267,6 +267,9 @@ export interface POSSale {
   tipAmount: number;
   serviceFeeAmount: number;
   total: number;
+  /** A tip the customer added on the Dojo card machine, from Dojo's record of
+   *  the payment. Not part of `total`: the card paid total + this. */
+  cardTipAmount?: number;
   paymentMethod: POSPaymentMethod;
   payments: POSSplitPayment[];
   cashTendered?: number;

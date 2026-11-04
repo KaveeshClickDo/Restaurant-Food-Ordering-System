@@ -362,9 +362,18 @@ export async function POST(req: NextRequest) {
   // Central record of the Dojo card-terminal payment (idempotent), linked to
   // this sale. Non-fatal: a failure here logs but never rolls back a paid sale.
   if (dojo?.paymentIntentId) {
-    await recordDojoPayment({
+    const recorded = await recordDojoPayment({
       result: dojo, sourceType: "pos_sale", sourceId: String(sale.id), amount: netTotal, staffId: session.id,
     });
+    // A tip the customer added on the card machine, as Dojo recorded it: kept
+    // apart from `total` (the till charged total; the card paid total + tip).
+    const cardTip = Math.round(Number(recorded?.tipAmount ?? 0) * 100) / 100;
+    if (cardTip > 0) {
+      const { error: tipError } = await supabaseAdmin
+        .from("pos_sales").update({ card_tip_amount: cardTip }).eq("id", sale.id);
+      if (tipError) console.error("POST /api/pos/sales (card tip):", tipError.message);
+      else sale.cardTipAmount = cardTip;
+    }
   }
 
   // Gift card redemption AS A GATE — before KDS sync / the orders mirror.

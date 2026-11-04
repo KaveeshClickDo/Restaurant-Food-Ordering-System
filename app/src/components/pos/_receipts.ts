@@ -86,6 +86,14 @@ export function buildReceiptHtml(sale: POSSale, settings: POSSettings, receipt: 
     paymentHtml += `<tr><td style="font-size:11px;color:#6b7280;text-transform:capitalize">${sale.paymentMethod}</td><td style="font-size:11px;color:#6b7280;text-align:right">${sym}${charged.toFixed(2)}</td></tr>`;
   }
 
+  // 3. A tip the customer added on the card machine, apart from the total.
+  const cardTip = sale.cardTipAmount ?? 0;
+  if (cardTip > 0) {
+    const cardTotal = Math.round((sale.total + cardTip) * 100) / 100;
+    paymentHtml += `<tr><td style="font-size:11px;color:#6b7280">Tip on card machine</td><td style="font-size:11px;color:#6b7280;text-align:right">${sym}${cardTip.toFixed(2)}</td></tr>`;
+    paymentHtml += row("Card total", `${sym}${cardTotal.toFixed(2)}`, true);
+  }
+
   return `<!DOCTYPE html><html><head><meta charset="utf-8"></head><body style="margin:0;background:#f9fafb;font-family:monospace">
 <div style="max-width:360px;margin:24px auto;background:#fff;border-radius:12px;padding:24px">
   <div style="text-align:center;margin-bottom:16px">

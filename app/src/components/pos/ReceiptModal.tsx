@@ -57,6 +57,9 @@ export default function ReceiptModal(
   // the gross goods TOTAL; the net `total` is the real money paid by cash/card.
   const giftAmt    = sale.giftCardUsed ?? sale.giftCard?.amount ?? 0;
   const grossTotal = Math.round((sale.total + giftAmt) * 100) / 100;
+  // A tip added on the card machine is on top of the total: the card paid both.
+  const cardTip    = sale.cardTipAmount ?? 0;
+  const cardTotal  = Math.round((sale.total + cardTip) * 100) / 100;
 
   async function sendEmail() {
     if (!emailTo.trim()) return;
@@ -269,6 +272,18 @@ export default function ReceiptModal(
                 {/* total is already net of the gift card = the amount charged */}
                 <span>{fmt(sale.total, sym)}</span>
               </div>
+            )}
+
+            {/* 3. A tip the customer added on the card machine, apart from the total */}
+            {cardTip > 0 && (
+              <>
+                <div className="flex justify-between text-gray-500">
+                  <span>Tip on card machine</span><span>{fmt(cardTip, sym)}</span>
+                </div>
+                <div className="flex justify-between font-semibold">
+                  <span>Card total</span><span>{fmt(cardTotal, sym)}</span>
+                </div>
+              </>
             )}
           </div>
 
