@@ -4,11 +4,12 @@ import { useEffect, useState } from "react";
 import { usePOS } from "@/context/POSContext";
 import { useConnectivity } from "@/lib/connectivity";
 import { apiBase } from "@/lib/apiBase";
-import { POSCustomer } from "@/types/pos";
+import { POSCustomer, POSSale } from "@/types/pos";
 import {
-  UserPlus, Search, Star, Users, Phone, Mail, Pencil, X, Trash2, Save, ArrowLeft, AlertTriangle,
+  UserPlus, Search, Star, Users, Phone, Mail, Pencil, X, Trash2, Save, ArrowLeft, AlertTriangle, Receipt,
 } from "lucide-react";
 import { fmt, fmtDate, fmtTime, getInitials } from "./_utils";
+import ReceiptModal from "./ReceiptModal";
 
 const PRESET_TAGS = ["VIP", "Regular", "Halal", "Vegan", "Vegetarian", "Gluten-Free", "Allergy", "Staff"];
 
@@ -39,6 +40,7 @@ export default function CustomersView() {
   const [deleteBlocked, setDeleteBlocked] = useState<{ id: string; status: string }[] | null>(null);
   // When checked, the soft delete becomes a ban — re-registration is refused.
   const [blockReg, setBlockReg] = useState(false);
+  const [viewingReceipt, setViewingReceipt] = useState<POSSale | null>(null);
 
   const filtered = customers.filter((c) =>
     !search || c.name.toLowerCase().includes(search.toLowerCase()) ||
@@ -267,6 +269,9 @@ export default function CustomersView() {
                         <p className="text-slate-400 text-xs">{fmtDate(sale.date)} · {fmtTime(sale.date)} · {sale.paymentMethod}</p>
                       </div>
                       <p className="text-white font-bold text-sm flex-shrink-0">{fmt(sale.total, settings.currencySymbol)}</p>
+                      <button onClick={() => setViewingReceipt(sale)} className="text-slate-500 hover:text-orange-400 transition-colors flex-shrink-0" title="View receipt">
+                        <Receipt size={14} />
+                      </button>
                     </div>
                   ))}
                 </div>
@@ -514,6 +519,11 @@ export default function CustomersView() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* ── Receipt viewer ───────────────────────────────────────────────── */}
+      {viewingReceipt && (
+        <ReceiptModal sale={viewingReceipt} onClose={() => setViewingReceipt(null)} />
       )}
     </div>
   );
