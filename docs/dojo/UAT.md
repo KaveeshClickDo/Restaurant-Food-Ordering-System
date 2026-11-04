@@ -9,16 +9,21 @@ is in [README.md](./README.md).
 
 ## 1. Before the session
 
-**The environment** (a staging server, or a laptop with screen sharing):
+**The environment: demo.directdine.tech.** It was deployed from `development`
+on 2026-11-04 (server 167.233.73.103, service `demo-directdine-tech`, code in
+`/var/www/direct-dine/app`) with `DOJO_MODE=live` and a **sandbox** key,
+`DOJO_API_KEY=sk_sandbox_…`, in its `.env.local`. They're server settings only,
+never in the APK. Demo uses its own database, so the test card payments show in
+its sales. Its settings from before (the simulator) are saved in
+`/root/demo.env.backup-2026-11-04`.
 
-- `DOJO_MODE=live` and a **sandbox** key, `DOJO_API_KEY=sk_sandbox_…` (make a
-  new one in the Dojo portal if the old one was deleted). Server settings only,
-  never in the APK.
-- The **test database**, not the live one, so test sales stay out of real
-  reports. The test logins are in `app/.env.local` under "UAT test logins":
-  a POS manager (can refund), a POS cashier (can't), a collection login and a
-  waiter.
-- Admin → Integrations → Card Terminal: **on**.
+- In demo's admin, for the script: a **manager** POS login (can refund), a
+  **cashier** POS login (can't), a collection login, a waiter, a **VIP table**
+  with a £10 booking fee, and an inactive £25 gift card (Gift Cards → Create
+  inactive).
+- Admin → Integrations → Card Terminal: **on** ("Active · sandbox/test").
+- Share only the browser window. Keep the SSH window and any `.env.local` off
+  screen: both can show secrets.
 
 **Run the checks** the morning of the session (from `app/`):
 
@@ -54,9 +59,8 @@ All three must end with "passed".
   card machine: the payment intent refund is our refund path, which meets
   their "at least one refund method" rule.
 
-**Start the app** (`npm run dev` in `app/`) 15 minutes early and open the till,
-Reservations, Dashboard and Admin once each: in dev mode the first visit to a
-page compiles it, which can take several seconds.
+**Open demo 15 minutes early:** log in to the till and to admin (second tab),
+open Dojo's portal (step 21), and take one payment on SIP0.
 
 ---
 
@@ -88,7 +92,7 @@ try again."
 
 ## 3. The script
 
-Log in to the till as the **UAT Manager** unless a step says otherwise. "Pay
+Log in to the till with the **manager** login unless a step says otherwise. "Pay
 by card machine" means: add an item, Charge → Card → Card machine (Dojo), pick
 the machine, Send.
 
@@ -108,27 +112,28 @@ the machine, Send.
 | 12 | Pay on **TIP0** and wait about 90 seconds. | "Result unconfirmed": check the machine, then **Record as paid by card** or **Retry**. | Timed out / result unknown |
 | 13 | Start a payment on **TIP0** in a second browser tab (it stays busy for 90 seconds), then pay on TIP0 in the first. | "The card machine isn't available: it's busy or offline…". | Busy terminal |
 | 14 | Pay on **SIP1**. | Approved, "Includes a £1.00 tip added on the card machine" (on £10). | Gratuity (optional) |
-| 15 | Reservations → **Add Walk-in** → **Phone booking**, table **VIP 1**, a name and phone number → VIP fee **Card** → **Collect £10.00 & Book** → **Key in card** → **SIP0** → Send. | "Key in the card number", then Approved and the booking saved. The virtual machine ignores the flag and still runs chip & PIN; Dojo holds the payment as card not present (`cardHolderNotPresent: true`). | MOTO (CNP) |
+| 15 | Reservations → **Add Walk-in** → **Phone booking**, the **VIP table**, a name and phone number → VIP fee **Card** → **Collect £10.00 & Book** → **Key in card** → **SIP0** → Send. | "Key in the card number", then Approved and the booking saved. The virtual machine ignores the flag and still runs chip & PIN; Dojo holds the payment as card not present (`cardHolderNotPresent: true`). | MOTO (CNP) |
 | 16 | Dashboard → Transactions → the sale from step 1 → Void & Refund → **To card** → full amount → Void & Refund. | On the sandbox: "Dojo refused the request: Your refund request was not successful", and the sale stays as it was. Dojo has confirmed that's expected and the request is correct. | Refund, full |
 | 17 | Same with a smaller amount. | As step 16, for the partial amount. | Refund, partial |
-| 18 | Log in as the **UAT Cashier** and try Void & Refund. | Refused: no permission. | Refunds need permission |
+| 18 | Log in with the **cashier** login and try Void & Refund. | Refused: no permission. | Refunds need permission |
 | 19 | Admin → Card Terminal **off**, then try to pay. | No "Card machine" option. Back **on** afterwards. | Feature switch |
-| 20 | Restart the app with a wrong API key (the note below the table), try to pay. Then restart it with the right key. | "The card machine isn't set up correctly. Ask an admin to check the Dojo API key." | Wrong API key |
+| 20 | Break the API key on the server (the note below the table), try to pay. Then fix it. | "The card machine isn't set up correctly. Ask an admin to check the Dojo API key." | Wrong API key |
 | 21 | In Dojo's portal, find the step 1 payment by its reference, `POS sale XXXXXXXX`; search those 8 characters in the dashboard's Transactions. | The same sale. | Reconciliation |
 
-**Step 20 without showing the key.** Don't open `.env.local` while sharing
-your screen. Stop the app (Ctrl+C), then in the same PowerShell window, in
-`app/`:
+**Step 20 on demo, without showing the key.** Run these in the SSH window
+without sharing it (its scrollback shows earlier output). The first adds
+`WRONG` to the end of the key, as Dojo's checklist suggests ("input an extra
+character in the API key"), and restarts demo: a few seconds, no rebuild.
 
-```powershell
-$env:DOJO_API_KEY = "sk_sandbox_wrong"; npm run dev
+```bash
+cd /var/www/direct-dine/app && sed -i 's/^\(DOJO_API_KEY=.*\)$/\1WRONG/' .env.local && systemctl restart demo-directdine-tech && echo "key broken"
 ```
 
-A key set this way wins over `.env.local` (checked 2026-10-28). Afterwards,
-stop the app again and run:
+Try to pay: you should get the message above. Then put the key back and take
+one payment on SIP0:
 
-```powershell
-Remove-Item Env:DOJO_API_KEY; npm run dev
+```bash
+cd /var/www/direct-dine/app && sed -i 's/^\(DOJO_API_KEY=.*\)WRONG$/\1/' .env.local && systemctl restart demo-directdine-tech && echo "key fixed"
 ```
 
 Other screens, once each: the **waiter** app (settle a table on SCN0), the
