@@ -243,6 +243,49 @@ async function missingSoftwareHouseId(): Promise<void> {
   });
 }
 
+/** Dojo's UAT ask: our software-house-id on every payment intent and terminal
+ *  session call. And the request log (DOJO_LOG_REQUESTS=1) never prints the key. */
+async function headersOnEveryCall(): Promise<void> {
+  console.log("\n── Our software-house-id on every call ──");
+  const sent: Array<{ call: string; headers: Record<string, string> }> = [];
+  const logged: string[] = [];
+  const realFetch = globalThis.fetch;
+  const realLog = console.log;
+  globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+    const path = String(url).replace("https://api.dojo.tech", "");
+    sent.push({ call: `${init?.method ?? "GET"} ${path}`, headers: (init?.headers ?? {}) as Record<string, string> });
+    return new Response(path.startsWith("/terminals") ? "[]" : JSON.stringify({ id: "pi_demo" }), { status: 200 });
+  }) as typeof fetch;
+  try {
+    await withEnv(
+      { DOJO_SOFTWARE_HOUSE_ID: "demo-software-house", DOJO_API_KEY: "sk_sandbox_demo-secret-key", DOJO_LOG_REQUESTS: "1" },
+      async () => {
+        console.log = (...args: unknown[]) => { logged.push(args.join(" ")); };
+        const c = createDojoClient();
+        await c.createPaymentIntent({ amount: AMOUNT, reference: "demo" });
+        await c.getPaymentIntent("pi_demo");
+        await c.createRefund({ paymentIntentId: "pi_demo", amount: 500, idempotencyKey: "demo-refund" });
+        await c.listTerminals(false);
+        await c.createTerminalSession({ terminalId: "tm_demo", sessionType: "Sale", paymentIntentId: "pi_demo" });
+        await c.getTerminalSession("ts_demo");
+        await c.submitSignature("ts_demo", true);
+        await c.cancelTerminalSession("ts_demo");
+      },
+    );
+  } finally {
+    console.log = realLog;
+    globalThis.fetch = realFetch;
+  }
+  const without = sent.filter((r) =>
+    r.headers["software-house-id"] !== "demo-software-house" || r.headers["reseller-id"] !== "demo-software-house");
+  check(sent.length === 8 && without.length === 0,
+    `${sent.length} kinds of call, each with software-house-id and reseller-id`
+      + (without.length ? `; missing on ${without.map((r) => r.call).join(", ")}` : ""));
+  check(logged.length > 0 && logged.some((l) => l.includes("software-house-id: demo-software-house"))
+      && !logged.some((l) => l.includes("demo-secret-key")),
+    `the request log shows the header, never the key: "${logged[0] ?? ""}"`);
+}
+
 /** Dojo needs a reference of 1–60 characters; the till's names its sale. */
 async function references(gw: DojoGateway): Promise<void> {
   console.log("\n── Payment references ──");
@@ -386,6 +429,7 @@ async function main(): Promise<void> {
   staffMessages();
   await noAnswer();
   await missingSoftwareHouseId();
+  await headersOnEveryCall();
   await references(gw);
   await keyed(gw);
   routeBodies();

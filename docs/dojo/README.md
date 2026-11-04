@@ -331,6 +331,13 @@ it is sent (`DojoConfigError`, so nothing is created or charged). Staff see "The
 card machine isn't set up correctly. Ask an admin to check the Dojo settings.",
 and Admin → Integrations → Card Terminal names the missing setting.
 
+**It goes on every call.** Dojo's spec asks for `software-house-id` only on the
+terminal endpoints, but Dojo asked (UAT feedback, 2026-11-04) for it on all
+payment intent and terminal session calls, so `client.ts` sends it, and
+`reseller-id`, on every request. `DOJO_LOG_REQUESTS=1` prints each call in the
+server log (method, path, headers with the key shown only by its prefix,
+status, time, Dojo's id), which is how to show Dojo what we send.
+
 **Production:** pass Dojo's UAT (script: [UAT.md](./UAT.md)); the refund path it
 needs is the till's Void & Refund (§4 Refunds). Then `sk_prod_…` with the same
 software-house-id, and repoint webhooks.

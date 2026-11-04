@@ -3,9 +3,13 @@
  *
  * Auth per docs: `Authorization: Basic <api_key>` where "Basic " is a LITERAL
  * prefix — the key is NOT base64-encoded. Every call carries the dated `version`
- * header. Terminal endpoints additionally require `software-house-id` (and
- * accept an optional `reseller-id`).
+ * header and our `software-house-id` and `reseller-id`: the spec requires them
+ * only on terminal endpoints, but Dojo asked (UAT, 2026-11-04) for them on all
+ * payment intent and terminal session calls.
  * See docs/dojo/dojo-integration-reference.md §1 for the verified header matrix.
+ *
+ * DOJO_LOG_REQUESTS=1 prints each call in the server log: method, path, the
+ * headers (the key shown only by its prefix), status, time and Dojo's id.
  */
 
 import { dojoConfig } from "./config";
@@ -28,8 +32,6 @@ interface RequestOpts {
   method: Method;
   path: string;
   body?: unknown;
-  /** Add the software-house-id / reseller-id headers (terminal endpoints). */
-  terminal?: boolean;
   /** `idempotencyKey` header (refunds). */
   idempotencyKey?: string;
 }
@@ -40,20 +42,21 @@ const DOJO_TIMEOUT_MS = 15_000;
 
 async function request<T>(opts: RequestOpts): Promise<T> {
   const cfg = dojoConfig();
-  // Dojo requires it on the terminal endpoints. Refusing every call without it,
-  // not just those, stops a payment before its intent is created.
+  // It goes on every call, so refuse every call without it: a payment then
+  // stops before its intent is created.
   if (!cfg.softwareHouseId) throw new DojoConfigError("DOJO_SOFTWARE_HOUSE_ID");
   const headers: Record<string, string> = {
     Authorization: `Basic ${cfg.apiKey}`,
     version: cfg.version,
+    "software-house-id": cfg.softwareHouseId,
+    "reseller-id": cfg.resellerId,
     Accept: "application/json",
   };
   if (opts.body !== undefined) headers["Content-Type"] = "application/json";
-  if (opts.terminal) {
-    headers["software-house-id"] = cfg.softwareHouseId;
-    headers["reseller-id"] = cfg.resellerId;
-  }
   if (opts.idempotencyKey) headers["idempotencyKey"] = opts.idempotencyKey;
+
+  const started = Date.now();
+  if (cfg.logRequests) console.log(`[dojo →] ${opts.method} ${opts.path}  ${describeHeaders(headers)}`);
 
   let res: Response;
   let text: string;
@@ -70,6 +73,9 @@ async function request<T>(opts: RequestOpts): Promise<T> {
     text = await res.text();
   } catch (err) {
     const timedOut = err instanceof Error && err.name === "TimeoutError";
+    if (cfg.logRequests) {
+      console.log(`[dojo ←] ${timedOut ? "timed out" : "no answer"}  ${opts.method} ${opts.path}  ${Date.now() - started}ms`);
+    }
     throw new DojoApiError(
       0,
       timedOut
@@ -80,12 +86,28 @@ async function request<T>(opts: RequestOpts): Promise<T> {
   }
 
   const json = text ? safeParse(text) : null;
+  if (cfg.logRequests) {
+    const id = json && typeof json === "object" && typeof (json as { id?: unknown }).id === "string"
+      ? `  ${(json as { id: string }).id}` : "";
+    console.log(`[dojo ←] ${res.status} ${opts.method} ${opts.path}  ${Date.now() - started}ms${id}`);
+  }
 
   if (!res.ok) {
     const message = errorMessage(json) ?? `Dojo API ${opts.method} ${opts.path} failed with ${res.status}`;
     throw new DojoApiError(res.status, message, json ?? text);
   }
   return (json as T);
+}
+
+/** The request's headers for the log: the key shows only its prefix
+ *  (sk_sandbox_ / sk_prod_), never the key itself. */
+function describeHeaders(headers: Record<string, string>): string {
+  return Object.entries(headers)
+    .filter(([name]) => name !== "Accept" && name !== "Content-Type")
+    .map(([name, value]) => name === "Authorization"
+      ? `${name}: Basic ${value.slice(6).match(/^sk_[a-z]+_/)?.[0] ?? ""}… (hidden)`
+      : `${name}: ${value}`)
+    .join("  ");
 }
 
 function safeParse(text: string): unknown {
@@ -156,7 +178,7 @@ export function createDojoClient(): DojoGateway {
 
     async listTerminals(availableOnly: boolean) {
       const qs = availableOnly ? "?statuses=Available" : "";
-      const list = await request<DojoTerminal[]>({ method: "GET", path: `/terminals${qs}`, terminal: true });
+      const list = await request<DojoTerminal[]>({ method: "GET", path: `/terminals${qs}` });
       return Array.isArray(list) ? list : [];
     },
 
@@ -164,7 +186,6 @@ export function createDojoClient(): DojoGateway {
       return request<DojoTerminalSession>({
         method: "POST",
         path: "/terminal-sessions",
-        terminal: true,
         body: { terminalId: input.terminalId, details: sessionDetails(input) },
       });
     },
@@ -173,7 +194,6 @@ export function createDojoClient(): DojoGateway {
       return request<DojoTerminalSession>({
         method: "GET",
         path: `/terminal-sessions/${encodeURIComponent(terminalSessionId)}`,
-        terminal: true,
       });
     },
 
@@ -181,7 +201,6 @@ export function createDojoClient(): DojoGateway {
       return request<DojoTerminalSession>({
         method: "PUT",
         path: `/terminal-sessions/${encodeURIComponent(terminalSessionId)}/signature`,
-        terminal: true,
         body: { accepted },
       });
     },
@@ -190,7 +209,6 @@ export function createDojoClient(): DojoGateway {
       return request<DojoTerminalSession>({
         method: "PUT",
         path: `/terminal-sessions/${encodeURIComponent(terminalSessionId)}/cancel`,
-        terminal: true,
       });
     },
 

@@ -62,6 +62,9 @@ We drive Dojo, so it does not apply. We want **Pay at Counter → Terminals API*
 | `POST /payment-intents/{id}/refunds` | required | — | — | **required** |
 
 Notes:
+- Dojo asked us (UAT feedback, 2026-11-04) to send our `software-house-id` on
+  **all** payment intent and terminal session calls, not only where the spec
+  requires it. We send it, and `reseller-id`, on every request.
 - `reseller-id` is **optional**, not required as previously documented here. We
   send it anyway — harmless, and Dojo's own examples include it.
 - The refund idempotency header is spelled `idempotencyKey` in the spec, and we

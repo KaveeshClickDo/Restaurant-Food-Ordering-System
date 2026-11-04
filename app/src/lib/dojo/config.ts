@@ -48,6 +48,8 @@ export interface DojoConfig {
   terminalId: string;
   /** Currency for terminal charges (ISO 4217). */
   currencyCode: string;
+  /** DOJO_LOG_REQUESTS=1: print each call to Dojo in the server log (client.ts). */
+  logRequests: boolean;
 }
 
 function env(name: string, fallback = ""): string {
@@ -107,5 +109,6 @@ export function dojoConfig(): DojoConfig {
     webhookSecret: env("DOJO_WEBHOOK_SECRET"),
     terminalId: env("DOJO_TERMINAL_ID"),
     currencyCode: env("DOJO_CURRENCY_CODE", "GBP"),
+    logRequests: env("DOJO_LOG_REQUESTS") === "1",
   };
 }
