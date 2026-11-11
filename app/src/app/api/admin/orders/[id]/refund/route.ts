@@ -27,6 +27,8 @@ import { restoreStock, type StockItem }         from "@/lib/stockMutation";
 import { deductLoyaltyPoints, refundRedeemedPoints } from "@/lib/loyaltyUtils";
 import { sendOrderStatusEmail }                 from "@/lib/emailServer";
 import { notifyOrderCancelledOrRefunded }       from "@/lib/adminNotifications";
+import { refundDojoPayment }                    from "@/lib/dojo/refund";
+import { dojoErrorResponse }                    from "@/lib/dojo/respond";
 
 export async function POST(
   req: NextRequest,
@@ -46,7 +48,7 @@ export async function POST(
   //   - replacing body.refundedAmount with the sum of all refund entries
   const { data: orderRow, error: lookupErr } = await supabaseAdmin
     .from("orders")
-    .select("stripe_payment_intent_id, paypal_capture_id, total, fulfillment, customer_id, refunds, refunded_amount, gift_card_id, gift_card_used, items, oversold, payment_status, status")
+    .select("stripe_payment_intent_id, paypal_capture_id, dojo_payment_intent_id, card_tip_amount, card_tip_refunded, total, fulfillment, customer_id, refunds, refunded_amount, gift_card_id, gift_card_used, items, oversold, payment_status, status")
     .eq("id", id)
     .maybeSingle();
 
@@ -177,6 +179,44 @@ export async function POST(
     // Else: cash / no gateway — record-only, no API call.
   }
 
+  // ── Card machine (Dojo) refund ───────────────────────────────────────────
+  // An order paid on the Dojo card machine (a collection order settled at the
+  // counter) goes back to the card through Dojo, Dojo FIRST: if it refuses,
+  // nothing is recorded. The refund record's id is the idempotency key, the
+  // same on a retry of this refund. A refund that makes the order fully
+  // refunded also returns any tip the customer added on the machine (kept in
+  // card_tip_refunded, so refunded_amount stays within the total).
+  let cardTipRefunded: number | null = null;
+  if (newest && newest.method === "original_payment"
+      && !orderRow.stripe_payment_intent_id && !orderRow.paypal_capture_id) {
+    const paymentIntentId = await orderDojoPaymentIntent(id, orderRow.dojo_payment_intent_id);
+    if (paymentIntentId) {
+      const tipBefore = Number(orderRow.card_tip_refunded ?? 0);
+      const tipLeft   = round2(Math.max(0, Number(orderRow.card_tip_amount ?? 0) - tipBefore));
+      const fullNow   = moneyCap > 0.001 && moneyRefundedTotal >= moneyCap - 0.001;
+      const tipPart   = fullNow ? tipLeft : 0;
+      try {
+        const outcome = await refundDojoPayment({
+          paymentIntentId,
+          amount: round2(Number(newest.amount) + tipPart),
+          requestId: newest.id,
+          reason: newest.reason,
+          sourceType: orderRow.fulfillment === "dine-in" ? "dine_in" : "collection",
+          sourceId: id,
+          staffId: null,
+        });
+        newest.viaDojo = true;
+        newest.dojoRefundId = outcome.refundId;
+        if (tipPart > 0) {
+          newest.cardTip = tipPart;
+          cardTipRefunded = round2(tipBefore + tipPart);
+        }
+      } catch (err) {
+        return dojoErrorResponse(err, "refund");
+      }
+    }
+  }
+
   // ── Derive payment_status server-side ───────────────────────────────────
   // "refunded" = the customer has all their MONEY back (moneyCap). An order
   // fully covered by a gift card has moneyCap == 0 and no money to return, so
@@ -221,6 +261,7 @@ export async function POST(
       refunds:          submittedRefunds,
       refunded_amount:  moneyRefundedTotal,
       ...(newPaymentStatus ? { payment_status: newPaymentStatus } : {}),
+      ...(cardTipRefunded !== null ? { card_tip_refunded: cardTipRefunded } : {}),
     })
     .eq("id", id);
 
@@ -323,8 +364,24 @@ export async function POST(
     ok: true,
     stripeRefundId:  newest?.stripeRefundId ?? null,
     paypalRefundId:  newest?.paypalRefundId ?? null,
+    dojoRefundId:    newest?.dojoRefundId ?? null,
+    cardTipRefunded: newest?.cardTip ?? 0,
     refundedAmount:  moneyRefundedTotal,
   });
+}
+
+/** The card machine payment behind an order: the link stamped at settle, or
+ *  (orders settled before that) its row in dojo_payments. */
+async function orderDojoPaymentIntent(orderId: string, linked: string | null | undefined): Promise<string | null> {
+  if (linked) return linked;
+  const { data } = await supabaseAdmin
+    .from("dojo_payments")
+    .select("payment_intent_id")
+    .in("source_type", ["collection", "dine_in"])
+    .eq("source_id", orderId)
+    .limit(1)
+    .maybeSingle();
+  return data?.payment_intent_id ?? null;
 }
 
 /**

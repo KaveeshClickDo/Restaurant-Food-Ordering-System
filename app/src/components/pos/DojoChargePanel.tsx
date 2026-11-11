@@ -14,6 +14,11 @@
  *                           same result. It never charges the card twice.
  *   onManualFallback()    — (optional) operator records an Expired result manually
  *   onBack()              — operator went back to the tender choice
+ *   intentMemory          — (optional) a ref the paying screen owns, one per
+ *                           payment. Back unmounts this panel; with the memory,
+ *                           choosing the card machine again retries the same
+ *                           Dojo payment intent (Dojo's rule), so the server
+ *                           also spots an earlier attempt that took the money.
  *   onActiveChange(bool)  — (optional) true while a payment is live or approved
  *                           but unsaved; hide or disable your close/back controls
  *                           meanwhile, because closing the screen can't stop a
@@ -99,6 +104,7 @@ export default function DojoChargePanel({
   onManualFallback,
   onBack,
   onActiveChange,
+  intentMemory,
 }: {
   amount: number;
   reference?: string;
@@ -114,8 +120,12 @@ export default function DojoChargePanel({
   onManualFallback?: () => void;
   onBack: () => void;
   onActiveChange?: (active: boolean) => void;
+  /** This payment's Dojo intent, kept by the paying screen across Back. */
+  intentMemory?: { current: string | null };
 }) {
-  const dojo = useDojoTerminal(scope);
+  const dojo = useDojoTerminal(scope, {
+    onIntent: (id) => { if (intentMemory) intentMemory.current = id; },
+  });
   const doneRef = useRef(false);
   const startedRef = useRef(false);
   const aliveRef = useRef(true);
@@ -136,18 +146,20 @@ export default function DojoChargePanel({
   const severalMachines = (machines?.length ?? 0) > 1;
 
   /** Start, or retry: the hook reuses the payment intent of the earlier attempt,
-   *  also on another machine. */
+   *  also on another machine, and after Back when the screen keeps a memory. */
   function begin(terminalId: string | null = machineId) {
     doneRef.current = false;
     setSaveState("pending");
     setSaveError(null);
     setPicking(false);
+    const earlier = intentMemory?.current;
     void dojo.start({
       amount,
       reference,
       description: description ?? (reference ? `Card sale ${reference}` : "Card sale"),
       ...(terminalId ? { terminalId } : {}),
       ...(keyed ? { cardHolderNotPresent: true } : {}),
+      ...(earlier ? { paymentIntentId: earlier } : {}),
     });
   }
 

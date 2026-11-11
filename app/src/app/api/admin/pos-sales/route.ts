@@ -12,6 +12,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { isAdminAuthenticated, unauthorizedResponse } from "@/lib/adminAuth";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { rowToSale } from "@/lib/posSaleMap";
+import { attachCardDetails } from "@/lib/dojo";
 
 export async function GET(req: NextRequest) {
   if (!(await isAdminAuthenticated())) return unauthorizedResponse();
@@ -36,5 +37,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
   }
 
-  return NextResponse.json({ ok: true, sales: (data ?? []).map(rowToSale) });
+  // Card machine sales carry the card for the receipt (VISA ****1234).
+  const sales = await attachCardDetails((data ?? []).map(rowToSale));
+  return NextResponse.json({ ok: true, sales });
 }

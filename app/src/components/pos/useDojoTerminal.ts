@@ -16,7 +16,9 @@
  * - Cancel asks Dojo and keeps polling. Dojo refuses once the card is in
  *   (cancelState "too_late"), and the payment's real outcome still arrives.
  * - A retry reuses the attempt's payment intent (Dojo's rule). The server then
- *   also spots an earlier attempt that did take the money.
+ *   also spots an earlier attempt that did take the money. `onIntent` hands
+ *   each intent to the paying screen, which keeps it across Back (that unmounts
+ *   this hook), so going back and choosing the card machine again reuses it too.
  * - If the screen closes mid-payment, the hook asks Dojo to cancel the session.
  *   A StrictMode dev remount is told apart from a real unmount by re-checking
  *   on the next tick.
@@ -42,7 +44,9 @@ export type DojoPhase =
 
 export type DojoCancelState = "idle" | "cancelling" | "too_late";
 
-const POLL_MS = 1200;
+/** Dojo's checklist: poll the terminal session about once a second. The next
+ *  check is timed from each answer, so a slow answer never stacks requests. */
+const POLL_MS = 1000;
 const MAX_CONSECUTIVE_ERRORS = 8;
 /** Give up waiting (and treat it as unconfirmed) after this long without a result. */
 const MAX_FLOW_MS = 5 * 60_000;
@@ -67,7 +71,16 @@ export interface UseDojoTerminal {
   reset: () => void;
 }
 
-export function useDojoTerminal(scope: DojoScope = "pos"): UseDojoTerminal {
+export interface UseDojoTerminalOptions {
+  /** Called with each payment intent the flow learns, so the screen that owns
+   *  the payment can keep it after this hook is gone (Back unmounts it) and
+   *  retry the same intent later. */
+  onIntent?: (paymentIntentId: string) => void;
+}
+
+export function useDojoTerminal(scope: DojoScope = "pos", options: UseDojoTerminalOptions = {}): UseDojoTerminal {
+  const onIntentRef = useRef(options.onIntent);
+  onIntentRef.current = options.onIntent;
   const [phase, setPhase] = useState<DojoPhase>("idle");
   const [status, setStatus] = useState<string | null>(null);
   const [notification, setNotification] = useState<string | null>(null);
@@ -90,9 +103,15 @@ export function useDojoTerminal(scope: DojoScope = "pos"): UseDojoTerminal {
 
   const clearTimer = () => { if (timerRef.current) { clearTimeout(timerRef.current); timerRef.current = null; } };
 
+  const rememberIntent = useCallback((id: string | null | undefined) => {
+    if (!id) return;
+    intentIdRef.current = id;
+    onIntentRef.current?.(id);
+  }, []);
+
   const applySnapshot = useCallback((snap: DojoSessionSnapshot) => {
     errorsRef.current = 0;
-    if (snap.paymentIntentId) intentIdRef.current = snap.paymentIntentId;
+    rememberIntent(snap.paymentIntentId);
     setStatus(snap.status);
     setNotification(snap.latestNotification);
     if (snap.done) {
@@ -109,7 +128,7 @@ export function useDojoTerminal(scope: DojoScope = "pos"): UseDojoTerminal {
     } else {
       setPhase("processing");
     }
-  }, []);
+  }, [rememberIntent]);
 
   const giveUpUnconfirmed = useCallback((message: string) => {
     activeRef.current = false;
@@ -182,7 +201,7 @@ export function useDojoTerminal(scope: DojoScope = "pos"): UseDojoTerminal {
         { ...body, paymentIntentId: body.paymentIntentId ?? intentIdRef.current ?? undefined },
         scope,
       );
-      if (res.paymentIntentId) intentIdRef.current = res.paymentIntentId;
+      rememberIntent(res.paymentIntentId);
       sessionIdRef.current = res.terminalSessionId;
       setTest(Boolean(res.test));
       if (!activeRef.current) return; // reset() while starting
@@ -199,13 +218,13 @@ export function useDojoTerminal(scope: DojoScope = "pos"): UseDojoTerminal {
       }
     } catch (e) {
       activeRef.current = false;
-      if (e instanceof DojoRequestError && e.paymentIntentId) intentIdRef.current = e.paymentIntentId;
+      if (e instanceof DojoRequestError) rememberIntent(e.paymentIntentId);
       setCancelState("idle");
       setError(e instanceof Error ? e.message : "Could not start the card payment.");
       setErrorCode(e instanceof DojoRequestError ? e.code : null);
       setPhase("error");
     }
-  }, [applySnapshot, cancel, poll, scope]);
+  }, [applySnapshot, cancel, poll, rememberIntent, scope]);
 
   const submitSignature = useCallback(async (accepted: boolean) => {
     const id = sessionIdRef.current;

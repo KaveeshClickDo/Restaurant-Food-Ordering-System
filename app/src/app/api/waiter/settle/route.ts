@@ -25,7 +25,10 @@ export async function POST(req: NextRequest) {
 
   // A retried save after a card payment: already done if the payment is recorded.
   if (dojo?.paymentIntentId && await isDojoPaymentRecorded(dojo.paymentIntentId, "dine_in")) {
-    return NextResponse.json({ ok: true, duplicate: true });
+    // Already settled by an earlier try whose reply was lost: report its tip too.
+    const { data: paid } = await supabaseAdmin
+      .from("dojo_payments").select("tip_amount").eq("payment_intent_id", dojo.paymentIntentId).maybeSingle();
+    return NextResponse.json({ ok: true, duplicate: true, cardTipAmount: round2(Number(paid?.tip_amount ?? 0)) });
   }
 
   try {
@@ -185,14 +188,30 @@ export async function POST(req: NextRequest) {
     // (Gift card was already debited as a gate above, before settling.)
 
     // Central record of the Dojo card-terminal payment, if the card leg used one.
+    let cardTipAmount = 0;
     if (dojo?.paymentIntentId) {
-      await recordDojoPayment({
-        result: dojo, sourceType: "dine_in", sourceId: anchorOrderId ?? orderIds[0],
+      const paidOrderId = anchorOrderId ?? orderIds[0];
+      const recorded = await recordDojoPayment({
+        result: dojo, sourceType: "dine_in", sourceId: paidOrderId,
         amount: round2(finalTotal - giftCardAmount),
       });
+      // Every order of the bill points at the payment, so any of them can be
+      // refunded to the card later.
+      const { error: linkError } = await supabaseAdmin
+        .from("orders").update({ dojo_payment_intent_id: dojo.paymentIntentId }).in("id", orderIds);
+      if (linkError) console.error("[waiter/settle] payment link:", linkError.message);
+      // A tip the customer added on the card machine, as Dojo recorded it: kept
+      // on the order the payment belongs to, apart from its total.
+      const tip = round2(Number(recorded?.tipAmount ?? 0));
+      if (tip > 0) {
+        const { error: tipError } = await supabaseAdmin
+          .from("orders").update({ card_tip_amount: tip }).eq("id", paidOrderId);
+        if (tipError) console.error("[waiter/settle] card tip:", tipError.message);
+        else cardTipAmount = tip;
+      }
     }
 
-    return NextResponse.json({ ok: true, settled: orderIds.length, tableLabel });
+    return NextResponse.json({ ok: true, settled: orderIds.length, tableLabel, cardTipAmount });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unexpected error";
     console.error("[waiter/settle]", message);

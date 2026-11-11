@@ -177,6 +177,8 @@ export default function SaleView({ isOffline = false }: { isOffline?: boolean })
           card disappears immediately (and the pill hides when stock hits 0). */}
       {sellTarget && (
         <SellGiftCardModal
+          // One instance per card: its card machine payment belongs to this card.
+          key={sellTarget.id}
           card={sellTarget}
           currencySymbol={settings.currencySymbol}
           dojoEnabled={dojoEnabled}
@@ -188,6 +190,8 @@ export default function SaleView({ isOffline = false }: { isOffline?: boolean })
       {/* Payment modal */}
       {paymentSaleId && (
         <PaymentModal
+          // One instance per sale: its card machine payment belongs to this sale.
+          key={paymentSaleId}
           total={grandTotal}
           currencySymbol={settings.currencySymbol}
           onClose={() => setPaymentSaleId(null)}
@@ -195,6 +199,7 @@ export default function SaleView({ isOffline = false }: { isOffline?: boolean })
           isOffline={isOffline}
           dojoEnabled={dojoEnabled}
           saleReference={posSaleReference(paymentSaleId)}
+          splitOnCardMachine
         />
       )}
 

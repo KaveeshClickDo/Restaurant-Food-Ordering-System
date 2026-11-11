@@ -25,5 +25,5 @@ export async function POST(
 
   const result = await settleCollectionOrder(id, parsed.data.paymentMethod, { dojo: parsed.data.dojo, staffId: staff?.id ?? null });
   if (!result.ok) return NextResponse.json({ ok: false, error: result.error }, { status: result.status });
-  return NextResponse.json({ ok: true });
+  return NextResponse.json({ ok: true, cardTipAmount: result.cardTipAmount ?? 0 });
 }

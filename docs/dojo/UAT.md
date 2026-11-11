@@ -50,8 +50,8 @@ All three must end with "passed".
   (`DOJO_API_KEY`), never in the app or hard-coded, so we enter it when we set
   up a restaurant. The restaurant only switches the card machine on or off
   (Admin → Integrations).
-- Polling: the till asks for the payment's status 1.2 seconds after each
-  answer (the checklist says about once a second).
+- Polling: the till asks for the payment's status 1 second after each
+  answer, as the checklist asks (about once a second).
 - Not built, if they ask: item lines, cashback, webhooks (the endpoint and its
   signature check exist, but nothing is subscribed: that needs the live
   server's address), pre-auth, and cancelling, searching or changing payment

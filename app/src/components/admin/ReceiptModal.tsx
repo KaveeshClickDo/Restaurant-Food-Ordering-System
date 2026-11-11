@@ -120,6 +120,8 @@ export function buildPrintHtml(
   <div class="tot"><span>TOTAL</span><span>${sym}${order.total.toFixed(2)}</span></div>
   ${vatAmt > 0 && vatInclusive && showVat ? `<div class="c sm" style="margin-top:3px">Prices include VAT</div>` : ""}
   ${order.paymentMethod ? `<div class="row" style="margin-top:6px"><span>Payment:</span><span>${order.paymentMethod}</span></div>` : ""}
+  ${(order.cardTipAmount ?? 0) > 0 ? `<div class="row"><span>Tip on card machine</span><span>${sym}${(order.cardTipAmount ?? 0).toFixed(2)}</span></div>
+  <div class="row" style="font-weight:700"><span>Card total</span><span>${sym}${(Math.round((order.total + (order.cardTipAmount ?? 0)) * 100) / 100).toFixed(2)}</span></div>` : ""}
   <div class="row"><span>Status:</span><span>${order.status.charAt(0).toUpperCase() + order.status.slice(1)}</span></div>
   <div class="d"></div>
   ${rs.thankYouMessage ? `<div class="c b" style="margin-bottom:3px">${rs.thankYouMessage}</div>` : ""}
@@ -407,6 +409,18 @@ export function ReceiptModal({
                                     <span className="text-gray-500">Payment</span>
                                     <span className="font-medium">{order.paymentMethod}</span>
                                 </div>
+                            )}
+                            {(order.cardTipAmount ?? 0) > 0 && (
+                                <>
+                                    <div className="flex justify-between">
+                                        <span className="text-gray-500">Tip on card machine</span>
+                                        <span className="font-medium">{sym}{(order.cardTipAmount ?? 0).toFixed(2)}</span>
+                                    </div>
+                                    <div className="flex justify-between font-semibold">
+                                        <span>Card total</span>
+                                        <span>{sym}{(Math.round((order.total + (order.cardTipAmount ?? 0)) * 100) / 100).toFixed(2)}</span>
+                                    </div>
+                                </>
                             )}
                             <div className="flex justify-between">
                                 <span className="text-gray-500">Status</span>

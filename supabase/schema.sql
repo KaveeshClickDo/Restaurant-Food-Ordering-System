@@ -255,6 +255,19 @@ alter table orders add column if not exists tip_amount      numeric not null def
 alter table orders add column if not exists discount_amount numeric not null default 0;
 alter table orders add column if not exists discount_note   text;
 
+-- A tip the customer added on the Dojo card machine (dine-in bill or collection
+-- order), from Dojo's own record of the payment (dojo_payments.tip_amount). NOT
+-- part of `total`: the card paid total + this. Stamped on the order the payment
+-- is recorded against (a dine-in bill's anchor order). card_tip_refunded is the
+-- part of it given back with a refund, kept apart so refunded_amount stays
+-- within `total` and reports stay right.
+alter table orders add column if not exists card_tip_amount   numeric(10,2) not null default 0;
+alter table orders add column if not exists card_tip_refunded numeric(10,2) not null default 0;
+-- The Dojo card machine payment that paid this order. Every order of a dine-in
+-- bill carries it, not only the anchor that dojo_payments.source_id names, so
+-- any order of a card machine bill can be refunded to the card.
+alter table orders add column if not exists dojo_payment_intent_id text;
+
 -- Dine-in table linkage. Historically dine-in orders linked to a table only via
 -- the free-text note ("[WAITER] Table T4 · …"), which is fragile to parse and
 -- impossible to index. These columns make the link structural — set at order
@@ -1280,6 +1293,9 @@ create index if not exists idx_pos_sales_terminal_id
 -- `total` and the card paid total + this. Kept apart so receipts and the
 -- transaction list show it on its own line (Dojo's gratuity check).
 alter table pos_sales add column if not exists card_tip_amount numeric(10,2) not null default 0;
+-- The part of card_tip_amount given back with a refund. Kept apart from
+-- refund_amount, which stays within `total`, so "net kept" reports stay right.
+alter table pos_sales add column if not exists card_tip_refunded numeric(10,2) not null default 0;
 
 -- ── Dojo card-terminal payments (feat/dojo-payments) ─────────────────────────
 -- Every card payment collected on an integrated Dojo terminal — across POS

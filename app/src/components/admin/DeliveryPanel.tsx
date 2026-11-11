@@ -737,18 +737,22 @@ export default function DeliveryPanel() {
   // same atomic write, so it can't race the cancel) then run the normal cancel
   // so the customer still gets the cancellation email. Both write "cancelled",
   // so the second call is idempotent.
-  function refundAndCancel(order: RichOrder, fields: Omit<Refund, "id" | "processedAt" | "processedBy">) {
+  // The refund is awaited: if the card refund is refused (Stripe, PayPal or the
+  // Dojo card machine), the order is NOT cancelled and the form shows why.
+  async function refundAndCancel(order: RichOrder, fields: Omit<Refund, "id" | "processedAt" | "processedBy"> & { id?: string }): Promise<string | null> {
     const cust = customers.find((c: Customer) => c.id === order.customerId);
-    if (!cust) { setRefundCancelTarget(null); return; }
+    if (!cust) { setRefundCancelTarget(null); return null; }
     const refund: Refund = {
       ...fields,
-      id: uuid(),
+      id: fields.id ?? uuid(),
       processedAt: new Date().toISOString(),
       processedBy: "Admin",
     };
-    addRefund(cust.id, order.id, refund, "cancelled");
+    const result = await addRefund(cust.id, order.id, refund, "cancelled");
+    if (!result.ok) return result.error ?? "The refund failed, so the order was not cancelled.";
     updateOrderStatus(cust.id, order.id, "cancelled");
     setRefundCancelTarget(null);
+    return null;
   }
 
   function changeStatus(order: RichOrder, status: OrderStatus) {

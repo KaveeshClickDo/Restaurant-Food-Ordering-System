@@ -12,7 +12,7 @@
  * told when to navigate away via onExit.
  */
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useApp } from "@/context/AppContext";
 import {
   ArrowLeft, Receipt, Loader2, ClipboardList, Percent, BadgeDollarSign,
@@ -57,6 +57,9 @@ export default function BillView({ table, waiter, receipt, setReceipt, onCheckou
   const [settleConfirm, setSettleConfirm] = useState<"cash" | "card" | "gift_card" | null>(null);
   // Dojo card flow: "choose" shows terminal-vs-manual; "dojo" drives the terminal.
   const [cardFlow, setCardFlow] = useState<"none" | "choose" | "dojo">("none");
+  /** This bill's Dojo payment intent, kept across Back so a retry reuses it.
+   *  Cleared once the bill is settled: the table's next bill is a new payment. */
+  const dojoIntent = useRef<string | null>(null);
   // True while a terminal payment is live; leaving the bill then would stop the
   // app watching a machine that can still take the money.
   const [dojoActive, setDojoActive] = useState(false);
@@ -84,6 +87,8 @@ export default function BillView({ table, waiter, receipt, setReceipt, onCheckou
     orderIds: string[];
     total: number;
     tableLabel: string;
+    /** A tip added on the card machine, refundable with the bill. */
+    cardTip?: number;
   } | null>(null);
 
   // Clear bill-level tender extras (gift card, discount, tip, service-fee) so a settled
@@ -218,6 +223,12 @@ export default function BillView({ table, waiter, receipt, setReceipt, onCheckou
       if (!dojo) alert(message);
       return message;
     }
+    // This payment is done: the table's next bill must not reuse its intent.
+    dojoIntent.current = null;
+    // A tip the customer added on the card machine, as the server recorded it
+    // from Dojo (falls back to the machine's own figure).
+    const settled = await res.json().catch(() => ({})) as { cardTipAmount?: number };
+    const cardTip = settled.cardTipAmount ?? dojo?.tipAmount ?? 0;
     // Table is settled — close out any reservation that was seated here today.
     // Best-effort; the bill is already the source of truth.
     onCheckoutReservation(table.label);
@@ -242,6 +253,7 @@ export default function BillView({ table, waiter, receipt, setReceipt, onCheckou
       vatInclusive: vatAmount > 0 ? tax.inclusive : undefined,
       vatRate: vatAmount > 0 ? appSettings.taxSettings?.rate : undefined,
       tipAmount: tipAmount > 0 ? tipAmount : undefined,
+      cardTipAmount: cardTip > 0 ? cardTip : undefined,
       serviceFeeAmount: serviceFeeAmount > 0 ? serviceFeeAmount : undefined,
       // Store NET money paid (gift card already deducted); the receipt re-adds
       // gift_card_used to show the gross goods line. Avoids double-counting.
@@ -526,6 +538,7 @@ export default function BillView({ table, waiter, receipt, setReceipt, onCheckou
                   onManualFallback={() => { setCardFlow("none"); payBill("card"); }}
                   onBack={() => setCardFlow("none")}
                   onActiveChange={setDojoActive}
+                  intentMemory={dojoIntent}
                 />
               ) : cardFlow === "choose" ? (
                 <div className="space-y-3">
@@ -799,6 +812,7 @@ export default function BillView({ table, waiter, receipt, setReceipt, onCheckou
               orderIds: receipt.orderIds,
               total: receipt.total,
               tableLabel: receipt.tableLabel,
+              cardTip: receipt.cardTipAmount,
             });
           } : undefined}
         />

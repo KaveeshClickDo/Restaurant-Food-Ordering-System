@@ -25,7 +25,7 @@ import { decrementStock, restoreStock, type StockItem } from "@/lib/stockMutatio
 import { lookupActiveGiftCard, clampGiftCardAmount, redeemGiftCardForRow } from "@/lib/giftCardValidation";
 import { rewardLoyaltyPoints } from "@/lib/loyaltyUtils";
 import { rowToSale } from "@/lib/posSaleMap";
-import { recordDojoPayment } from "@/lib/dojo";
+import { attachCardDetails, recordDojoPayment } from "@/lib/dojo";
 
 const POS_CUSTOMER_ID = "pos-walk-in";
 
@@ -64,7 +64,9 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
   }
 
-  return NextResponse.json({ ok: true, sales: (data ?? []).map(rowToSale) });
+  // Card machine sales carry the card for the receipt (VISA ****1234).
+  const sales = await attachCardDetails((data ?? []).map(rowToSale));
+  return NextResponse.json({ ok: true, sales });
 }
 
 // ── POST ─────────────────────────────────────────────────────────────────────
@@ -161,7 +163,8 @@ export async function POST(req: NextRequest) {
     const { data: existing } = await supabaseAdmin
       .from("pos_sales").select("*").eq("id", body.id).maybeSingle();
     if (existing) {
-      return NextResponse.json({ ok: true, duplicate: true, sale: rowToSale(existing) }, { status: 200 });
+      const [sale] = await attachCardDetails([rowToSale(existing)]);
+      return NextResponse.json({ ok: true, duplicate: true, sale }, { status: 200 });
     }
   }
 
@@ -346,7 +349,8 @@ export async function POST(req: NextRequest) {
       const { data: existing } = await supabaseAdmin
         .from("pos_sales").select("*").eq("id", body.id).single();
       if (existing) {
-        return NextResponse.json({ ok: true, duplicate: true, sale: rowToSale(existing) }, { status: 409 });
+        const [sale] = await attachCardDetails([rowToSale(existing)]);
+        return NextResponse.json({ ok: true, duplicate: true, sale }, { status: 409 });
       }
     }
     // Any other error: undo the decrement before bubbling.
@@ -362,11 +366,18 @@ export async function POST(req: NextRequest) {
   // Central record of the Dojo card-terminal payment (idempotent), linked to
   // this sale. Non-fatal: a failure here logs but never rolls back a paid sale.
   if (dojo?.paymentIntentId) {
+    // The machine charged the card's part: all of a card sale, or a split's card part.
+    const cardPart = body.paymentMethod === "split"
+      ? Math.round((body.payments ?? []).filter((p) => p.method === "card").reduce((s, p) => s + p.amount, 0) * 100) / 100
+      : netTotal;
     const recorded = await recordDojoPayment({
-      result: dojo, sourceType: "pos_sale", sourceId: String(sale.id), amount: netTotal, staffId: session.id,
+      result: dojo, sourceType: "pos_sale", sourceId: String(sale.id), amount: cardPart, staffId: session.id,
     });
+    if (recorded) {
+      sale.cardPayment = { scheme: recorded.cardScheme ?? null, last4: recorded.cardLast4 ?? null, authCode: recorded.authCode ?? null };
+    }
     // A tip the customer added on the card machine, as Dojo recorded it: kept
-    // apart from `total` (the till charged total; the card paid total + tip).
+    // apart from `total` (the till charged total; the card paid its part + tip).
     const cardTip = Math.round(Number(recorded?.tipAmount ?? 0) * 100) / 100;
     if (cardTip > 0) {
       const { error: tipError } = await supabaseAdmin

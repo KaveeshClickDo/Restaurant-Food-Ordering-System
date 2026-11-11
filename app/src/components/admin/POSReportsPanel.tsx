@@ -174,7 +174,7 @@ function buildHourlyBuckets(sales: POSSale[], valueOf: (s: POSSale) => number = 
 
 // CSV export
 function exportCSV(sales: POSSale[], sym: string) {
-  const header = ["Receipt No", "Date", "Time", "Staff", "Customer", "Items", `Subtotal (${sym})`, `Discount (${sym})`, `VAT (${sym})`, `Tip (${sym})`, `Service Fee (${sym})`, `Total (${sym})`, `Refund (${sym})`, `Net Kept (${sym})`, "Payment", "Voided", "Void Reason"].join(",");
+  const header = ["Receipt No", "Date", "Time", "Staff", "Customer", "Items", `Subtotal (${sym})`, `Discount (${sym})`, `VAT (${sym})`, `Tip (${sym})`, `Service Fee (${sym})`, `Total (${sym})`, `Card Machine Tip (${sym})`, `Refund (${sym})`, `Net Kept (${sym})`, "Payment", "Voided", "Void Reason"].join(",");
   const rows = sales.map((s) => [
     s.receiptNo,
     fmtDate(s.date),
@@ -188,6 +188,7 @@ function exportCSV(sales: POSSale[], sym: string) {
     s.tipAmount.toFixed(2),
     s.serviceFeeAmount.toFixed(2),
     s.total.toFixed(2),
+    (s.cardTipAmount ?? 0).toFixed(2),
     (s.refundAmount ?? 0).toFixed(2),
     Math.max(0, s.total - (s.refundAmount ?? 0)).toFixed(2),
     s.paymentMethod,
@@ -365,6 +366,9 @@ export default function POSReportsPanel() {
   const giftCardRedeemed = filtered.reduce((s, x) => s + (x.giftCardUsed ?? 0), 0);
   const taxCollected = filtered.reduce((s, x) => s + x.taxAmount, 0);
   const tipsTotal = filtered.reduce((s, x) => s + x.tipAmount, 0);
+  // Tips added on the card machine, less any given back: never part of a sale's
+  // total, so not in revenue or Net Sales; shown in the Tips card only.
+  const cardTipsTotal = filtered.reduce((s, x) => s + Math.max(0, (x.cardTipAmount ?? 0) - (x.cardTipRefunded ?? 0)), 0);
   const serviceFeesTotal = filtered.reduce((s, x) => s + x.serviceFeeAmount, 0);
   const discountTotal = filtered.reduce((s, x) => s + x.discountAmount, 0);
   const avgOrder = moneyBearing.length > 0 ? revenue / moneyBearing.length : 0;
@@ -530,7 +534,7 @@ export default function POSReportsPanel() {
             <KpiCard label="Gross Profit" value={fmtCur(grossProfit, sym)} sub={`Margin ${fmtPct(marginPct)}`} icon={BarChart3} color="text-purple-600" bg="bg-purple-50" />
             <KpiCard label="VAT Collected" value={fmtCur(taxCollected, sym)} sub="excl. refunded" icon={Percent} color="text-amber-600" bg="bg-amber-50" />
             <KpiCard label="VIP Booking Fees" value={fmtCur(vipFeesTotal, sym)} sub={`${vipFeesInRange.length} reservation${vipFeesInRange.length === 1 ? "" : "s"} · till`} icon={Crown} color="text-amber-700" bg="bg-amber-50" />
-            <KpiCard label="Tips" value={fmtCur(tipsTotal, sym)} sub="staff tips" icon={BadgeDollarSign} color="text-pink-600" bg="bg-pink-50" />
+            <KpiCard label="Tips" value={fmtCur(tipsTotal + cardTipsTotal, sym)} sub={cardTipsTotal > 0 ? `staff tips · incl. ${fmtCur(cardTipsTotal, sym)} on card machine` : "staff tips"} icon={BadgeDollarSign} color="text-pink-600" bg="bg-pink-50" />
             <KpiCard label="Discounts Given" value={fmtCur(discountTotal, sym)} sub="reductions applied" icon={Tag} color="text-red-600" bg="bg-red-50" />
             <KpiCard label="Service Fees" value={fmtCur(serviceFeesTotal, sym)} sub={`${filtered.length} sales`} icon={CreditCard} color="text-indigo-600" bg="bg-indigo-50" />
             <KpiCard label="Refunded" value={fmtCur(refundedTotal, sym)} sub={`${refundedCount} txn${refundedCount === 1 ? "" : "s"}`} icon={RotateCcw} color="text-teal-600" bg="bg-teal-50" />
@@ -967,6 +971,7 @@ export default function POSReportsPanel() {
             vatAmount: viewingReceipt.taxAmount || 0,
             vatInclusive: viewingReceipt.taxInclusive ?? true,
             tipAmount: viewingReceipt.tipAmount || 0,
+            cardTipAmount: viewingReceipt.cardTipAmount || 0,
             giftCardUsed: viewingReceipt.giftCard?.amount || viewingReceipt.giftCardUsed || 0,
             staffName: viewingReceipt.staffName || undefined,
             tableLabel: viewingReceipt.tableNumber ? String(viewingReceipt.tableNumber) : undefined,

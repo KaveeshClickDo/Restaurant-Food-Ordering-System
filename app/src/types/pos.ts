@@ -254,6 +254,13 @@ export interface POSSplitPayment {
 
 export type POSPaymentMethod = "cash" | "card" | "split" | "gift_card";
 
+/** The card used on the Dojo card machine, as Dojo reported it. */
+export interface POSCardPayment {
+  scheme: string | null;    // e.g. "VISA"
+  last4: string | null;
+  authCode: string | null;
+}
+
 export interface POSSale {
   id: string;
   receiptNo: string;
@@ -268,8 +275,14 @@ export interface POSSale {
   serviceFeeAmount: number;
   total: number;
   /** A tip the customer added on the Dojo card machine, from Dojo's record of
-   *  the payment. Not part of `total`: the card paid total + this. */
+   *  the payment. Not part of `total`: the card paid its part + this. */
   cardTipAmount?: number;
+  /** The part of cardTipAmount given back with a refund (refundAmount stays
+   *  within `total`, so reports keep working). */
+  cardTipRefunded?: number;
+  /** The card used on the Dojo card machine, for the receipt. Read from
+   *  dojo_payments; absent for sales not paid on the machine. */
+  cardPayment?: POSCardPayment;
   paymentMethod: POSPaymentMethod;
   payments: POSSplitPayment[];
   cashTendered?: number;

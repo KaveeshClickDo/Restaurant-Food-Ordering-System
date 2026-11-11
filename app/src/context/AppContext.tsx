@@ -267,7 +267,9 @@ interface AppContextValue {
    * other on the `status` column. Omit it for a plain refund (the order keeps
    * its current fulfillment status; only payment state changes).
    */
-  addRefund: (customerId: string, orderId: string, refund: Refund, newStatus?: OrderStatus) => void;
+  /** Resolves once the server answers; on a failure (a card refund refused,
+   *  no connection) the order is put back and `error` says why. */
+  addRefund: (customerId: string, orderId: string, refund: Refund, newStatus?: OrderStatus) => Promise<{ ok: boolean; error?: string }>;
   spendStoreCredit: (customerId: string, amount: number, orderId: string) => void;
   /** Local-only optimistic deduction. Use when the deduction is being handled
    *  server-side elsewhere (e.g. Stripe/PayPal webhooks deduct after order
@@ -1373,11 +1375,11 @@ export function AppProvider({
     }
   };
 
-  const addRefund = (customerId: string, orderId: string, refund: Refund, newStatus?: OrderStatus) => {
+  const addRefund = async (customerId: string, orderId: string, refund: Refund, newStatus?: OrderStatus): Promise<{ ok: boolean; error?: string }> => {
     const currentOrder = customers
       .find((c) => c.id === customerId)
       ?.orders.find((o) => o.id === orderId);
-    if (!currentOrder) return;
+    if (!currentOrder) return { ok: false, error: "Order not found." };
 
     // --- Calculate loyalty points to deduct ---
   const rate = settings.loyaltyPointsPerPound ?? 1;
@@ -1435,21 +1437,63 @@ export function AppProvider({
           }
         : {};
 
-    fetch(`/api/admin/orders/${orderId}/refund`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        // Usually preserves fulfillment status (the refund is reflected in
-        // payment_status); refund + cancel passes "cancelled" here so the two
-        // changes land in one atomic order update.
-        newStatus:       nextStatus,
-        refunds:         newRefunds,
-        refundedAmount:  newRefundedAmount,
-        ...storeCreditPayload,
-      }),
-    }).then(async (r) => {
-      if (!r.ok) { const j = await r.json().catch(() => ({})) as { error?: string }; console.error("addRefund:", j.error); }
-    }).catch((e) => console.error("addRefund:", e));
+    // A refund to a card (Stripe, PayPal or the Dojo card machine) can be
+    // refused, so the screen waits for the answer: on a failure the order and
+    // the customer go back to how they were, and the caller shows the reason.
+    const before = customers.find((c) => c.id === customerId);
+    const rollback = () => {
+      const restore = (o: Order): Order => (o.id === orderId ? currentOrder : o);
+      setCustomers((prev) => prev.map((c) => c.id !== customerId ? c : {
+        ...c,
+        orders: c.orders.map(restore),
+        storeCredit: before?.storeCredit ?? c.storeCredit,
+        loyaltyPoints: before?.loyaltyPoints ?? c.loyaltyPoints,
+      }));
+      setCurrentUser((prev) => !prev || prev.id !== customerId ? prev : {
+        ...prev,
+        orders: prev.orders.map(restore),
+        storeCredit: before?.storeCredit ?? prev.storeCredit,
+        loyaltyPoints: before?.loyaltyPoints ?? prev.loyaltyPoints,
+      });
+    };
+
+    try {
+      const r = await fetch(`/api/admin/orders/${orderId}/refund`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          // Usually preserves fulfillment status (the refund is reflected in
+          // payment_status); refund + cancel passes "cancelled" here so the two
+          // changes land in one atomic order update.
+          newStatus:       nextStatus,
+          refunds:         newRefunds,
+          refundedAmount:  newRefundedAmount,
+          ...storeCreditPayload,
+        }),
+      });
+      const j = await r.json().catch(() => ({})) as { ok?: boolean; error?: string; dojoRefundId?: string | null; cardTipRefunded?: number };
+      if (!r.ok || j.ok === false) {
+        console.error("addRefund:", j.error);
+        rollback();
+        return { ok: false, error: j.error ?? "The refund couldn't be saved. Nothing was refunded." };
+      }
+      // Keep what the server recorded on this refund (card machine refund id, tip given back).
+      if (j.dojoRefundId || (j.cardTipRefunded ?? 0) > 0) {
+        const stamp = (o: Order): Order => o.id !== orderId ? o : {
+          ...o,
+          refunds: (o.refunds ?? []).map((x) => x.id !== refund.id ? x : {
+            ...x, viaDojo: true, dojoRefundId: j.dojoRefundId ?? null,
+            ...((j.cardTipRefunded ?? 0) > 0 ? { cardTip: j.cardTipRefunded } : {}),
+          }),
+        };
+        setCustomers((prev) => prev.map((c) => c.id !== customerId ? c : { ...c, orders: c.orders.map(stamp) }));
+      }
+      return { ok: true };
+    } catch (e) {
+      console.error("addRefund:", e);
+      rollback();
+      return { ok: false, error: "Couldn't reach the server, so nothing was refunded. Check the connection and try again." };
+    }
   };
 
   // Pure-local mirror of the optimistic-update half of spendStoreCredit.

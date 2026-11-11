@@ -34,11 +34,17 @@ interface RequestOpts {
   body?: unknown;
   /** `idempotencyKey` header (refunds). */
   idempotencyKey?: string;
+  /** Longest wait for this call; DOJO_TIMEOUT_MS when not given. */
+  timeoutMs?: number;
 }
 
 /** Longest wait for one Dojo call. A timeout is reported as status 0 (network),
  *  so the till treats the result as unknown rather than failed. */
 const DOJO_TIMEOUT_MS = 15_000;
+/** A refund waits longer: the sandbox took about 14.5 s to answer each one
+ *  (2026-11-04), too close to the 15 s above. 45 s stays under nginx's usual
+ *  60 s proxy limit, so staff still get Dojo's own answer. */
+export const DOJO_REFUND_TIMEOUT_MS = 45_000;
 
 async function request<T>(opts: RequestOpts): Promise<T> {
   const cfg = dojoConfig();
@@ -56,6 +62,7 @@ async function request<T>(opts: RequestOpts): Promise<T> {
   if (opts.idempotencyKey) headers["idempotencyKey"] = opts.idempotencyKey;
 
   const started = Date.now();
+  const timeoutMs = opts.timeoutMs ?? DOJO_TIMEOUT_MS;
   if (cfg.logRequests) console.log(`[dojo →] ${opts.method} ${opts.path}  ${describeHeaders(headers)}`);
 
   let res: Response;
@@ -67,7 +74,7 @@ async function request<T>(opts: RequestOpts): Promise<T> {
       body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
       // Never cache payment calls.
       cache: "no-store",
-      signal: AbortSignal.timeout(DOJO_TIMEOUT_MS),
+      signal: AbortSignal.timeout(timeoutMs),
     });
     // Inside the try: the timeout also covers reading the body.
     text = await res.text();
@@ -79,7 +86,7 @@ async function request<T>(opts: RequestOpts): Promise<T> {
     throw new DojoApiError(
       0,
       timedOut
-        ? `Dojo didn't answer within ${DOJO_TIMEOUT_MS / 1000}s (${opts.method} ${opts.path}).`
+        ? `Dojo didn't answer within ${timeoutMs / 1000}s (${opts.method} ${opts.path}).`
         : `Network error calling Dojo: ${err instanceof Error ? err.message : String(err)}`,
       null,
     );
@@ -217,6 +224,7 @@ export function createDojoClient(): DojoGateway {
         method: "POST",
         path: `/payment-intents/${encodeURIComponent(input.paymentIntentId)}/refunds`,
         idempotencyKey: input.idempotencyKey,
+        timeoutMs: DOJO_REFUND_TIMEOUT_MS,
         body: { amount: input.amount, refundReason: input.refundReason, notes: input.notes },
       });
     },

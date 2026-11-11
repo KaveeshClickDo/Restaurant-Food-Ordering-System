@@ -14,6 +14,13 @@
  * A card refund of a sale paid on the Dojo card machine is sent to Dojo FIRST
  * (lib/dojo/refund.ts, idempotent on body.refundRequestId); only if Dojo
  * accepts is the sale voided. Other card refunds stay a record only.
+ *
+ * A tip the customer added on the card machine is money they paid too, so the
+ * refund can include it. A refund comes out of the sale first; anything above
+ * the sale total is tip, recorded in card_tip_refunded so refund_amount stays
+ * within `total`. On a card machine refund the card gets back its own part
+ * (all of a card sale, a split's card part) plus the tip; the rest of a split
+ * sale's refund is handed back in cash.
  */
 
 import { NextRequest, NextResponse } from "next/server";
@@ -50,6 +57,15 @@ export async function PATCH(
   const refundAmount = body.refundAmount && body.refundAmount > 0 ? body.refundAmount : null;
   /** Set when this request refunded the card through Dojo. */
   let cardRefund: DojoRefundOutcome | null = null;
+  const round2 = (n: number) => Math.round(n * 100) / 100;
+  /** The refund out of the sale total, and the part of it that is the card
+   *  machine tip (a refund comes out of the sale first). */
+  let salePart = refundAmount ?? 0;
+  let tipPart = 0;
+  let tipRefundedBefore = 0;
+  /** How the money goes back: to the card through Dojo, and in cash. */
+  let toCard = 0;
+  let cashBack = 0;
 
   // Refund-side gate: only managers/admins (canIssueRefund) can move money.
   if (refundAmount !== null) {
@@ -58,28 +74,45 @@ export async function PATCH(
 
     // Cap the refund at money actually collected. A gift card is prepaid money,
     // so the gift-card-covered portion is non-refundable — and `total` is already
-    // stored net of it. Guards against refunding more cash than was taken.
+    // stored net of it. Guards against refunding more cash than was taken. A tip
+    // added on the card machine was paid too, so it can be given back.
     const { data: saleForCap } = await supabaseAdmin
-      .from("pos_sales").select("total, gift_card_used, voided").eq("id", id).maybeSingle();
+      .from("pos_sales")
+      .select("total, gift_card_used, voided, payment_method, payments, card_tip_amount, card_tip_refunded")
+      .eq("id", id).maybeSingle();
     if (saleForCap && !saleForCap.voided) {
-      const moneyPaid = Number(saleForCap.total) || 0;
+      const saleMoney = Number(saleForCap.total) || 0;
+      tipRefundedBefore = Number(saleForCap.card_tip_refunded ?? 0);
+      const tipLeft = round2(Math.max(0, Number(saleForCap.card_tip_amount ?? 0) - tipRefundedBefore));
+      const moneyPaid = round2(saleMoney + tipLeft);
       if (refundAmount > moneyPaid + 0.001) {
         return NextResponse.json(
-          { ok: false, error: `Refund (${refundAmount}) cannot exceed the ${moneyPaid.toFixed(2)} paid by cash/card. The gift-card portion is non-refundable.` },
+          { ok: false, error: `Refund (${refundAmount}) cannot exceed the ${moneyPaid.toFixed(2)} paid by cash/card${tipLeft > 0 ? " (including the tip on the card machine)" : ""}. The gift-card portion is non-refundable.` },
           { status: 400 },
         );
       }
+      salePart = round2(Math.min(refundAmount, saleMoney));
+      tipPart = round2(Math.min(tipLeft, refundAmount - salePart));
+      cashBack = refundMethod === "cash" ? refundAmount : 0;
 
       // A card machine sale is refunded to the card through Dojo FIRST: if Dojo
       // refuses, nothing is voided. A sale already refunded through Dojo (an
       // earlier try whose void didn't save) isn't refunded again.
       if (refundMethod === "card") {
         const payment = await findDojoPayment("pos_sale", id);
-        if (payment && !(await hasDojoRefund("pos_sale", id))) {
+        // The card gets back its own part plus the tip; for a split sale any
+        // rest is cash.
+        const cardLeg = saleForCap.payment_method === "split"
+          ? round2(((saleForCap.payments ?? []) as { method: string; amount: number }[])
+              .filter((p) => p.method === "card").reduce((s, p) => s + Number(p.amount || 0), 0))
+          : saleMoney;
+        toCard = payment ? round2(Math.min(refundAmount, cardLeg + tipLeft)) : refundAmount;
+        cashBack = round2(refundAmount - toCard);
+        if (payment && toCard > 0 && !(await hasDojoRefund("pos_sale", id))) {
           try {
             cardRefund = await refundDojoPayment({
               paymentIntentId: payment.paymentIntentId,
-              amount: refundAmount,
+              amount: toCard,
               requestId: body.refundRequestId ?? `pos-sale-void-${id}`,
               reason,
               sourceType: "pos_sale",
@@ -105,7 +138,9 @@ export async function PATCH(
       void_reason:   reason,
       voided_at:     new Date().toISOString(),
       refund_method: refundMethod,
-      refund_amount: refundAmount,
+      // Within `total`: the tip part goes in card_tip_refunded.
+      refund_amount: refundAmount === null ? null : salePart,
+      ...(tipPart > 0 ? { card_tip_refunded: round2(tipRefundedBefore + tipPart) } : {}),
     })
     .eq("id", id)
     .eq("voided", false)
@@ -135,7 +170,8 @@ export async function PATCH(
   // points they paid for); a refund reverses only what was handed back. Capped
   // at what THIS sale earned and bounded by the ledger, so retries / replays are
   // no-ops. Runs only when THIS request flipped the row (`updated` non-null).
-  deductLoyaltyPoints(updated.customer_id as string | null, refundAmount ?? 0, { posSaleId: id, note: "POS void refund" }).catch((err) =>
+  // Points were earned on the sale, not on a tip added on the card machine.
+  deductLoyaltyPoints(updated.customer_id as string | null, refundAmount === null ? 0 : salePart, { posSaleId: id, note: "POS void refund" }).catch((err) =>
     console.error(`[pos/sales/${id}] loyalty clawback on void:`, err instanceof Error ? err.message : err),
   );
 
@@ -170,8 +206,8 @@ export async function PATCH(
     const { data: saleRow } = await supabaseAdmin
       .from("pos_sales").select("total").eq("id", id).maybeSingle();
     const moneyPaid = Number(saleRow?.total) || 0;
-    const isFullRefund = refundAmount >= moneyPaid - 0.001;
-    orderPatch.refunded_amount = refundAmount;
+    const isFullRefund = salePart >= moneyPaid - 0.001;
+    orderPatch.refunded_amount = salePart;
     orderPatch.payment_status  = isFullRefund ? "refunded" : "partially_refunded";
   } else {
     // Void with NO refund — the till kept the money, so the cancelled mirror is
@@ -188,5 +224,6 @@ export async function PATCH(
     ok: true,
     id: updated.id,
     cardRefund: cardRefund ? { status: cardRefund.status, refundedAmount: cardRefund.refundedAmount } : null,
+    refund: refundAmount === null ? null : { salePart, tipPart, toCard, cash: cashBack },
   });
 }

@@ -8,6 +8,7 @@ import { uuid } from "@/lib/uuid";
 import { POSSale } from "@/types/pos";
 import { X, Banknote, CreditCard, WifiOff, AlertTriangle } from "lucide-react";
 import { fmt } from "../_utils";
+import { cardLegAmount } from "@/lib/posCardPayment";
 
 /** A sale paid on the Dojo card machine (GET /api/pos/dojo/sales/[id]). */
 interface CardMachinePayment {
@@ -39,6 +40,9 @@ export default function VoidSaleModal({ sale, onClose }: { sale: POSSale; onClos
         if (cancelled || !json.ok) return;
         setCardMachine(json.payment ?? null);
         setTestMode(Boolean(json.test));
+        // A split sale whose card part was on the machine: refund the card part
+        // to the card (and the rest in cash) unless staff choose otherwise.
+        if (json.payment && sale.paymentMethod === "split") setRefundMethod("card");
       })
       .catch(() => { /* treated as a sale not paid on the card machine */ });
     return () => { cancelled = true; };
@@ -57,7 +61,10 @@ export default function VoidSaleModal({ sale, onClose }: { sale: POSSale; onClos
   // stored net of the gift card, so it IS the refundable cash/card amount.
   // giftUsed drives the "non-refundable" note shown to the cashier below.
   const giftUsed  = sale.giftCardUsed ?? 0;
-  const moneyPaid = Math.max(0, sale.total);
+  // A tip the customer added on the card machine was paid too, so it can be
+  // given back: it's on top of `total`, and a refund takes from the sale first.
+  const cardTipLeft = Math.max(0, Math.round(((sale.cardTipAmount ?? 0) - (sale.cardTipRefunded ?? 0)) * 100) / 100);
+  const moneyPaid = Math.max(0, Math.round((sale.total + cardTipLeft) * 100) / 100);
   const [voidReason, setVoidReason]   = useState("");
   const [refundMethod, setRefundMethod] = useState<"cash" | "card" | "none">(sale.paymentMethod === "card" ? "card" : "cash");
   const [refundAmount, setRefundAmount] = useState(moneyPaid.toFixed(2));
@@ -89,6 +96,12 @@ export default function VoidSaleModal({ sale, onClose }: { sale: POSSale; onClos
   }
 
   const toCard = !offlineCancel && refundMethod === "card" && cardMachine !== null;
+  // What goes back to the card through Dojo (its own part plus the tip) and
+  // what is handed back in cash (the rest of a split sale's refund).
+  const refundNum = Math.max(0, parseFloat(refundAmount) || 0);
+  const cardBack  = toCard ? Math.min(refundNum, Math.round((cardLegAmount(sale) + cardTipLeft) * 100) / 100) : 0;
+  const cashBack  = toCard ? Math.max(0, Math.round((refundNum - cardBack) * 100) / 100) : 0;
+  const tipInRefund = Math.max(0, Math.round((refundNum - sale.total) * 100) / 100);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
@@ -183,6 +196,13 @@ export default function VoidSaleModal({ sale, onClose }: { sale: POSSale; onClos
                   {fmt(giftUsed, settings.currencySymbol)} paid by gift card is non-refundable · max refund {fmt(moneyPaid, settings.currencySymbol)}
                 </p>
               )}
+              {cardTipLeft > 0 && (
+                <p className="text-slate-400 text-xs mt-1">
+                  {tipInRefund > 0
+                    ? `Includes the ${fmt(tipInRefund, settings.currencySymbol)} tip added on the card machine`
+                    : `The ${fmt(cardTipLeft, settings.currencySymbol)} tip added on the card machine is kept`}
+                </p>
+              )}
             </div>
           )}
 
@@ -196,7 +216,8 @@ export default function VoidSaleModal({ sale, onClose }: { sale: POSSale; onClos
               {refundMethod === "cash" ? <Banknote size={16} /> : <CreditCard size={16} />}
               <span className="text-sm font-semibold">
                 {toCard
-                  ? `Refund ${fmt(parseFloat(refundAmount) || 0, settings.currencySymbol)} to ${cardName} through Dojo`
+                  ? `Refund ${fmt(cardBack, settings.currencySymbol)} to ${cardName} through Dojo`
+                    + (cashBack > 0 ? ` and ${fmt(cashBack, settings.currencySymbol)} in cash` : "")
                   : `Return ${fmt(parseFloat(refundAmount) || 0, settings.currencySymbol)} in ${refundMethod === "cash" ? "cash to customer" : "card refund"}`}
               </span>
             </div>

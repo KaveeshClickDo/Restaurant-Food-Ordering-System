@@ -122,6 +122,9 @@ export default function ReceiptModal({ receipt, onClose, onRefund, thermalPrint,
   // Re-add the card for the gross goods TOTAL line.
   const giftUsed = receipt.giftCardUsed ?? 0;
   const grossTotal = Math.round((receipt.total + giftUsed) * 100) / 100;
+  // A tip added on the card machine is on top of the total: the card paid both.
+  const cardTip = receipt.cardTipAmount ?? 0;
+  const cardTotal = Math.round((receipt.total + cardTip) * 100) / 100;
 
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/70 backdrop-blur-sm p-4">
@@ -219,6 +222,19 @@ export default function ReceiptModal({ receipt, onClose, onRefund, thermalPrint,
                 <span className="text-slate-400 text-xs">Payment</span>
                 <span className="text-slate-300 text-xs">{payLabel}</span>
               </div>
+            )}
+            {/* A tip the customer added on the card machine, apart from the total */}
+            {cardTip > 0 && (
+              <>
+                <div className="flex items-center justify-between">
+                  <span className="text-slate-400 text-xs">Tip on card machine</span>
+                  <span className="text-slate-300 text-xs">{fmtCur(cardTip, sym)}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-white font-bold text-sm">Card total</span>
+                  <span className="text-white font-bold text-sm">{fmtCur(cardTotal, sym)}</span>
+                </div>
+              </>
             )}
           </div>
 

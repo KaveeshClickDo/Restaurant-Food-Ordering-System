@@ -19,6 +19,7 @@
  */
 
 import type { POSSale, POSSettings } from "@/types/pos";
+import { cardChargedTotal, cardDetailLine } from "./posCardPayment";
 import type { AdminSettings, PrinterSettings, ReceiptSettings } from "@/types";
 import type { DineInOrder } from "@/components/pos/_receipts";
 import { ReceiptBuilder, logoToRaster, paperDotWidth, resolveActivePrinter } from "./escpos";
@@ -110,19 +111,27 @@ export function buildPOSReceiptBytes(
     const tail = sale.giftCard?.code ? ` (..${sale.giftCard.code.slice(-4)})` : "";
     b.twoCol(`Gift Card${tail}`, money(giftAmt, sym), W);
   }
+  // The card used on the card machine, printed under the card line (ASCII
+  // separator: the printer's code page has no "·").
+  const cardDetail = cardDetailLine(sale.cardPayment, "  ");
   if (sale.paymentMethod === "split") {
-    for (const p of sale.payments) b.twoCol(p.method, money(p.amount, sym), W);
+    for (const p of sale.payments) {
+      b.twoCol(p.method, money(p.amount, sym), W);
+      if (p.method === "card" && cardDetail) b.line(`  ${cardDetail}`);
+    }
   } else if (sale.paymentMethod === "cash") {
     b.twoCol("Cash", money(sale.cashTendered ?? sale.total, sym), W);
     if ((sale.changeGiven ?? 0) > 0) b.twoCol("Change", money(sale.changeGiven!, sym), W);
   } else if (sale.paymentMethod !== "gift_card") {
     b.twoCol(sale.paymentMethod, money(sale.total, sym), W);
+    if (cardDetail) b.line(`  ${cardDetail}`);
   }
-  // A tip the customer added on the card machine, apart from the total.
+  // A tip the customer added on the card machine, apart from the total. The
+  // card paid its part (all of it, or a split's card part) plus the tip.
   const cardTip = sale.cardTipAmount ?? 0;
   if (cardTip > 0) {
     b.twoCol("Tip on card machine", money(cardTip, sym), W);
-    b.twoCol("Card total", money(Math.round((sale.total + cardTip) * 100) / 100, sym), W);
+    b.twoCol("Card total", money(cardChargedTotal(sale), sym), W);
   }
 
   // ── Footer ──────────────────────────────────────────────────────────────--
@@ -200,6 +209,12 @@ export function buildDineInReceiptBytes(
     b.bold(true).twoCol(`PAID (${payLabel})`, money(order.total, sym), W).bold(false);
   } else {
     b.twoCol("Payment", payLabel, W);
+  }
+  // A tip the customer added on the card machine, apart from the total.
+  const dineCardTip = order.cardTipAmount ?? 0;
+  if (dineCardTip > 0) {
+    b.twoCol("Tip on card machine", money(dineCardTip, sym), W);
+    b.twoCol("Card total", money(Math.round((order.total + dineCardTip) * 100) / 100, sym), W);
   }
 
   b.separator("=", W).align("center").feed(1);

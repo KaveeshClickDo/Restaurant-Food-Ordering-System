@@ -46,6 +46,8 @@ interface CollectionOrder {
   vat_inclusive?: boolean | null;
   store_credit_used?: number | null;
   gift_card_used?: number | null;
+  /** Tip added on the card machine (Dojo's figure), apart from the total. */
+  card_tip_amount?: number | null;
 }
 
 type Tender = "cash" | "card" | "split";
@@ -87,7 +89,7 @@ function customerName(o: CollectionOrder): string {
 // stored). For a History row `method` is left out and the order's own stored
 // payment method/status are used instead (also correctly surfaces REFUNDED /
 // PAID (partly refunded), which CollectionReceiptModal already renders).
-function toReceipt(o: CollectionOrder, method?: Tender): { order: Order; customer: Customer } {
+function toReceipt(o: CollectionOrder, method?: Tender, cardTip?: number): { order: Order; customer: Customer } {
   const order: Order = {
     id: o.id,
     customerId: o.customer_id,
@@ -113,6 +115,7 @@ function toReceipt(o: CollectionOrder, method?: Tender): { order: Order; custome
     vatInclusive: o.vat_inclusive ?? true,
     storeCreditUsed: o.store_credit_used ?? 0,
     giftCardUsed: o.gift_card_used ?? 0,
+    cardTipAmount: cardTip ?? Number(o.card_tip_amount ?? 0),
     scheduledTime: o.scheduled_time ?? undefined,
   };
   const customer = {
@@ -205,14 +208,17 @@ export default function CollectionView() {
   async function settlePayment(order: CollectionOrder, method: Tender, dojo?: DojoSaleResult): Promise<true | string> {
     setError("");
     let message: string | null = null;
+    let cardTip = 0;
     try {
       const r = await fetch(`${apiBase()}/api/pos/orders/${order.id}/settle`, {
         method:  "POST",
         headers: { "Content-Type": "application/json" },
         body:    JSON.stringify({ paymentMethod: method, ...(dojo ? { dojo } : {}) }),
       });
-      const json = await r.json().catch(() => ({})) as { ok?: boolean; error?: string };
+      const json = await r.json().catch(() => ({})) as { ok?: boolean; error?: string; cardTipAmount?: number };
       if (!r.ok || !json.ok) message = json.error ?? "Could not take payment. Please try again.";
+      // A tip added on the card machine, as the server recorded it from Dojo.
+      else cardTip = json.cardTipAmount ?? dojo?.tipAmount ?? 0;
     } catch {
       message = "Network error. Please try again.";
     }
@@ -220,7 +226,7 @@ export default function CollectionView() {
     if (message) {
       setError(message);
     } else {
-      setReceipt(toReceipt(order, method));
+      setReceipt(toReceipt(order, method, cardTip));
     }
     setPayTarget(null);
     refresh();
@@ -507,6 +513,8 @@ export default function CollectionView() {
       {/* Payment modal — gift card hidden (already applied at online checkout). */}
       {payTarget && (
         <PaymentModal
+          // One instance per order: its card machine payment belongs to this order.
+          key={payTarget.id}
           total={payTarget.total}
           currencySymbol={sym}
           isOffline={!isOnline}

@@ -89,6 +89,9 @@ export const PosDineInRefundSchema = z.object({
   refundAmount: PositiveMoney,
   refundMethod: z.enum(["cash", "card"]).optional(),
   reason:       NonEmptyString,
+  /** For a card machine bill's card refund: one id per refund screen, resent
+   *  on retries, so Dojo can't refund twice. */
+  refundRequestId: z.string().min(8).max(64).optional(),
 });
 
 export const PosClockSchema = z.object({

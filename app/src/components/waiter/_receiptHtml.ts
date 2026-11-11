@@ -20,6 +20,12 @@ export function buildReceiptHtml(receipt: WaiterReceipt, restaurantName: string,
   // Re-add the card for the gross goods TOTAL line.
   const amountPaid = receipt.total;
   const grossTotal = Math.round((receipt.total + giftUsed) * 100) / 100;
+  // A tip the customer added on the card machine, apart from the total.
+  const cardTip = receipt.cardTipAmount ?? 0;
+  const cardTipHtml = cardTip > 0
+    ? `<tr><td style="font-size:11px;color:#6b7280">Tip on card machine</td><td style="font-size:11px;color:#6b7280;text-align:right">${sym}${cardTip.toFixed(2)}</td></tr>
+    <tr><td style="font-size:12px;font-weight:700">Card total</td><td style="font-size:12px;font-weight:700;text-align:right">${sym}${(Math.round((amountPaid + cardTip) * 100) / 100).toFixed(2)}</td></tr>`
+    : "";
   const rcptDiscount = receipt.discountAmount ?? 0;
   const rcptTip = receipt.tipAmount ?? 0;
   const rcptServiceFee = receipt.serviceFeeAmount ?? 0;
@@ -58,6 +64,7 @@ export function buildReceiptHtml(receipt: WaiterReceipt, restaurantName: string,
     <tr><td style="font-size:13px;font-weight:700">TOTAL</td><td style="font-size:13px;font-weight:700;text-align:right">${sym}${grossTotal.toFixed(2)}</td></tr>
     ${giftUsed > 0 ? `<tr><td style="font-size:11px;color:#7c3aed">Gift card</td><td style="font-size:11px;color:#7c3aed;text-align:right">−${sym}${giftUsed.toFixed(2)}</td></tr>
     <tr><td style="font-size:12px;font-weight:700">PAID (${payLabel})</td><td style="font-size:12px;font-weight:700;text-align:right">${sym}${amountPaid.toFixed(2)}</td></tr>` : `<tr><td style="font-size:11px;color:#6b7280">Payment</td><td style="font-size:11px;color:#6b7280;text-align:right">${payLabel}</td></tr>`}
+    ${cardTipHtml}
   </table>
   <hr style="border:none;border-top:1px dashed #d1d5db;margin:12px 0">
   ${thankYou ? `<div style="text-align:center;font-weight:600;color:#374151;font-size:12px">${thankYou}</div>` : ""}

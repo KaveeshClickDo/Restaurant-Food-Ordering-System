@@ -10,29 +10,17 @@
  *
  * Dine-in orders store the NET total (gift card already deducted, kept separately
  * in gift_card_used). A gift card is prepaid money, so only the cash/card portion
- * is refundable — and that's exactly what `total` holds, so the cap is Σ(total).
- *
- * Uses the service-role key — the anon role cannot UPDATE orders.
+ * is refundable, plus any tip added on the card machine. A card refund of a bill
+ * paid on the Dojo card machine goes back to the card through Dojo first. The
+ * money rules are in lib/dineInRefund.ts, shared with the waiter app.
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { requirePosPermission } from "@/lib/posPermissions";
 import { parseBody } from "@/lib/apiValidation";
 import { PosDineInRefundSchema } from "@/lib/schemas/pos";
-
-interface RefundRecord {
-  id: string;
-  orderId: string;
-  amount: number;
-  type: "full" | "partial";
-  reason: string;
-  method: string;
-  processedAt: string;
-  processedBy: string;
-}
-
-const round2 = (n: number) => Math.round(n * 100) / 100;
+import { refundDineInOrders } from "@/lib/dineInRefund";
+import { dojoErrorResponse } from "@/lib/dojo/respond";
 
 export async function POST(req: NextRequest) {
   const gate = await requirePosPermission("canIssueRefund");
@@ -43,94 +31,19 @@ export async function POST(req: NextRequest) {
 
   const parsed = await parseBody(req, PosDineInRefundSchema);
   if (!parsed.ok) return NextResponse.json({ ok: false, error: parsed.error }, { status: parsed.status });
-  const { orderIds, refundAmount, refundMethod, reason } = parsed.data;
+  const { orderIds, refundAmount, refundMethod, reason, refundRequestId } = parsed.data;
 
-  // Only settled (delivered) dine-in orders are refundable. gift_card_used lets
-  // us cap the refund at the real money taken (the gift-card portion is prepaid
-  // and therefore non-refundable).
-  const { data: orders, error: fetchErr } = await supabaseAdmin
-    .from("orders")
-    .select("id, total, refunds, refunded_amount, gift_card_used")
-    .in("id", orderIds)
-    .eq("fulfillment", "dine-in")
-    .eq("status", "delivered");
-
-  if (fetchErr) {
-    console.error("pos/orders/dine-in/refund fetch:", fetchErr.message);
-    return NextResponse.json({ ok: false, error: fetchErr.message }, { status: 500 });
-  }
-  if (!orders || orders.length === 0) {
-    return NextResponse.json({ ok: false, error: "No delivered orders found for these IDs." }, { status: 404 });
-  }
-
-  // Refundable money = cash/card collected (gift card excluded), net of any
-  // prior refunds on these orders.
-  const moneyCap      = round2(orders.reduce((s, o) => s + (Number(o.total) || 0), 0));
-  const priorRefunded = round2(orders.reduce((s, o) => s + (Number(o.refunded_amount) || 0), 0));
-  const remaining     = round2(moneyCap - priorRefunded);
-  if (refundAmount > remaining + 0.001) {
-    return NextResponse.json(
-      { ok: false, error: `Refund (${refundAmount.toFixed(2)}) cannot exceed the ${remaining.toFixed(2)} refundable. The gift-card portion is non-refundable.` },
-      { status: 400 },
-    );
-  }
-
-  // "refunded" = the customer now has ALL their money back, cumulatively —
-  // a second partial refund that clears the balance still counts as full.
-  const isFullRefund     = priorRefunded + refundAmount >= moneyCap - 0.001;
-  const newPaymentStatus = isFullRefund ? "refunded" : "partially_refunded";
-  const processedAt      = new Date().toISOString();
-
-  // Distribute the refund across orders in proportion to each order's MONEY paid
-  // (gift card netted out) so a multi-order table bill splits fairly.
-  const updates = orders.map((o) => {
-    const orderMoney   = Number(o.total) || 0;
-    const orderShare   = moneyCap > 0 ? (orderMoney / moneyCap) * refundAmount : 0;
-    const roundedShare = round2(orderShare);
-
-    const existingRefunds: RefundRecord[] = Array.isArray(o.refunds) ? o.refunds as RefundRecord[] : [];
-    const newRecord: RefundRecord = {
-      id:          crypto.randomUUID(),
-      orderId:     o.id,
-      amount:      roundedShare,
-      type:        isFullRefund ? "full" : "partial",
-      reason,
-      method:      refundMethod ?? "cash",
-      processedAt,
-      processedBy: actorName,
-    };
-
-    return {
-      id:              o.id,
-      payment_status:  newPaymentStatus,
-      refunds:         [...existingRefunds, newRecord],
-      refunded_amount: round2((Number(o.refunded_amount ?? 0)) + roundedShare),
-    };
+  const result = await refundDineInOrders({
+    orderIds,
+    refundAmount,
+    refundMethod: refundMethod ?? "cash",
+    reason,
+    actorName,
+    staffId: gate.staff?.id ?? null,
+    refundRequestId,
+    logTag: "pos/orders/dine-in/refund",
   });
-
-  // `status` is intentionally NOT touched: the order was delivered and the
-  // refund only changes its payment state (payment_status is the source of
-  // truth for refunds, matching the admin refund route).
-  const errors: string[] = [];
-  await Promise.all(
-    updates.map(async ({ id, payment_status, refunds, refunded_amount }) => {
-      const { error } = await supabaseAdmin
-        .from("orders")
-        .update({ payment_status, refunds, refunded_amount })
-        .eq("id", id);
-      if (error) errors.push(`${id}: ${error.message}`);
-    }),
-  );
-
-  if (errors.length > 0) {
-    console.error("pos/orders/dine-in/refund update:", errors);
-    return NextResponse.json({ ok: false, error: errors.join("; ") }, { status: 500 });
-  }
-
-  return NextResponse.json({
-    ok:            true,
-    refunded:      orders.length,
-    totalRefunded: refundAmount,
-    type:          newPaymentStatus,
-  });
+  if ("dojoError" in result) return dojoErrorResponse(result.dojoError, "refund");
+  if (!result.ok) return NextResponse.json({ ok: false, error: result.error }, { status: result.status });
+  return NextResponse.json(result);
 }

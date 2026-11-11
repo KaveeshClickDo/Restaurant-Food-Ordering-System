@@ -8,13 +8,14 @@
 
 import { useState, useRef } from "react";
 import { useApp } from "@/context/AppContext";
+import { uuid } from "@/lib/uuid";
 import {
   ShieldAlert, AlertTriangle, RotateCcw, X, Banknote, CreditCard, Loader2,
 } from "lucide-react";
 import { fmtCur } from "./_utils";
 
 export default function VoidRefundModal({
-  mode, orderIds, total, tableLabel, waiterName, isSenior, onSuccess, onClose,
+  mode, orderIds, total, tableLabel, waiterName, isSenior, onSuccess, onClose, cardTip = 0,
 }: {
   mode: "void" | "refund";
   orderIds: string[];
@@ -24,16 +25,23 @@ export default function VoidRefundModal({
   isSenior: boolean;
   onSuccess: () => void;
   onClose: () => void;
+  /** A tip the customer added on the card machine: paid too, so refundable. */
+  cardTip?: number;
 }) {
   const { settings } = useApp();
   const sym = settings.currency?.symbol ?? "£";
   const [reason, setReason] = useState("");
   const [refundType, setRefundType] = useState<"full" | "partial">("full");
   const [refundAmountStr, setRefundAmountStr] = useState("");
-  const [refundMethod, setRefundMethod] = useState<"cash" | "card">("cash");
+  const [refundMethod, setRefundMethod] = useState<"cash" | "card">(cardTip > 0 ? "card" : "cash");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const inFlight = useRef(false);
+  // One id per refund screen, resent on retries: a bill paid on the card
+  // machine is refunded through Dojo with it, so a retry can't refund twice.
+  const [requestId] = useState(() => uuid());
+  // Everything the customer paid: the bill, plus a tip on the card machine.
+  const refundable = Math.round((total + Math.max(0, cardTip)) * 100) / 100;
 
   if (!isSenior) {
     return (
@@ -75,20 +83,22 @@ export default function VoidRefundModal({
   async function handleRefund() {
     if (inFlight.current) return;
     if (!reason.trim()) { setError("Please enter a reason."); return; }
-    const amount = refundType === "full" ? total : parseFloat(refundAmountStr);
+    const amount = refundType === "full" ? refundable : parseFloat(refundAmountStr);
     if (isNaN(amount) || amount <= 0) { setError("Enter a valid refund amount."); return; }
-    if (amount > total + 0.001) { setError(`Refund cannot exceed ${fmtCur(total, sym)}.`); return; }
+    if (amount > refundable + 0.001) { setError(`Refund cannot exceed ${fmtCur(refundable, sym)}.`); return; }
     inFlight.current = true;
     setLoading(true); setError(null);
     try {
       const res = await fetch("/api/waiter/refund", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ orderIds, refundAmount: amount, refundMethod, reason: reason.trim(), refundedBy: waiterName }),
+        body: JSON.stringify({ orderIds, refundAmount: amount, refundMethod, reason: reason.trim(), refundedBy: waiterName, refundRequestId: requestId }),
       });
       const d = await res.json().catch(() => ({})) as { ok?: boolean; error?: string };
       if (d.ok) onSuccess();
       else setError(d.error ?? "Failed to process refund.");
+    } catch {
+      setError("Couldn't reach the server. Check the connection and try again.");
     } finally {
       inFlight.current = false;
       setLoading(false);
@@ -135,7 +145,7 @@ export default function VoidRefundModal({
                         : "bg-slate-700 border-slate-600 text-slate-300 hover:border-slate-500"
                         }`}
                     >
-                      {t === "full" ? `Full ${fmtCur(total, sym)}` : "Partial"}
+                      {t === "full" ? `Full ${fmtCur(refundable, sym)}` : "Partial"}
                     </button>
                   ))}
                 </div>
@@ -143,13 +153,18 @@ export default function VoidRefundModal({
                   <input
                     type="number"
                     min="0.01"
-                    max={total}
+                    max={refundable}
                     step="0.01"
                     value={refundAmountStr}
                     onChange={(e) => setRefundAmountStr(e.target.value)}
-                    placeholder={`Max ${fmtCur(total, sym)}`}
+                    placeholder={`Max ${fmtCur(refundable, sym)}`}
                     className="w-full bg-slate-700 border border-slate-600 text-white placeholder-slate-500 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-amber-500"
                   />
+                )}
+                {cardTip > 0 && (
+                  <p className="text-slate-400 text-xs mt-2">
+                    The full refund includes the {fmtCur(cardTip, sym)} tip added on the card machine.
+                  </p>
                 )}
               </div>
 
@@ -172,6 +187,12 @@ export default function VoidRefundModal({
                     </button>
                   ))}
                 </div>
+                {refundMethod === "card" && (
+                  <p className="text-slate-400 text-xs mt-2 leading-relaxed">
+                    Paid on the card machine? The money goes straight back to the card through Dojo.
+                    If Dojo refuses, nothing is refunded.
+                  </p>
+                )}
               </div>
             </>
           )}

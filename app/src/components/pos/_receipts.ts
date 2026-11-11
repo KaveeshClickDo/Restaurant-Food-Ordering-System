@@ -1,5 +1,6 @@
 import { POSSale, POSSettings } from "@/types/pos";
 import type { ReceiptSettings } from "@/types";
+import { cardChargedTotal, cardDetailLine } from "@/lib/posCardPayment";
 
 export interface DineInOrder {
   id: string;
@@ -24,6 +25,11 @@ export interface DineInOrder {
   refundedAmount?: number;
   /** Amount of the bill paid by gift card (gross total − this = money in). */
   giftCardUsed?: number;
+  /** A tip the customer added on the card machine (Dojo's figure). Not part
+   *  of `total`: the card paid total + this. On the bill's anchor order. */
+  cardTipAmount?: number;
+  /** The part of cardTipAmount given back with a refund. */
+  cardTipRefunded?: number;
 }
 
 /**
@@ -67,10 +73,17 @@ export function buildReceiptHtml(sale: POSSale, settings: POSSettings, receipt: 
     paymentHtml += `<tr><td style="font-size:11px;color:#6b7280">Gift Card${codeStr}</td><td style="font-size:11px;color:#6b7280;text-align:right">${sym}${gcAmount.toFixed(2)}</td></tr>`;
   }
 
+  // The card used on the card machine, under the card line.
+  const cardDetail = cardDetailLine(sale.cardPayment);
+  const cardDetailRow = cardDetail
+    ? `<tr><td colspan="2" style="font-size:10px;color:#9ca3af">${cardDetail}</td></tr>`
+    : "";
+
   // 2. Show the remaining amount paid by Cash/Card/Split
   if (sale.paymentMethod === "split") {
     paymentHtml += sale.payments.map((p) =>
       `<tr><td style="font-size:11px;color:#6b7280;text-transform:capitalize">${p.method}</td><td style="font-size:11px;color:#6b7280;text-align:right">${sym}${p.amount.toFixed(2)}</td></tr>`
+      + (p.method === "card" ? cardDetailRow : "")
     ).join("");
   } else if (sale.paymentMethod === "cash") {
     const cashPaid = sale.cashTendered ?? sale.total;
@@ -84,12 +97,14 @@ export function buildReceiptHtml(sale: POSSale, settings: POSSettings, receipt: 
     // Card or other payment methods — total is already net = the amount charged.
     const charged = sale.total;
     paymentHtml += `<tr><td style="font-size:11px;color:#6b7280;text-transform:capitalize">${sale.paymentMethod}</td><td style="font-size:11px;color:#6b7280;text-align:right">${sym}${charged.toFixed(2)}</td></tr>`;
+    paymentHtml += cardDetailRow;
   }
 
-  // 3. A tip the customer added on the card machine, apart from the total.
+  // 3. A tip the customer added on the card machine, apart from the total. The
+  //    card paid its part (all of it, or a split's card part) plus the tip.
   const cardTip = sale.cardTipAmount ?? 0;
   if (cardTip > 0) {
-    const cardTotal = Math.round((sale.total + cardTip) * 100) / 100;
+    const cardTotal = cardChargedTotal(sale);
     paymentHtml += `<tr><td style="font-size:11px;color:#6b7280">Tip on card machine</td><td style="font-size:11px;color:#6b7280;text-align:right">${sym}${cardTip.toFixed(2)}</td></tr>`;
     paymentHtml += row("Card total", `${sym}${cardTotal.toFixed(2)}`, true);
   }
@@ -179,6 +194,8 @@ export function buildDineInReceiptHtml(order: DineInOrder, settings: POSSettings
     <tr><td style="font-size:13px;font-weight:700">TOTAL</td><td style="font-size:13px;font-weight:700;text-align:right">${sym}${grossTotal.toFixed(2)}</td></tr>
     ${giftCardUsed > 0 ? `<tr><td style="font-size:11px;color:#7c3aed">Gift card</td><td style="font-size:11px;color:#7c3aed;text-align:right">−${sym}${giftCardUsed.toFixed(2)}</td></tr>
     <tr><td style="font-size:12px;font-weight:700">PAID (${payLabel})</td><td style="font-size:12px;font-weight:700;text-align:right">${sym}${amountPaid.toFixed(2)}</td></tr>` : `<tr><td style="font-size:11px;color:#6b7280">Payment</td><td style="font-size:11px;color:#6b7280;text-align:right">${payLabel}</td></tr>`}
+    ${(order.cardTipAmount ?? 0) > 0 ? `<tr><td style="font-size:11px;color:#6b7280">Tip on card machine</td><td style="font-size:11px;color:#6b7280;text-align:right">${sym}${(order.cardTipAmount ?? 0).toFixed(2)}</td></tr>
+    <tr><td style="font-size:12px;font-weight:700">Card total</td><td style="font-size:12px;font-weight:700;text-align:right">${sym}${(Math.round((amountPaid + (order.cardTipAmount ?? 0)) * 100) / 100).toFixed(2)}</td></tr>` : ""}
   </table>
   <hr style="border:none;border-top:1px dashed #d1d5db;margin:12px 0">
   ${receipt.thankYouMessage ? `<div style="text-align:center;font-weight:600;font-size:12px">${receipt.thankYouMessage}</div>` : ""}

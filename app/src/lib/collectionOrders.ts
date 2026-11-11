@@ -21,7 +21,7 @@ const ORDER_SELECT = `
   id, items, total, note, status, payment_method, payment_status,
   date, scheduled_time, customer_id,
   service_fee, coupon_code, coupon_discount, vat_amount, vat_inclusive,
-  store_credit_used, gift_card_used,
+  store_credit_used, gift_card_used, card_tip_amount,
   customers ( name, phone )
 `;
 
@@ -37,6 +37,8 @@ export interface MutationResult {
   ok: boolean;
   status: number;
   error?: string;
+  /** Settle on the card machine: the tip the customer added there, from Dojo's record. */
+  cardTipAmount?: number;
 }
 
 /**
@@ -89,7 +91,10 @@ export async function settleCollectionOrder(
 ): Promise<MutationResult> {
   // A retried save after a card payment: already done if the payment is recorded.
   if (opts?.dojo?.paymentIntentId && await isDojoPaymentRecorded(opts.dojo.paymentIntentId, "collection")) {
-    return { ok: true, status: 200 };
+    // Already settled by an earlier try whose reply was lost: report its tip too.
+    const { data: paid } = await supabaseAdmin
+      .from("dojo_payments").select("tip_amount").eq("payment_intent_id", opts.dojo.paymentIntentId).maybeSingle();
+    return { ok: true, status: 200, cardTipAmount: Math.round(Number(paid?.tip_amount ?? 0) * 100) / 100 };
   }
 
   const { data: order, error: fetchErr } = await supabaseAdmin
@@ -130,13 +135,23 @@ export async function settleCollectionOrder(
   );
 
   // Central record of the Dojo card-terminal payment, if this was settled on one.
+  let cardTipAmount = 0;
   if (opts?.dojo?.paymentIntentId) {
-    await recordDojoPayment({
+    const recorded = await recordDojoPayment({
       result: opts.dojo, sourceType: "collection", sourceId: id, amount: Number(order.total), staffId: opts.staffId ?? null,
     });
+    // The payment it was paid with (for a refund to the card), and a tip the
+    // customer added on the machine as Dojo recorded it, apart from the total.
+    const tip = Math.round(Number(recorded?.tipAmount ?? 0) * 100) / 100;
+    const { error: tipError } = await supabaseAdmin
+      .from("orders")
+      .update({ dojo_payment_intent_id: opts.dojo.paymentIntentId, ...(tip > 0 ? { card_tip_amount: tip } : {}) })
+      .eq("id", id);
+    if (tipError) console.error("[collectionOrders] card payment / tip:", tipError.message);
+    else cardTipAmount = tip;
   }
 
-  return { ok: true, status: 200 };
+  return { ok: true, status: 200, cardTipAmount };
 }
 
 /**

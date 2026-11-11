@@ -14,7 +14,7 @@
  * the gift_cards table (not pos_sales) so it is never double-counted.
  */
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { apiBase } from "@/lib/apiBase";
 import { Gift, X, Banknote, CreditCard, CheckCircle, Loader2 } from "lucide-react";
 import { fmt } from "./_utils";
@@ -38,6 +38,8 @@ export default function SellGiftCardModal({ card, currencySymbol, onClose, onSol
   dojoEnabled?: boolean;
 }) {
   const [paymentMethod, setPaymentMethod] = useState<"cash" | "card">("cash");
+  /** This card's Dojo payment intent, kept across Back so a retry reuses it. */
+  const dojoIntent = useRef<string | null>(null);
   const [email, setEmail] = useState("");
   const [name, setName] = useState("");
   const [sendEmail, setSendEmail] = useState(true);
@@ -147,6 +149,7 @@ export default function SellGiftCardModal({ card, currencySymbol, onClose, onSol
               onManualFallback={() => { setCardFlow("none"); void handleSell(); }}
               onBack={() => setCardFlow("none")}
               onActiveChange={setDojoActive}
+              intentMemory={dojoIntent}
             />
           </div>
         ) : cardFlow === "choose" ? (

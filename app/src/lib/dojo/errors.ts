@@ -67,6 +67,15 @@ export function describeDojoError(err: DojoApiError, op: DojoOp): DescribedDojoE
       message: "The card machine isn't set up correctly. Ask an admin to check the Dojo API key.",
     };
   }
+  if (op === "refund" && (s === 0 || s >= 500)) {
+    // The refund may have gone through: a retry from the same screen re-sends
+    // its idempotency key, so Dojo can't make it twice, but staff should look.
+    return {
+      httpStatus: 502,
+      code: "network",
+      message: "No answer from Dojo about this refund, so it may still go through. Check the payment in Dojo's portal before trying again.",
+    };
+  }
   if (s === 0 || s >= 500) {
     return {
       httpStatus: 502,

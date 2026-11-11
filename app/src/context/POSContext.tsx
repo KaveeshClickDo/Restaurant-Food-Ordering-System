@@ -1536,6 +1536,7 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
           serviceFeeAmount: payload.serviceFeeAmount,
           total:          payload.total,
           cardTipAmount:  dojo?.tipAmount ?? undefined,
+          cardPayment:    dojo ? { scheme: dojo.cardScheme, last4: dojo.cardLast4, authCode: dojo.authCode } : undefined,
           paymentMethod:  payload.paymentMethod,
           payments:       payload.payments,
           cashTendered:   payload.cashTendered,
@@ -1620,6 +1621,9 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
     const sale = sales.find((s) => s.id === saleId);
     if (!sale) return { ok: false, error: "Sale not found." };
 
+    // How the server divided the refund: the part out of the sale total, and a
+    // tip added on the card machine (kept apart so "net kept" stays right).
+    let refundSplit: { salePart: number; tipPart: number } | null = null;
     try {
       const res = await fetch(`${apiBase()}/api/pos/sales/${saleId}`, {
         method:  "PATCH",
@@ -1635,6 +1639,8 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
         log("voidSale failed:", res.status, json.error ?? "(no details)");
         return { ok: false, error: json.error };
       }
+      const done = await res.json().catch(() => ({})) as { refund?: { salePart: number; tipPart: number } | null };
+      refundSplit = done.refund ?? null;
     } catch (err) {
       // Offline is expected here: an already-synced sale can only be voided by
       // the server. (Unsynced current-session sales took the cancelQueuedSale
@@ -1644,9 +1650,15 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
     }
 
     // 2. Update local sales state
+    const salePart = refundSplit ? refundSplit.salePart : refundAmount;
     setSales((prev) =>
       prev.map((s) => s.id === saleId
-        ? { ...s, voided: true, voidReason: reason, refundMethod, refundAmount }
+        ? {
+            ...s, voided: true, voidReason: reason, refundMethod, refundAmount: salePart,
+            ...(refundSplit && refundSplit.tipPart > 0
+              ? { cardTipRefunded: Math.round(((s.cardTipRefunded ?? 0) + refundSplit.tipPart) * 100) / 100 }
+              : {}),
+          }
         : s)
     );
 
@@ -1656,8 +1668,8 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
     if (sale.customerId) {
       setCustomers((prev) =>
         prev.map((c) =>
-          c.id === sale.customerId && refundAmount && refundAmount > 0
-            ? { ...c, totalSpend: Math.max(0, (c.totalSpend ?? 0) - refundAmount) }
+          c.id === sale.customerId && salePart && salePart > 0
+            ? { ...c, totalSpend: Math.max(0, (c.totalSpend ?? 0) - salePart) }
             : c
         )
       );

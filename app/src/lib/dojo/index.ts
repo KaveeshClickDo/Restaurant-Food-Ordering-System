@@ -11,4 +11,5 @@ export { DojoApiError, DojoConfigError, DojoDisabledError } from "./errors";
 export { isDojoEnabled, dojoMode, dojoConfig, isDojoSandboxKey, missingDojoSettings } from "./config";
 export { isDojoEffectivelyEnabled, getDojoAdminEnabled } from "./effectiveFlag";
 export { recordDojoPayment, isDojoPaymentRecorded, type DojoSource, type DojoResultInput } from "./recordPayment";
+export { attachCardDetails, cardDetailsFor } from "./cardDetails";
 export { resolveSnapshot } from "./gateway";

@@ -47,6 +47,8 @@ export default function CollectionReceiptModal({
   const vatAmt = order.vatAmount ?? 0;
   const storeCredit = order.storeCreditUsed ?? 0;
   const giftCard = order.giftCardUsed ?? 0;
+  // A tip the customer added on the card machine, on top of the total.
+  const cardTip = order.cardTipAmount ?? 0;
   const hasBreakdown = serviceFee > 0 || couponDisc > 0 || (vatAmt > 0 && showVat) || storeCredit > 0 || giftCard > 0;
   const money = (n: number) => `${sym}${n.toFixed(2)}`;
   // Just-paid orders are always "paid"; a History reprint can also be refunded.
@@ -217,6 +219,18 @@ export default function CollectionReceiptModal({
                 {order.paymentMethod && <span className="text-slate-300"> · {order.paymentMethod}</span>}
               </span>
             </div>
+            {cardTip > 0 && (
+              <>
+                <div className="flex items-center justify-between">
+                  <span className="text-slate-400 text-xs">Tip on card machine</span>
+                  <span className="text-slate-300 text-xs">{money(cardTip)}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-white font-bold text-sm">Card total</span>
+                  <span className="text-white font-bold text-sm">{money(Math.round((order.total + cardTip) * 100) / 100)}</span>
+                </div>
+              </>
+            )}
           </div>
 
           {order.note && (

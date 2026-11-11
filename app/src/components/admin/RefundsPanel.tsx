@@ -271,7 +271,11 @@ export function RefundModal({
   order: Order;
   customerName: string;
   onClose: () => void;
-  onSubmit: (refund: Omit<Refund, "id" | "processedAt" | "processedBy">) => void;
+  /** Return (or resolve to) a message when the refund failed: the form stays
+   *  open and shows it. `id` is one per open form, so a retry of the same
+   *  refund reuses it (the gateway's idempotency key). */
+  onSubmit: (refund: Omit<Refund, "id" | "processedAt" | "processedBy"> & { id: string }) =>
+    void | string | null | Promise<void | string | null>;
   /**
    * When true the modal is being used by the Delivery panel's "refund + cancel"
    * flow: the order will be cancelled once the refund is confirmed. Only the
@@ -293,6 +297,13 @@ export function RefundModal({
   const [method, setMethod]     = useState<RefundMethod>("original_payment");
   const [note,   setNote]       = useState("");
   const [errors, setErrors]     = useState<Record<string, string>>({});
+  const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
+  // One id per open form: a retry of this refund sends the same one.
+  const [refundId] = useState(() => uuid());
+  // Paid on the Dojo card machine: "Original payment method" refunds that card.
+  const viaCardMachine = !order.stripePaymentIntentId && !!order.dojoPaymentIntentId;
+  const cardTipLeft = Math.max(0, (order.cardTipAmount ?? 0) - (order.cardTipRefunded ?? 0));
 
   const amountNum = parseFloat(amount) || 0;
   const effectiveMax = maxRefundable;
@@ -311,17 +322,26 @@ export function RefundModal({
     return e;
   }
 
-  function handleSubmit() {
+  async function handleSubmit() {
+    if (submitting) return;
     const e = validate();
     if (Object.keys(e).length > 0) { setErrors(e); return; }
-    onSubmit({
-      orderId:  order.id,
-      amount:   amountNum,
-      type:     amountNum >= effectiveMax ? "full" : "partial",
-      reason,
-      method,
-      note:     note.trim() || undefined,
-    });
+    setSubmitting(true);
+    setSubmitError(null);
+    try {
+      const failed = await onSubmit({
+        id:       refundId,
+        orderId:  order.id,
+        amount:   amountNum,
+        type:     amountNum >= effectiveMax ? "full" : "partial",
+        reason,
+        method,
+        note:     note.trim() || undefined,
+      });
+      if (typeof failed === "string" && failed) setSubmitError(failed);
+    } finally {
+      setSubmitting(false);
+    }
   }
 
   return (
@@ -440,6 +460,8 @@ export function RefundModal({
                 const isStripeReversal = isOriginal && !!order.stripePaymentIntentId;
                 const desc = isStripeReversal
                   ? "Reverses the Stripe charge via the gateway and refunds the customer's card."
+                  : isOriginal && viaCardMachine
+                    ? `Paid on the card machine: the money goes back to that card through Dojo.${cardTipLeft > 0 ? ` A full refund also returns the ${fmtAmt(cardTipLeft, sym)} tip added on the machine.` : ""} If Dojo refuses, nothing is refunded.`
                   : isOriginal && order.paymentMethod?.toLowerCase().includes("cash")
                     ? "Recorded only — there's no card to refund (paid in cash)."
                     : cfg.desc;
@@ -492,14 +514,23 @@ export function RefundModal({
           </div>
         </div>
 
+        {submitError && (
+          <div className="mx-6 mb-3 px-4 py-3 rounded-xl border border-red-200 bg-red-50 text-red-700 text-sm">
+            {submitError}
+          </div>
+        )}
+
         {/* Footer */}
         <div className="px-6 py-4 bg-gray-50 border-t border-gray-100 flex flex-wrap gap-3">
           <button
             onClick={handleSubmit}
-            className="flex-1 px-3 bg-teal-500 hover:bg-teal-400 active:bg-teal-600 text-sm sm:text-base text-white font-bold py-3 rounded-xl transition flex items-center justify-center gap-2"
+            disabled={submitting}
+            className="flex-1 px-3 bg-teal-500 hover:bg-teal-400 active:bg-teal-600 disabled:opacity-60 disabled:cursor-not-allowed text-sm sm:text-base text-white font-bold py-3 rounded-xl transition flex items-center justify-center gap-2"
           >
-            <RotateCcw size={15} className="flex-shrink-0" />
-            {cancelAfter ? "Refund & cancel order" : `Confirm refund ${amountNum > 0 && amountNum <= effectiveMax ? `of ${fmtAmt(amountNum, sym)}` : ""}`}
+            <RotateCcw size={15} className={`flex-shrink-0 ${submitting ? "animate-spin" : ""}`} />
+            {submitting
+              ? "Refunding…"
+              : cancelAfter ? "Refund & cancel order" : `Confirm refund ${amountNum > 0 && amountNum <= effectiveMax ? `of ${fmtAmt(amountNum, sym)}` : ""}`}
           </button>
           <button
             onClick={onClose}
@@ -587,19 +618,22 @@ export default function RefundsPanel() {
     return matchFilter && matchSearch;
   });
 
-  function handleSubmitRefund(fields: Omit<Refund, "id" | "processedAt" | "processedBy">) {
-    if (!modalOrder) return;
+  /** Returns why the refund failed (the form stays open), or null when done. */
+  async function handleSubmitRefund(fields: Omit<Refund, "id" | "processedAt" | "processedBy"> & { id?: string }): Promise<string | null> {
+    if (!modalOrder) return null;
     const { order, customerId } = allEligible.find((e) => e.order.id === modalOrder.order.id)!;
     const refund: Refund = {
       ...fields,
-      id: uuid(),
+      id: fields.id ?? uuid(),
       processedAt: new Date().toISOString(),
       processedBy: "Admin",
     };
-    addRefund(customerId, order.id, refund);
+    const result = await addRefund(customerId, order.id, refund);
+    if (!result.ok) return result.error ?? "The refund failed. Nothing was refunded.";
     setModalOrder(null);
     setToast(`Refund of ${sym}${fields.amount.toFixed(2)} processed successfully.`);
     setTimeout(() => setToast(null), 4000);
+    return null;
   }
 
   const FILTER_OPTIONS: { value: EligibleFilter; label: string }[] = [

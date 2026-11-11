@@ -29,6 +29,7 @@ export type PosSaleRow = {
   service_fee_amount: number;
   total: number;
   card_tip_amount?: number | null;
+  card_tip_refunded?: number | null;
   payment_method: "cash" | "card" | "split";
   payments: { method: "cash" | "card"; amount: number }[];
   cash_tendered: number | null;
@@ -62,6 +63,7 @@ export function rowToSale(r: PosSaleRow): POSSale {
     serviceFeeAmount: Number(r.service_fee_amount),
     total:          Number(r.total),
     cardTipAmount:  Number(r.card_tip_amount ?? 0),
+    cardTipRefunded: Number(r.card_tip_refunded ?? 0),
     paymentMethod:  r.payment_method,
     payments:       r.payments ?? [],
     cashTendered:   r.cash_tendered  != null ? Number(r.cash_tendered)  : undefined,

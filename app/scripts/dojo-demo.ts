@@ -286,6 +286,34 @@ async function headersOnEveryCall(): Promise<void> {
     `the request log shows the header, never the key: "${logged[0] ?? ""}"`);
 }
 
+/** A refund gets 45 s to answer (the sandbox took 14.5 s), every other call
+ *  15 s; a refund with no answer tells staff it may still go through. */
+async function timeLimits(): Promise<void> {
+  console.log("\n── Time limits ──");
+  const limits: Record<string, number> = {};
+  let pending = "";
+  const realFetch = globalThis.fetch;
+  const realTimeout = AbortSignal.timeout;
+  AbortSignal.timeout = ((ms: number) => { limits[pending] = ms; return new AbortController().signal; }) as typeof AbortSignal.timeout;
+  globalThis.fetch = (async () => new Response(JSON.stringify({ id: "pi_demo" }), { status: 200 })) as typeof fetch;
+  try {
+    await withEnv({ DOJO_SOFTWARE_HOUSE_ID: "demo-software-house", DOJO_API_KEY: "sk_sandbox_demo" }, async () => {
+      const c = createDojoClient();
+      pending = "refund";  await c.createRefund({ paymentIntentId: "pi_demo", amount: 500, idempotencyKey: "demo-refund" });
+      pending = "payment"; await c.createPaymentIntent({ amount: AMOUNT, reference: "demo" });
+      pending = "session"; await c.getTerminalSession("ts_demo");
+    });
+  } finally {
+    AbortSignal.timeout = realTimeout;
+    globalThis.fetch = realFetch;
+  }
+  check(limits.refund === 45_000 && limits.payment === 15_000 && limits.session === 15_000,
+    `a refund waits ${(limits.refund ?? 0) / 1000}s; a payment and a status check ${(limits.payment ?? 0) / 1000}s and ${(limits.session ?? 0) / 1000}s`);
+  const refundTimeout = describeDojoError(new DojoApiError(0, "timed out", null), "refund");
+  check(refundTimeout.code === "network" && /may still go through/.test(refundTimeout.message),
+    `a refund with no answer: "${refundTimeout.message}"`);
+}
+
 /** Dojo needs a reference of 1–60 characters; the till's names its sale. */
 async function references(gw: DojoGateway): Promise<void> {
   console.log("\n── Payment references ──");
@@ -430,6 +458,7 @@ async function main(): Promise<void> {
   await noAnswer();
   await missingSoftwareHouseId();
   await headersOnEveryCall();
+  await timeLimits();
   await references(gw);
   await keyed(gw);
   routeBodies();

@@ -697,6 +697,11 @@ export interface Refund {
   stripeRefundId?: string | null;
   /** PayPal refund id when the refund was processed through PayPal. */
   paypalRefundId?: string | null;
+  /** Dojo refund id when the refund went back to the card through the card machine's Dojo account. */
+  dojoRefundId?: string | null;
+  viaDojo?: boolean;
+  /** The part of a tip added on the card machine given back with this refund. */
+  cardTip?: number;
 }
 
 export interface Driver {
@@ -784,6 +789,14 @@ export interface Order {
   discountAmount?: number;  // discount applied at the POS terminal
   discountNote?: string;    // free-text note for the discount
   tipAmount?: number;      // tip collected at the POS terminal
+  /** A tip the customer added on the Dojo card machine, from Dojo's record.
+   *  Not part of `total`: the card paid total + this. */
+  cardTipAmount?: number;
+  /** The part of cardTipAmount already given back with a refund. */
+  cardTipRefunded?: number;
+  /** Set when the order was paid on the Dojo card machine: a refund to the
+   *  original payment goes back to that card through Dojo. */
+  dojoPaymentIntentId?: string;
   changeGiven?: number;    // cash change given back to the customer
 }
 

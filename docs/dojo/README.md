@@ -95,7 +95,7 @@ and the collection login get a 403.
 ```
 DojoChargePanel ─▶ GET    /api/{pos|waiter}/dojo/terminals       the machine picker's list
                 ─▶ POST   /api/{pos|waiter}/dojo/sessions        create intent + open session
-      │ poll 1.2s ▶ GET    /api/{pos|waiter}/dojo/sessions/{id}   until settled
+      │ poll 1s   ▶ GET    /api/{pos|waiter}/dojo/sessions/{id}   until settled
       │ signature ▶ PUT    …/sessions/{id}/signature {accepted}
       │ cancel    ▶ PUT    …/sessions/{id}/cancel
       ▼ on success
@@ -132,7 +132,10 @@ the surface's own settle call ─▶ recordDojoPayment(...) ─▶ dojo_payments
   whether the earlier attempt for the same amount actually went through, and if
   so reports it as paid rather than charging again (`lib/dojo/flow.ts`). An
   earlier intent for a different amount is never reused, and neither is a
-  keyed one for a card-present retry (or the other way round).
+  keyed one for a card-present retry (or the other way round). **Back** then
+  Card machine reuses it too: each paying screen keeps its payment's intent in
+  a ref (`intentMemory`, one per sale / bill / booking / card) that outlives
+  the panel, and clears it once that payment is saved.
 - **Cancel** asks Dojo and keeps polling until Dojo reports the result. Once the
   card is in, Dojo may refuse (422; staff see "too late to cancel"), or accept
   the cancel and still take the payment (the sandbox did, 2026-10-22; staff see
@@ -152,7 +155,10 @@ the surface's own settle call ─▶ recordDojoPayment(...) ─▶ dojo_payments
   so no screen can open a refund or a pre-auth through them. A keyed sale
   (`cardHolderNotPresent`) is taken only on the till's route (§3).
 - **Timeouts:** each call to Dojo gives up after 15s, which counts as a network
-  problem (result unknown). The tablet waits up to 20s for a poll, signature or
+  problem (result unknown); a refund gets 45s, because the sandbox took about
+  14.5s to answer each one (2026-11-04), and 45s stays under nginx's usual 60s.
+  A refund with no answer tells staff it may still go through and to check
+  Dojo's portal before trying again. The tablet waits up to 20s for a poll, signature or
   cancel, and 90s to start a payment. Starting can take up to four Dojo calls,
   so the tablet's limit is longer than the server's: it never gives up on a
   session the server did open.
@@ -198,9 +204,31 @@ refuses refunds of card machine payments ("Your refund request was not
 successful"), which Dojo confirmed is expected; the screen explains that in
 test mode. On the simulator the refund succeeds.
 
-The standalone `POST /api/pos/dojo/refunds` uses the same helper. Refunds of
-the other kinds of card machine payment (waiter, collection, gift card,
-reservation fee) are still a record only; see §9.
+**Tips and split sales.** A tip the customer added on the card machine was paid
+too, so a refund can include it: the screens start at sale + tip and say so.
+A refund comes out of the sale first; anything above is tip, recorded in
+`card_tip_refunded` so `refund_amount` stays within `total` and "net kept"
+stays right. For a split sale, "To card" sends the card part plus the tip to
+Dojo and the rest is handed back in cash (the banner says how much of each).
+
+**Other screens** use the same helper, Dojo first, with the screen's
+`refundRequestId`:
+
+| Screen | Route | Which payment |
+|---|---|---|
+| Waiter app refund (senior staff) | `POST /api/waiter/refund` | the bill's, via `orders.dojo_payment_intent_id` |
+| POS dashboard → Dine-In → Refund | `POST /api/pos/orders/dine-in/refund` | the same (any order of the bill) |
+| Admin → Online Refunds → Original payment method | `POST /api/admin/orders/[id]/refund` | a collection order's (the refund record's id is the key) |
+
+Dine-in refunds share `lib/dineInRefund.ts`. Settling a bill on the card
+machine stamps the payment on every order of the bill, so any of them can be
+refunded to the card; bills settled before that fall back to the anchor's
+`dojo_payments` row. In admin, a refund that makes the order fully refunded
+also returns the tip, and the form waits for the answer: if Dojo refuses, the
+order is put back and the reason shows. Gift card sales and VIP fees have no
+refund screen (the VIP fee is non-refundable by design).
+
+The standalone `POST /api/pos/dojo/refunds` uses the same helper too.
 
 ### Surface boundary
 
@@ -403,18 +431,24 @@ through the routes). The UAT script: [UAT.md](./UAT.md).
   reuses the intent, and reports it as paid if the customer paid), but taking
   the money another way is not, so staff must check the machine first. Rare: it
   needs a Dojo call to take over 15s.
-- **Refunds beyond the till:** the till's Void & Refund refunds card machine
-  sales to the card (§4 Refunds), which meets Dojo's "one refund path". The
-  waiter, collection, gift card and reservation fee refunds still only record
-  that a refund was made; their card machine payments are refunded in Dojo's
-  portal for now. No route opens a refund on the card machine (matched or
-  unlinked): it would need its own `canIssueRefund` gate, and its own handling
-  of the session result, which is sale-shaped with an empty `paymentIntentId`.
+- **Refunds on the card machine itself:** every refund screen uses a payment
+  intent refund (§4 Refunds); no route opens a refund on the machine (matched
+  or unlinked). It would need its own `canIssueRefund` gate, and its own
+  handling of the session result, which is sale-shaped with an empty
+  `paymentIntentId`. Gift card sales and VIP fees have no refund screen.
+- **A refund retry after Dojo refused:** the same screen resends the same
+  idempotency key, and Dojo answers from its record of the first try (about
+  90ms against 14s, sandbox 2026-11-04), so it isn't a fresh attempt; opening
+  the screen again is. Open question for Dojo: should a retry after a refusal
+  use a new key?
 - **Webhook order:** the webhook stores each event's status as it arrives.
   Dojo can deliver events late or out of order, so a late `Captured` could
   overwrite `Refunded`. When webhooks are set up, store the intent's current
   status read from Dojo instead.
-- **Split cash+card:** the card leg still uses the manual confirm.
+- **Split cash+card:** on the till, the card part goes to the card machine
+  (amounts, then Card machine / Other). On the collection screens a split's
+  card part still uses the manual confirm (`splitOnCardMachine` is till-only):
+  the collection save and admin refunds expect the card to pay the whole order.
 - **Pre-auth (Manual capture):** not offered. The routes always use automatic
   capture; `flow.ts` and the gateway still take `captureMode`, but nothing calls
   `POST /payment-intents/{id}/captures`, so both the capture call and a bar-tab
@@ -422,19 +456,24 @@ through the routes). The UAT script: [UAT.md](./UAT.md).
 - **Cashback and `itemLines`:** not implemented.
 - **Gratuity:** a tip the customer adds on the card machine is recorded
   (`dojo_payments.tip_amount`, with Dojo's `total_amount`) and shown on the
-  approval screen. On a till sale it's also kept on the sale, apart from the
-  total (`pos_sales.card_tip_amount`, taken from Dojo's record of the payment):
-  the receipt (screen, browser print, thermal) shows "Tip on card machine" and
-  "Card total" under the payment, the transaction list shows "+£x tip on card"
-  under the total, and the CSV export has its own column. Still to do: the
-  dashboard and admin report tip totals, the waiter / collection / gift card /
-  VIP fee screens, and a refund, which gives back the sale total, not the tip.
-  Tips agreed at the table are still part of the amount sent to the terminal.
+  approval screen. It's kept apart from the total, from Dojo's record of the
+  payment, on the till sale (`pos_sales.card_tip_amount`) and on dine-in and
+  collection orders (`orders.card_tip_amount`, a bill's anchor order). The
+  receipts (till, waiter, POS dine-in, collection, admin; screen, print and
+  thermal) show "Tip on card machine" and "Card total"; the transaction list
+  shows "+£x tip on card"; the CSV exports have their own column; and the Tips
+  cards on the POS dashboard, POS Reports and admin POS Reports include them
+  ("incl. £x on card machine"; never in revenue or Net Sales). Refunds can give
+  it back (§4 Refunds). Gift card sales and VIP fees have no receipt; their tip
+  is only in `dojo_payments`. Tips agreed at the table are still part of the
+  amount sent to the terminal.
 - **MOTO (`cardHolderNotPresent`):** offered only for a phone booking's VIP
   fee (§3), by choice. The sandbox's virtual machines don't show card number
   entry (§6a), so that screen hasn't been seen on a machine yet.
-- **Receipt:** `ReceiptModal` does not yet print the captured scheme/last-4/auth,
-  though `dojo_payments` holds them.
+- **Card on receipts:** the till receipt (screen, print, email, thermal) shows
+  "VISA ****1234 · Auth 123456" under the card line, read from `dojo_payments`
+  (`lib/dojo/cardDetails.ts`, batched). The waiter, collection and admin order
+  receipts don't show the card yet.
 - **A gift card spent before the card payment is saved:** the gift card part of
   a sale is taken off only after the card machine has charged the rest. If the
   same card is spent elsewhere in between, the sale is refused ("Gift card

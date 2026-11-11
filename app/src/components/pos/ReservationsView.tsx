@@ -124,6 +124,9 @@ export default function ReservationsView() {
   // terminal; "keyed" = the same, with the card details typed in (phone
   // bookings: the guest isn't there). "none" = no overlay.
   const [cardStage,      setCardStage]      = useState<"none" | "choose" | "dojo" | "keyed">("none");
+  /** This booking's VIP fee Dojo intent, kept across Back so a retry reuses
+   *  it. Cleared for each new booking: the reference ("VIP <table>") repeats. */
+  const vipIntent = useRef<string | null>(null);
 
   // Fetch available tables for the add modal. Both walk-in and phone bookings
   // use the same availability check so staff can't accidentally double-book a
@@ -205,6 +208,7 @@ export default function ReservationsView() {
     setAddParty(2); setAddTableId(""); setAddTableMeta(null); setAddAvailTables([]); setAddUpcoming({});
     setAddName(""); setAddEmail(""); setAddPhone(""); setAddNote(""); setAddMarketing(true);
     setAddError(""); setAddSaving(false); setShowAdd(true);
+    vipIntent.current = null;
   }
 
   async function handleAddBooking() {
@@ -263,7 +267,7 @@ export default function ReservationsView() {
         }),
       });
       const json = await res.json().catch(() => ({ ok: false })) as { ok: boolean; error?: string };
-      if (json.ok) { setShowAdd(false); fetchRows(false); }
+      if (json.ok) { vipIntent.current = null; setShowAdd(false); fetchRows(false); }
       else message = json.error ?? "Failed to create booking.";
     } catch { message = "Network error — please try again."; }
     finally { setAddSaving(false); }
@@ -880,6 +884,7 @@ export default function ReservationsView() {
                 onApproved={async (r) => (await submitBooking(r)) ?? true}
                 onManualFallback={() => { setCardStage("none"); void submitBooking(); }}
                 onBack={() => setCardStage("choose")}
+                intentMemory={vipIntent}
               />
             )}
           </div>

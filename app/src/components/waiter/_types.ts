@@ -50,6 +50,9 @@ export interface WaiterReceipt {
   vatRate?: number;
   /** Table-service tip (money). */
   tipAmount?: number;
+  /** A tip the customer added on the Dojo card machine, from Dojo's record.
+   *  Not part of `total`: the card paid total + this. */
+  cardTipAmount?: number;
   /** Service fee (money). */
   serviceFeeAmount?: number;
   /** Final amount owed = subtotal − discount + (exclusive VAT) + tip + serviceFee */

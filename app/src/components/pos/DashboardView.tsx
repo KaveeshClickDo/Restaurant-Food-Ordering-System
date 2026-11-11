@@ -44,6 +44,11 @@ function tenderLabel(method: string | undefined, giftCardUsed = 0): string {
   return base;
 }
 
+/** A tip added on the card machine, less any part given back with a refund. */
+function keptCardTip(x: { cardTipAmount?: number; cardTipRefunded?: number }): number {
+  return Math.max(0, (x.cardTipAmount ?? 0) - (x.cardTipRefunded ?? 0));
+}
+
 export default function DashboardView() {
   const { sales, products, settings, currentStaff } = usePOS();
   const { settings: appSettings } = useApp();
@@ -95,6 +100,8 @@ export default function DashboardView() {
       vatAmount: o.vat_amount != null ? Number(o.vat_amount) : undefined,
       vatInclusive: o.vat_inclusive != null ? Boolean(o.vat_inclusive) : undefined,
       tipAmount: o.tip_amount != null ? Number(o.tip_amount) : undefined,
+      cardTipAmount: o.card_tip_amount != null ? Number(o.card_tip_amount) : undefined,
+      cardTipRefunded: o.card_tip_refunded != null ? Number(o.card_tip_refunded) : undefined,
       serviceFeeAmount: o.service_fee != null ? Number(o.service_fee) : undefined,
       total: Number(o.total),
       status: o.status as string,
@@ -287,6 +294,14 @@ export default function DashboardView() {
   const diServiceFeesToday = todayDineInActive.reduce((sum, o) => sum + (o.serviceFeeAmount ?? 0), 0);
   // POS + dine-in combined.
   const totalTips = todaySalesActive.reduce((sum, s) => sum + s.tipAmount, 0) + diTipsToday;
+  // Tips added on the card machine: never part of a sale's total (so never in
+  // revenue), shown in the Tips card on top of the tips above.
+  const cardTipsToday = todaySalesActive.reduce((sum, s) => sum + keptCardTip(s), 0)
+    + todayDineInActive.reduce((sum, o) => sum + keptCardTip(o), 0);
+  const tipsTodaySub = [
+    diTipsToday > 0 ? `${fmt(diTipsToday, sym)} dine-in` : null,
+    cardTipsToday > 0 ? `${fmt(cardTipsToday, sym)} on card machine` : null,
+  ].filter(Boolean).join(" · ");
   const totalServiceFees = todaySalesActive.reduce((sum, s) => sum + s.serviceFeeAmount, 0) + diServiceFeesToday;
 
   // "Kept" = never-voided + voided-with-no-refund (money fully retained).
@@ -550,6 +565,9 @@ export default function DashboardView() {
   const combinedAvgOrder    = combinedTxns > 0 ? combinedRevenue / combinedTxns : 0;
   const combinedVat         = rTax + diVat;
   const combinedTips        = rTips + diTips;
+  // Tips added on the card machine (not in revenue), for the Tips card.
+  const combinedCardTips    = rFiltered.reduce((s, x) => s + keptCardTip(x), 0)
+    + diSettled.reduce((s, o) => s + keptCardTip(o), 0);
   const combinedDiscounts   = rDiscounts + diDiscounts;
   const combinedServiceFees = rServiceFees + diServiceFees;
   // Gift cards redeemed across settled POS + dine-in — money taken off bills by
@@ -732,7 +750,7 @@ export default function DashboardView() {
                 { label: "Today's Revenue", value: fmt(totalRevenue, sym), sub: diRevToday > 0 ? `incl. ${fmt(diRevToday, sym)} dine-in` : undefined, icon: TrendingUp, color: "text-green-400", bg: "bg-green-500/10" },
                 { label: "Transactions", value: `${totalTransactions}`, sub: todayDineInSettled.length > 0 ? `${todaySales.length} POS · ${todayDineInSettled.length} dine-in` : undefined, icon: Receipt, color: "text-blue-400", bg: "bg-blue-500/10" },
                 { label: "Average Order", value: fmt(todayAvgOrder, sym), sub: "POS + dine-in", icon: BarChart3, color: "text-purple-400", bg: "bg-purple-500/10" },
-                { label: "Tips Collected", value: fmt(totalTips, sym), sub: diTipsToday > 0 ? `incl. ${fmt(diTipsToday, sym)} dine-in` : undefined, icon: BadgeDollarSign, color: "text-amber-400", bg: "bg-amber-500/10" },
+                { label: "Tips Collected", value: fmt(totalTips + cardTipsToday, sym), sub: tipsTodaySub ? `incl. ${tipsTodaySub}` : undefined, icon: BadgeDollarSign, color: "text-amber-400", bg: "bg-amber-500/10" },
                 { label: "Service Fees", value: fmt(totalServiceFees, sym), sub: diServiceFeesToday > 0 ? `incl. ${fmt(diServiceFeesToday, sym)} dine-in` : undefined, icon: DollarSign, color: "text-blue-400", bg: "bg-blue-500/10" },
               ].map((card) => (
                 <div key={card.label} className="bg-slate-800 border border-slate-700 rounded-2xl p-3 sm:p-5">
@@ -1097,7 +1115,7 @@ export default function DashboardView() {
                       { label: "Avg Order", value: fmt(combinedAvgOrder, sym), sub: "per order", icon: Receipt, color: "text-blue-400", bg: "bg-blue-500/10" },
                       { label: "Gross Profit", value: fmt(grossProfit, sym), sub: `${fmtPct(marginPct)} margin · POS`, icon: BarChart3, color: "text-purple-400", bg: "bg-purple-500/10" },
                       { label: "VAT Collected", value: fmt(combinedVat, sym), sub: "excl. refunded", icon: Percent, color: "text-amber-400", bg: "bg-amber-500/10" },
-                      { label: "Tips", value: fmt(combinedTips, sym), sub: "POS + dine-in", icon: BadgeDollarSign, color: "text-pink-400", bg: "bg-pink-500/10" },
+                      { label: "Tips", value: fmt(combinedTips + combinedCardTips, sym), sub: combinedCardTips > 0 ? `POS + dine-in · incl. ${fmt(combinedCardTips, sym)} on card machine` : "POS + dine-in", icon: BadgeDollarSign, color: "text-pink-400", bg: "bg-pink-500/10" },
                       { label: "Discounts", value: fmt(combinedDiscounts, sym), sub: "reductions applied", icon: Tag, color: "text-red-400", bg: "bg-red-500/10" },
                       { label: "Service Fees", value: fmt(combinedServiceFees, sym), sub: "POS + dine-in", icon: DollarSign, color: "text-blue-400", bg: "bg-blue-500/10" },
                       { label: "Gift Cards Redeemed", value: fmt(giftCardRedeemed, sym), sub: "settled · not revenue", icon: Gift, color: "text-purple-300", bg: "bg-purple-500/10" },
@@ -2026,6 +2044,7 @@ export default function DashboardView() {
             vatAmount: viewingDineInReceipt.vatAmount,
             vatInclusive: viewingDineInReceipt.vatInclusive,
             tipAmount: viewingDineInReceipt.tipAmount,
+            cardTipAmount: viewingDineInReceipt.cardTipAmount,
             serviceFeeAmount: viewingDineInReceipt.serviceFeeAmount,
             giftCardUsed: viewingDineInReceipt.giftCardUsed,
             total: viewingDineInReceipt.total,

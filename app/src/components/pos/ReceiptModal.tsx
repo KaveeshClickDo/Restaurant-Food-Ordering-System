@@ -9,6 +9,7 @@ import { Mail, CheckCircle2, RefreshCw, Printer, AlertTriangle, Info, FileDown }
 import { fmt, fmtDate, fmtTime, isOfflineSale } from "./_utils";
 import { buildReceiptHtml } from "./_receipts";
 import { printPOSSale, printSaleToKitchen } from "@/lib/posPrint";
+import { cardChargedTotal, cardDetailLine } from "@/lib/posCardPayment";
 import { resolveActivePrinter } from "@/lib/escpos";
 import { isCapacitorAndroid } from "@/lib/capacitorBridge";
 
@@ -57,9 +58,12 @@ export default function ReceiptModal(
   // the gross goods TOTAL; the net `total` is the real money paid by cash/card.
   const giftAmt    = sale.giftCardUsed ?? sale.giftCard?.amount ?? 0;
   const grossTotal = Math.round((sale.total + giftAmt) * 100) / 100;
-  // A tip added on the card machine is on top of the total: the card paid both.
+  // A tip added on the card machine is on top of the total: the card paid its
+  // part (all of it, or a split's card part) plus the tip.
   const cardTip    = sale.cardTipAmount ?? 0;
-  const cardTotal  = Math.round((sale.total + cardTip) * 100) / 100;
+  const cardTotal  = cardChargedTotal(sale);
+  // "VISA ****1234 · Auth 123456" under the card line, for card machine sales.
+  const cardDetail = cardDetailLine(sale.cardPayment);
 
   async function sendEmail() {
     if (!emailTo.trim()) return;
@@ -247,8 +251,13 @@ export default function ReceiptModal(
             {/* 2. Show the remaining amount paid by Cash/Card/Split */}
             {sale.paymentMethod === "split" ? (
               sale.payments.map((p, i) => (
-                <div key={i} className="flex justify-between text-gray-500 capitalize">
-                  <span>{p.method}</span><span>{fmt(p.amount, sym)}</span>
+                <div key={i}>
+                  <div className="flex justify-between text-gray-500 capitalize">
+                    <span>{p.method}</span><span>{fmt(p.amount, sym)}</span>
+                  </div>
+                  {p.method === "card" && cardDetail && (
+                    <div className="text-gray-400 text-xs">{cardDetail}</div>
+                  )}
                 </div>
               ))
             ) : sale.paymentMethod === "cash" ? (
@@ -267,11 +276,14 @@ export default function ReceiptModal(
               // Covered entirely by gift card — the deduction line above shows it.
               null
             ) : (
-              <div className="flex justify-between text-gray-500 capitalize">
-                <span>{sale.paymentMethod}</span>
-                {/* total is already net of the gift card = the amount charged */}
-                <span>{fmt(sale.total, sym)}</span>
-              </div>
+              <>
+                <div className="flex justify-between text-gray-500 capitalize">
+                  <span>{sale.paymentMethod}</span>
+                  {/* total is already net of the gift card = the amount charged */}
+                  <span>{fmt(sale.total, sym)}</span>
+                </div>
+                {cardDetail && <div className="text-gray-400 text-xs">{cardDetail}</div>}
+              </>
             )}
 
             {/* 3. A tip the customer added on the card machine, apart from the total */}

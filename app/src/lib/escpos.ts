@@ -491,6 +491,11 @@ export function buildReceipt(
   if (order.changeGiven !== undefined && order.changeGiven > 0) {
     b.twoCol("Change", fmt(order.changeGiven, sym), W);
   }
+  // A tip the customer added on the card machine, apart from the total.
+  if (order.cardTipAmount && order.cardTipAmount > 0) {
+    b.twoCol("Tip on card machine", fmt(order.cardTipAmount, sym), W);
+    b.twoCol("Card total", fmt(Math.round((order.total + order.cardTipAmount) * 100) / 100, sym), W);
+  }
 
   if (showVat && vatInclusive) {
     b.align("center").line(`Prices include ${vatRate}% VAT`).align("left");
@@ -863,6 +868,10 @@ export function printReceiptBrowser(
   if (order.giftCardUsed && order.giftCardUsed > 0) lines.push(twoCol("Gift Card", fmt(order.giftCardUsed, sym)));
   if (order.storeCreditUsed && order.storeCreditUsed > 0) lines.push(twoCol("Store credit", fmt(order.storeCreditUsed, sym)));
   if (order.changeGiven !== undefined && order.changeGiven > 0) lines.push(twoCol("Change", fmt(order.changeGiven, sym)));
+  if (order.cardTipAmount && order.cardTipAmount > 0) {
+    lines.push(twoCol("Tip on card machine", fmt(order.cardTipAmount, sym)));
+    lines.push(twoCol("Card total", fmt(Math.round((order.total + order.cardTipAmount) * 100) / 100, sym)));
+  }
   if (showVat && vatInclusive) lines.push(center(`Prices include ${vatRate}% VAT`));
   lines.push(dbl);
   lines.push("");
