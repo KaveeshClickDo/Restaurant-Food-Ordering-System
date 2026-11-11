@@ -23,6 +23,7 @@ import { useApp } from "@/context/AppContext";
 import { Order, OrderLine, OrderStatus, DeliveryStatus, MenuItem, SavedAddress, AddOn, CartItem, LoyaltyReward, LoyaltyTransaction } from "@/types";
 import { fullOrderNumber } from "@/lib/orderNumber";
 import { orderSpendContribution } from "@/lib/customerSpend";
+import { showMenuImages } from "@/lib/menuDisplay";
 import AuthModal from "@/components/AuthModal";
 import ItemCustomizationModal from "@/components/ItemCustomizationModal";
 import { resolveStock } from "@/lib/stockUtils";
@@ -595,8 +596,10 @@ function FavouritesTab() {
 
   const canOrder = isOpen || !!scheduledTime;
 
-  // Check if at least one item in the list has an image
-  const hasAnyImage = favouriteItems.some((item) => !!item.image);
+  // Check if at least one item in the list has an image. With photos hidden
+  // (Admin → Menu → gear) the cards use the photo-less layout.
+  const showImages = showMenuImages(settings);
+  const hasAnyImage = showImages && favouriteItems.some((item) => !!item.image);
 
   if (favouriteItems.length === 0) {
     return (
@@ -623,7 +626,7 @@ function FavouritesTab() {
               {/* Image or Placeholder Area */}
               {hasAnyImage && (
                 <div className={`relative w-full h-36 bg-orange-50 flex items-center justify-center overflow-hidden ${outOfStock ? "grayscale opacity-60" : ""}`}>
-                  {item.image ? (
+                  {showImages && item.image ? (
                     /* eslint-disable-next-line @next/next/no-img-element */
                     <img src={item.image} alt={item.name} className="w-full h-full object-cover" />
                   ) : (
@@ -1947,6 +1950,8 @@ type TabId = typeof VALID_TABS[number];
 
 function AccountPageContent() {
   const { currentUser, customers, addToCart, menuItems, refreshCurrentUser, settings, logout } = useApp();
+  // Admin → Menu → gear can hide every photo on the website.
+  const showImages = showMenuImages(settings);
   const { theme, toggleTheme } = useSiteTheme();
   const sym = settings.currency?.symbol ?? "£";
   const router = useRouter();
@@ -2268,7 +2273,7 @@ function AccountPageContent() {
                           className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-zinc-50 dark:hover:bg-white/5 active:bg-zinc-100 dark:active:bg-white/10 transition-colors text-left"
                         >
                           <div className="w-11 h-11 rounded-lg bg-orange-50 dark:bg-orange-500/10 overflow-hidden flex-shrink-0 flex items-center justify-center">
-                            {item.image ? (
+                            {showImages && item.image ? (
                               /* eslint-disable-next-line @next/next/no-img-element */
                               <img src={item.image} alt={item.name} className="w-full h-full object-cover" />
                             ) : (

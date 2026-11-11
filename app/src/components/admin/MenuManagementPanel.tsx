@@ -9,7 +9,7 @@ import {
   GripVertical, X, Check, AlertTriangle, Flame, Tag,
   ArrowUp, ArrowDown, ImagePlus, Link, Upload,
   Package, PackageX, PackageMinus, Minus, Clock,
-  ToggleLeft, ToggleRight, Loader2,
+  ToggleLeft, ToggleRight, Loader2, Settings2, ImageOff,
   ChevronDown,
   ChevronRight,
   FolderMinus,
@@ -105,9 +105,11 @@ export default function MenuManagementPanel() {
     addCategory, updateCategory, deleteCategory, reorderCategories,
     addMenuItem, updateMenuItem, updateMenuItemStock, deleteMenuItem,
     mealPeriods, addMealPeriod, updateMealPeriod, deleteMealPeriod,
-    settings,
+    settings, updateSettings,
   } = useApp();
   const sym = settings.currency?.symbol ?? "£";
+  // The gear next to "Add item": how the menu shows on the customer website.
+  const [showMenuSettings, setShowMenuSettings] = useState(false);
 
   const [editingPeriod, setEditingPeriod] = useState<MealPeriod | null>(null);
   const [deletingPeriod, setDeletingPeriod] = useState<MealPeriod | null>(null);
@@ -245,14 +247,32 @@ export default function MenuManagementPanel() {
             </p>
           </div>
         </div>
-        <button
-          onClick={() => setEditingItem(blankItem(selectedCatId === "all" ? (categories[0]?.id ?? "") : selectedCatId))}
-          className="flex items-center gap-2 bg-orange-500 hover:bg-orange-600 text-white px-4 py-2 rounded-xl text-sm font-semibold transition-all active:scale-95"
-        >
-          <Plus size={15} />
-          Add item
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setShowMenuSettings(true)}
+            title="Menu settings"
+            aria-label="Menu settings"
+            className="w-9 h-9 flex items-center justify-center rounded-xl border border-gray-200 bg-white text-gray-500 hover:text-orange-600 hover:border-orange-300 hover:bg-orange-50 transition-all active:scale-95"
+          >
+            <Settings2 size={16} />
+          </button>
+          <button
+            onClick={() => setEditingItem(blankItem(selectedCatId === "all" ? (categories[0]?.id ?? "") : selectedCatId))}
+            className="flex items-center gap-2 bg-orange-500 hover:bg-orange-600 text-white px-4 py-2 rounded-xl text-sm font-semibold transition-all active:scale-95"
+          >
+            <Plus size={15} />
+            Add item
+          </button>
+        </div>
       </div>
+
+      {showMenuSettings && (
+        <MenuSettingsDialog
+          hideImages={!!settings.menuDisplay?.hideImagesOnWebsite}
+          onHideImages={(hide) => updateSettings({ menuDisplay: { ...(settings.menuDisplay ?? { hideImagesOnWebsite: false }), hideImagesOnWebsite: hide } })}
+          onClose={() => setShowMenuSettings(false)}
+        />
+      )}
 
       {/* Meal periods — time-bounded sections on the customer menu. Tag items
           to one or more periods in the item editor; customers see each section
@@ -2495,6 +2515,70 @@ function OfferEditor({
           )}
         </>
       )}
+    </div>
+  );
+}
+
+// ─── Menu settings (the gear next to "Add item") ─────────────────────────────
+// A few switches for how the menu shows on the customer website. Each saves
+// as soon as it's flipped (the website updates live). Staff screens aren't
+// affected. Add further rows here as settings come along.
+
+function MenuSettingsDialog({ hideImages, onHideImages, onClose }: {
+  hideImages: boolean;
+  onHideImages: (hide: boolean) => void;
+  onClose: () => void;
+}) {
+  return (
+    <ModalShell title="Menu settings" onClose={onClose}>
+      <p className="text-xs font-semibold uppercase tracking-wider text-gray-400 mb-3">Customer website</p>
+      <div className="rounded-xl border border-gray-200 divide-y divide-gray-100">
+        <SettingSwitchRow
+          icon={<ImageOff size={16} />}
+          label="Show item photos"
+          description={hideImages
+            ? "Off: customers see names, descriptions and prices only. Photos stay in the admin and on the POS."
+            : "On: customers see each item's photo on the menu, in the item pop-up, on the home page and in favourites."}
+          enabled={!hideImages}
+          onToggle={() => onHideImages(!hideImages)}
+        />
+      </div>
+      <p className="text-[11px] text-gray-400 mt-3">Changes apply to the website straight away.</p>
+      <div className="mt-5 flex justify-end">
+        <button
+          onClick={onClose}
+          className="px-4 py-2 rounded-xl bg-gray-900 hover:bg-gray-800 text-white text-sm font-semibold transition"
+        >
+          Done
+        </button>
+      </div>
+    </ModalShell>
+  );
+}
+
+function SettingSwitchRow({ icon, label, description, enabled, onToggle }: {
+  icon: React.ReactNode;
+  label: string;
+  description: string;
+  enabled: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <div className="flex items-start gap-3 px-4 py-3">
+      <div className="w-8 h-8 rounded-lg bg-gray-100 text-gray-500 flex items-center justify-center flex-shrink-0 mt-0.5">{icon}</div>
+      <div className="flex-1 min-w-0">
+        <p className="text-sm font-semibold text-gray-900">{label}</p>
+        <p className="text-xs text-gray-500 mt-0.5 leading-relaxed">{description}</p>
+      </div>
+      <button
+        onClick={onToggle}
+        role="switch"
+        aria-checked={enabled}
+        aria-label={label}
+        className={`relative inline-flex items-center w-11 h-6 rounded-full transition-colors flex-shrink-0 mt-1 focus:outline-none focus:ring-2 focus:ring-orange-400 focus:ring-offset-1 ${enabled ? "bg-green-500" : "bg-gray-300"}`}
+      >
+        <span className={`inline-block w-4 h-4 bg-white rounded-full shadow-sm transition-transform ${enabled ? "translate-x-6" : "translate-x-1"}`} />
+      </button>
     </div>
   );
 }

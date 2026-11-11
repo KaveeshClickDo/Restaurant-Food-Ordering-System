@@ -37,6 +37,7 @@ import Link from "next/link";
 import Cart from "@/components/Cart";
 import MobileBottomNav from "@/components/MobileBottomNav";
 import { effectiveMenuPrice, getOfferUnitPrice, isOnChannel } from "@/lib/menuOfferUtils";
+import { showMenuImages } from "@/lib/menuDisplay";
 import { resolveStock } from "@/lib/stockUtils";
 import { useSiteTheme } from "@/context/SiteThemeContext";
 
@@ -582,6 +583,8 @@ function ReceiptModal({
 // ── Main Page ───────────────────────────────────────────────────────────────
 export default function MyOrdersPage() {
     const { currentUser, addToCart, settings, menuItems, refreshCurrentUser, logout } = useApp();
+    // Admin → Menu → gear can hide every photo on the website.
+    const showImages = showMenuImages(settings);
     const { theme, toggleTheme } = useSiteTheme();
     const sym = settings.currency?.symbol ?? "£";
     const router = useRouter();
@@ -817,7 +820,7 @@ export default function MyOrdersPage() {
                                                 className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-zinc-50 dark:hover:bg-white/5 active:bg-zinc-100 dark:active:bg-white/10 transition-colors text-left"
                                             >
                                                 <div className="w-11 h-11 rounded-lg bg-orange-50 overflow-hidden flex-shrink-0 flex items-center justify-center">
-                                                    {item.image ? (
+                                                    {showImages && item.image ? (
                                                         /* eslint-disable-next-line @next/next/no-img-element */
                                                         <img src={item.image} alt={item.name} className="w-full h-full object-cover" />
                                                     ) : (

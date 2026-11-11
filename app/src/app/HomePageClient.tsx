@@ -19,6 +19,7 @@ import SiteFooter from "@/components/SiteFooter";
 import MealPeriodSection from "@/components/MealPeriodSection";
 import { isMealPeriodActive } from "@/lib/scheduleUtils";
 import { resolveStock } from "@/lib/stockUtils";
+import { showMenuImages } from "@/lib/menuDisplay";
 import { isOfferActive, getOfferUnitPrice, offerBadgeLabel, effectiveMenuPrice, isOnChannel } from "@/lib/menuOfferUtils";
 import { getNextOpenTime, formatNextOpen } from "@/lib/scheduleUtils";
 import MobileBottomNav from "@/components/MobileBottomNav";
@@ -35,6 +36,10 @@ const DIET_SHORT: Record<string, string> = {
 function FoodCard({ item, onOpen }: { item: MenuItem; onOpen: () => void }) {
   const { isOpen, scheduledTime, currentUser, isFavourite, toggleFavourite, settings } = useApp();
   const sym = settings.currency?.symbol ?? "£";
+  // Admin → Menu → gear can hide every photo on the website. The band at the
+  // top of the card stays (it carries the badges, heart and quick-add) but
+  // shrinks, so the card keeps its design without a photo.
+  const photo = showMenuImages(settings) ? item.image : undefined;
   const stockStatus = resolveStock(item);
   const outOfStock = stockStatus === "out_of_stock";
   const lowStock = stockStatus === "low_stock";
@@ -56,11 +61,11 @@ function FoodCard({ item, onOpen }: { item: MenuItem; onOpen: () => void }) {
         }`}
     >
       {/* Image */}
-      <div className="relative h-[180px] bg-orange-50 overflow-hidden">
-        {item.image ? (
+      <div className={`relative ${showMenuImages(settings) ? "h-[180px]" : "h-[96px]"} bg-orange-50 overflow-hidden`}>
+        {photo ? (
           // eslint-disable-next-line @next/next/no-img-element -- admin-uploaded URLs from arbitrary hosts; next/image can't pre-register remotePatterns
           <img
-            src={item.image}
+            src={photo}
             alt={item.name}
             className={`absolute inset-0 w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.04] ${outOfStock ? "grayscale opacity-50" : ""}`}
           />
@@ -691,7 +696,7 @@ export default function HomePageClient() {
                         className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-zinc-50 dark:hover:bg-white/5 active:bg-zinc-100 dark:active:bg-white/10 transition-colors text-left"
                       >
                         <div className="w-11 h-11 rounded-lg bg-orange-50 overflow-hidden flex-shrink-0 flex items-center justify-center">
-                          {item.image ? (
+                          {showMenuImages(settings) && item.image ? (
                             // eslint-disable-next-line @next/next/no-img-element -- admin-uploaded URLs from arbitrary hosts
                             <img src={item.image} alt={item.name} className="w-full h-full object-cover" />
                           ) : (

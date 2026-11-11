@@ -146,6 +146,7 @@ export const DEFAULT_SETTINGS: AdminSettings = {
     maxAmount: 500,
     expiryMonths: 12,
   },
+  menuDisplay: { hideImagesOnWebsite: false },
   loyaltyPointsPerPound: 1,
   loyaltyPointsExpiryMonths: 1
 };

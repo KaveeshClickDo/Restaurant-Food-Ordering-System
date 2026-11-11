@@ -7,6 +7,7 @@ import { useApp } from "@/context/AppContext";
 import ItemCustomizationModal from "./ItemCustomizationModal";
 import { resolveStock } from "@/lib/stockUtils";
 import { isOfferActive, getOfferUnitPrice, offerBadgeLabel, effectiveMenuPrice } from "@/lib/menuOfferUtils";
+import { showMenuImages } from "@/lib/menuDisplay";
 
 const DIETARY_BADGES: Record<string, { label: string; className: string }> = {
   vegetarian:    { label: "V",  className: "bg-green-100 dark:bg-green-950/60 text-green-700 dark:text-green-300 border border-green-200 dark:border-green-800"   },
@@ -19,6 +20,9 @@ export default function MenuItemCard({ item }: { item: MenuItem }) {
   const { isOpen, scheduledTime, currentUser, toggleFavourite, isFavourite, settings } = useApp();
   const sym = settings.currency?.symbol ?? "£";
   const [showModal, setShowModal] = useState(false);
+  // Admin → Menu → gear can hide every photo on the website: the card then
+  // keeps its layout as for an item with no photo.
+  const photo = showMenuImages(settings) ? item.image : undefined;
 
   const stockStatus = resolveStock(item);
   const outOfStock  = stockStatus === "out_of_stock";
@@ -104,10 +108,10 @@ export default function MenuItemCard({ item }: { item: MenuItem }) {
         {/* Image + action column */}
         <div className="flex flex-col items-center gap-2.5 flex-shrink-0">
           {/* Image */}
-          {item.image ? (
+          {photo ? (
             <div className={`relative w-[88px] h-[88px] rounded-xl overflow-hidden border border-gray-100 dark:border-white/10 shadow-sm ${outOfStock ? "grayscale opacity-60" : ""}`}>
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={item.image} alt={item.name} className="w-full h-full object-cover" />
+              <img src={photo} alt={item.name} className="w-full h-full object-cover" />
               {currentUser && (
                 <button
                   onClick={(e) => { e.stopPropagation(); toggleFavourite(item.id); }}

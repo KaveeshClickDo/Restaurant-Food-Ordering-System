@@ -2,6 +2,7 @@
 
 import { useApp } from "@/context/AppContext";
 import { resolveStock } from "@/lib/stockUtils";
+import { showMenuImages } from "@/lib/menuDisplay";
 import { isOnChannel, effectiveMenuPrice, getOfferUnitPrice } from "@/lib/menuOfferUtils";
 import { isMealPeriodActive, nextActivationLabel } from "@/lib/scheduleUtils";
 import { Heart, UtensilsCrossed, Plus, Search, LayoutDashboard, LogOut, Clock, Sun, Moon } from "lucide-react";
@@ -20,6 +21,8 @@ export default function FavouritesPage() {
     const [search, setSearch] = useState("");
     const [showMobileCart, setShowMobileCart] = useState(false);
     const { currentUser, menuItems, mealPeriods, settings, isOpen, toggleFavourite, logout } = useApp();
+    // Admin → Menu → gear can hide every photo on the website.
+    const showImages = showMenuImages(settings);
     const { theme, toggleTheme } = useSiteTheme();
     const sym = settings.currency?.symbol ?? "£";
     const [authModal, setAuthModal] = useState<{ open: boolean; tab: "login" | "register" }>({ open: false, tab: "login" });
@@ -135,7 +138,7 @@ export default function FavouritesPage() {
                                                 className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-zinc-50 dark:hover:bg-white/5 active:bg-zinc-100 dark:active:bg-white/10 transition-colors text-left"
                                             >
                                                 <div className="w-11 h-11 rounded-lg bg-orange-50 overflow-hidden flex-shrink-0 flex items-center justify-center">
-                                                    {item.image ? (
+                                                    {showImages && item.image ? (
                                                         /* eslint-disable-next-line @next/next/no-img-element */
                                                         <img src={item.image} alt={item.name} className="w-full h-full object-cover" />
                                                     ) : (
@@ -267,8 +270,9 @@ export default function FavouritesPage() {
                                     return (
                                         <div key={item.id} className="bg-white dark:bg-[var(--brand-surface-dark)] rounded-2xl border border-zinc-200/70 dark:border-[var(--brand-border-dark)] shadow-sm overflow-hidden group flex flex-col">
                                             {/* Image */}
-                                            <div className="relative h-[160px] bg-orange-50 overflow-hidden flex-shrink-0">
-                                                {item.image ? (
+                                            {/* The band stays when photos are off (it carries the heart and badges) but shrinks. */}
+                                            <div className={`relative ${showImages ? "h-[160px]" : "h-[96px]"} bg-orange-50 overflow-hidden flex-shrink-0`}>
+                                                {showImages && item.image ? (
                                                     /* eslint-disable-next-line @next/next/no-img-element */
                                                     <img src={item.image} alt={item.name}
                                                         className={`absolute inset-0 w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.03] ${dimmed ? "grayscale opacity-50" : ""}`}

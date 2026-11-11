@@ -596,6 +596,14 @@ export interface DiningTable {
   floorId?: string | null;
 }
 
+/** How the menu is shown on the customer website. Admin and POS screens are
+ *  not affected: staff always see the photos. */
+export interface MenuDisplaySettings {
+  /** True: customers see item names, descriptions and prices only; every menu
+   *  photo (menu list, item pop-up, home page, favourites, suggestions) is left out. */
+  hideImagesOnWebsite: boolean;
+}
+
 export interface AdminSettings {
   coupons: Coupon[];
   taxSettings: TaxSettings;
@@ -632,6 +640,9 @@ export interface AdminSettings {
    *  Optional — missing means "not explicitly set" (treated as on when env is
    *  on). See lib/dojo/effectiveFlag.ts. */
   dojoTerminal?: { enabled: boolean };
+  /** How the menu is shown on the customer website (Admin → Menu → gear).
+   *  Optional: older settings blobs simply don't have the key. */
+  menuDisplay?: MenuDisplaySettings;
   /** Admin-saved broadcast templates (Admin → Marketing → compose step 2).
    *  Optional: older settings blobs simply don't have the key. */
   broadcastTemplates?: BroadcastTemplate[];

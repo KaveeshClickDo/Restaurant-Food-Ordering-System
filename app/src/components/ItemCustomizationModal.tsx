@@ -5,6 +5,7 @@ import { useState } from "react";
 import { MenuItem, CartItem } from "@/types";
 import { X, Plus, Minus, UtensilsCrossed, ChevronRight, Check } from "lucide-react";
 import { useApp } from "@/context/AppContext";
+import { showMenuImages } from "@/lib/menuDisplay";
 import { isAvailable } from "@/lib/stockUtils";
 import { getOfferUnitPrice, isOfferActive, offerBadgeLabel, effectiveMenuPrice } from "@/lib/menuOfferUtils";
 
@@ -106,7 +107,9 @@ export default function ItemCustomizationModal({ item, onClose }: Props) {
     onClose();
   }
 
-  const hasImage = !!item.image && !imgError;
+  // Admin → Menu → gear can hide every photo on the website: the pop-up then
+  // uses its narrow, photo-less layout.
+  const hasImage = showMenuImages(settings) && !!item.image && !imgError;
 
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
@@ -148,7 +151,7 @@ export default function ItemCustomizationModal({ item, onClose }: Props) {
 
             {/* Header */}
             <div className="px-6 pt-6 pb-4 border-b border-gray-100 dark:border-[var(--brand-border-dark)] flex-shrink-0">
-              {!hasImage && !item.image && (
+              {!hasImage && (
                 <div className="w-12 h-12 rounded-xl bg-zinc-100 dark:bg-white/5 flex items-center justify-center mb-3">
                   <UtensilsCrossed className="w-6 h-6 text-zinc-400" strokeWidth={1.4} />
                 </div>
