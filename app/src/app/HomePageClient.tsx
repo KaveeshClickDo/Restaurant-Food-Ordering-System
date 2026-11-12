@@ -5,7 +5,7 @@ import { Category, MenuItem } from "@/types";
 import { useApp } from "@/context/AppContext";
 import { useRouter } from "next/navigation";
 import {
-  Search, ShoppingBag, UtensilsCrossed,
+  Search, ShoppingBag,
   Plus, Clock, Bike,
   Star, CalendarDays, LogOut, LayoutDashboard, Heart,
   AlertCircle, Sun, Moon,
@@ -36,9 +36,8 @@ const DIET_SHORT: Record<string, string> = {
 function FoodCard({ item, onOpen }: { item: MenuItem; onOpen: () => void }) {
   const { isOpen, scheduledTime, currentUser, isFavourite, toggleFavourite, settings } = useApp();
   const sym = settings.currency?.symbol ?? "£";
-  // Admin → Menu → gear can hide every photo on the website. The band at the
-  // top of the card stays (it carries the badges, heart and quick-add) but
-  // shrinks, so the card keeps its design without a photo.
+  // Admin → Menu → gear can hide every photo on the website. With no photo to
+  // show (hidden, or the item has none) the card is text only — see below.
   const photo = showMenuImages(settings) ? item.image : undefined;
   const stockStatus = resolveStock(item);
   const outOfStock = stockStatus === "out_of_stock";
@@ -54,6 +53,91 @@ function FoodCard({ item, onOpen }: { item: MenuItem; onOpen: () => void }) {
   const discountedBase = getOfferUnitPrice(item);
   const offerLabel = offerBadgeLabel(item);
 
+  // Text-only card, after the reference design: a tag row (badges, dietary
+  // chips, heart at the far right), name, description, then a divider with
+  // the price on the left and an always-visible Add button on the right. No
+  // photo band, no placeholder.
+  if (!photo) {
+    return (
+      <div
+        onClick={() => canAdd && onOpen()}
+        className={`bg-white dark:bg-[var(--brand-surface-dark)] rounded-2xl border border-zinc-200/70 dark:border-[var(--brand-border-dark)] shadow-[0_1px_3px_rgba(0,0,0,0.04),0_4px_12px_rgba(0,0,0,0.04)] group relative flex flex-col p-4 sm:p-5 transition-transform duration-200 ${canAdd ? "cursor-pointer hover:-translate-y-0.5" : "opacity-60 cursor-not-allowed"
+          }`}
+      >
+        {/* Tag row */}
+        <div className="flex items-center gap-1.5 flex-wrap mb-3 min-h-[20px]">
+          {!outOfStock && item.popular && (
+            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wider bg-orange-500 text-white">
+              Popular
+            </span>
+          )}
+          {!outOfStock && offerOn && offerLabel && (
+            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wider bg-orange-500 text-white">
+              {offerLabel}
+            </span>
+          )}
+          {outOfStock && (
+            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wider bg-zinc-100 dark:bg-zinc-800 text-zinc-500 dark:text-zinc-400">
+              Unavailable
+            </span>
+          )}
+          {lowStock && !outOfStock && (
+            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wider bg-amber-500 text-white">
+              {typeof item.stockQty === "number" ? `Only ${item.stockQty} left` : "Low stock"}
+            </span>
+          )}
+          {item.dietary.slice(0, 3).map((d) => (
+            <span key={d} className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium uppercase tracking-wider bg-zinc-100 dark:bg-white/10 text-zinc-700 dark:text-zinc-300">
+              {DIET_SHORT[d] ?? d}
+            </span>
+          ))}
+          {currentUser && (
+            <button
+              onClick={(e) => { e.stopPropagation(); toggleFavourite(item.id); }}
+              aria-label={faved ? "Remove from favourites" : "Save to favourites"}
+              className={`ml-auto w-7 h-7 -my-1 -mr-1 rounded-full flex items-center justify-center transition-colors ${faved ? "text-red-500" : "text-zinc-300 dark:text-zinc-600 hover:text-red-500"}`}
+            >
+              <Heart className="w-4 h-4" strokeWidth={2} fill={faved ? "currentColor" : "none"} />
+            </button>
+          )}
+        </div>
+
+        <h3 className="text-[17px] font-semibold tracking-tight leading-snug text-zinc-900 dark:text-[var(--brand-text-dark)] mb-1.5">{item.name}</h3>
+        {item.description && (
+          <p className="text-[13px] text-zinc-500 dark:text-zinc-400 leading-relaxed line-clamp-2 mb-4">{item.description}</p>
+        )}
+
+        {/* Price + Add */}
+        <div className="mt-auto pt-4 border-t border-zinc-200/70 dark:border-[var(--brand-border-dark)] flex items-center justify-between gap-3">
+          <div className="flex items-baseline gap-2 min-w-0 tabular-nums">
+            {discountedBase !== null ? (
+              <>
+                <span className="text-[20px] font-semibold tracking-tight text-orange-600">{sym}{discountedBase.toFixed(2)}</span>
+                <span className="text-[12px] text-zinc-400 dark:text-zinc-500 line-through">{sym}{effectiveMenuPrice(item).toFixed(2)}</span>
+              </>
+            ) : (
+              <span className={`text-[20px] font-semibold tracking-tight ${outOfStock ? "text-zinc-400 dark:text-zinc-500" : "text-zinc-900 dark:text-[var(--brand-text-dark)]"}`}>
+                {sym}{effectiveMenuPrice(item).toFixed(2)}
+              </span>
+            )}
+          </div>
+          <button
+            type="button"
+            disabled={!canAdd}
+            onClick={(e) => { e.stopPropagation(); if (canAdd) onOpen(); }}
+            aria-label={`Add ${item.name}`}
+            className={`h-9 px-3.5 rounded-xl text-[12.5px] font-semibold flex items-center gap-1.5 flex-shrink-0 transition-colors ${canAdd
+              ? "bg-orange-500 hover:bg-orange-600 text-white active:scale-[0.98]"
+              : "bg-zinc-100 dark:bg-white/10 text-zinc-400 dark:text-zinc-500 cursor-not-allowed"
+              }`}
+          >
+            <Plus className="w-3.5 h-3.5" strokeWidth={2.5} /> Add
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div
       onClick={() => canAdd && onOpen()}
@@ -61,19 +145,13 @@ function FoodCard({ item, onOpen }: { item: MenuItem; onOpen: () => void }) {
         }`}
     >
       {/* Image */}
-      <div className={`relative ${showMenuImages(settings) ? "h-[180px]" : "h-[96px]"} bg-orange-50 overflow-hidden`}>
-        {photo ? (
-          // eslint-disable-next-line @next/next/no-img-element -- admin-uploaded URLs from arbitrary hosts; next/image can't pre-register remotePatterns
-          <img
-            src={photo}
-            alt={item.name}
-            className={`absolute inset-0 w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.04] ${outOfStock ? "grayscale opacity-50" : ""}`}
-          />
-        ) : (
-          <div className="w-full h-full flex items-center justify-center">
-            <UtensilsCrossed className="w-10 h-10 text-zinc-300 dark:text-zinc-700" strokeWidth={1.2} />
-          </div>
-        )}
+      <div className="relative h-[180px] bg-orange-50 overflow-hidden">
+        {/* eslint-disable-next-line @next/next/no-img-element -- admin-uploaded URLs from arbitrary hosts; next/image can't pre-register remotePatterns */}
+        <img
+          src={photo}
+          alt={item.name}
+          className={`absolute inset-0 w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.04] ${outOfStock ? "grayscale opacity-50" : ""}`}
+        />
         {/* Popular + offer badges sit side by side in a flex row so an item
             that is both popular and on offer shows both, without overlapping. */}
         {!outOfStock && (item.popular || (offerOn && offerLabel)) && (
@@ -164,9 +242,11 @@ function FoodCard({ item, onOpen }: { item: MenuItem; onOpen: () => void }) {
 // Shown instead of FoodCard so the first paint never reads as "no items in
 // this category" before the menu has even loaded (see menuItemsLoaded).
 function FoodCardSkeleton() {
+  const { settings } = useApp();
   return (
     <div className="bg-white dark:bg-[var(--brand-surface-dark)] rounded-2xl border border-zinc-200/70 dark:border-[var(--brand-border-dark)] overflow-hidden animate-pulse">
-      <div className="h-[180px] bg-zinc-200/70 dark:bg-white/5" />
+      {/* No band when photos are hidden: the real cards are text only then. */}
+      {showMenuImages(settings) && <div className="h-[180px] bg-zinc-200/70 dark:bg-white/5" />}
       <div className="p-4 space-y-2.5">
         <div className="h-4 bg-zinc-200/90 dark:bg-white/10 rounded w-3/4" />
         <div className="h-3 bg-zinc-200/90 dark:bg-white/10 rounded w-full" />
@@ -695,14 +775,12 @@ export default function HomePageClient() {
                         onClick={() => openSuggestion(item)}
                         className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-zinc-50 dark:hover:bg-white/5 active:bg-zinc-100 dark:active:bg-white/10 transition-colors text-left"
                       >
-                        <div className="w-11 h-11 rounded-lg bg-orange-50 overflow-hidden flex-shrink-0 flex items-center justify-center">
-                          {showMenuImages(settings) && item.image ? (
-                            // eslint-disable-next-line @next/next/no-img-element -- admin-uploaded URLs from arbitrary hosts
+                        {showMenuImages(settings) && item.image && (
+                          <div className="w-11 h-11 rounded-lg bg-orange-50 overflow-hidden flex-shrink-0">
+                            {/* eslint-disable-next-line @next/next/no-img-element -- admin-uploaded URLs from arbitrary hosts */}
                             <img src={item.image} alt={item.name} className="w-full h-full object-cover" />
-                          ) : (
-                            <UtensilsCrossed className="w-5 h-5 text-zinc-300 dark:text-zinc-700" strokeWidth={1.4} />
-                          )}
-                        </div>
+                          </div>
+                        )}
                         <div className="flex-1 min-w-0">
                           <div className="text-[13.5px] font-medium text-zinc-900 dark:text-[var(--brand-text-dark)] truncate">{item.name}</div>
                           {item.description && (

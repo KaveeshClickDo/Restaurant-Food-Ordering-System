@@ -26,7 +26,6 @@ import {
     Package,
     Truck,
     Ban,
-    UtensilsCrossed,
     Sun,
     Moon,
 } from "lucide-react";
@@ -819,14 +818,12 @@ export default function MyOrdersPage() {
                                                 onClick={() => openSuggestion(item)}
                                                 className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-zinc-50 dark:hover:bg-white/5 active:bg-zinc-100 dark:active:bg-white/10 transition-colors text-left"
                                             >
-                                                <div className="w-11 h-11 rounded-lg bg-orange-50 overflow-hidden flex-shrink-0 flex items-center justify-center">
-                                                    {showImages && item.image ? (
-                                                        /* eslint-disable-next-line @next/next/no-img-element */
+                                                {showImages && item.image && (
+                                                    <div className="w-11 h-11 rounded-lg bg-orange-50 overflow-hidden flex-shrink-0">
+                                                        {/* eslint-disable-next-line @next/next/no-img-element */}
                                                         <img src={item.image} alt={item.name} className="w-full h-full object-cover" />
-                                                    ) : (
-                                                        <UtensilsCrossed className="w-5 h-5 text-zinc-300 dark:text-zinc-700" strokeWidth={1.4} />
-                                                    )}
-                                                </div>
+                                                    </div>
+                                                )}
                                                 <div className="flex-1 min-w-0">
                                                     <div className="text-[13.5px] font-medium text-zinc-900 dark:text-[var(--brand-text-dark)] truncate">{item.name}</div>
                                                     {item.description && (

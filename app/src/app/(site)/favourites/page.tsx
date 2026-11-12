@@ -5,7 +5,7 @@ import { resolveStock } from "@/lib/stockUtils";
 import { showMenuImages } from "@/lib/menuDisplay";
 import { isOnChannel, effectiveMenuPrice, getOfferUnitPrice } from "@/lib/menuOfferUtils";
 import { isMealPeriodActive, nextActivationLabel } from "@/lib/scheduleUtils";
-import { Heart, UtensilsCrossed, Plus, Search, LayoutDashboard, LogOut, Clock, Sun, Moon } from "lucide-react";
+import { Heart, Plus, Search, LayoutDashboard, LogOut, Clock, Sun, Moon } from "lucide-react";
 import AuthModal from "@/components/AuthModal";
 import ItemCustomizationModal from "@/components/ItemCustomizationModal";
 import Link from "next/link";
@@ -137,14 +137,12 @@ export default function FavouritesPage() {
                                                 onClick={() => openSuggestion(item)}
                                                 className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-zinc-50 dark:hover:bg-white/5 active:bg-zinc-100 dark:active:bg-white/10 transition-colors text-left"
                                             >
-                                                <div className="w-11 h-11 rounded-lg bg-orange-50 overflow-hidden flex-shrink-0 flex items-center justify-center">
-                                                    {showImages && item.image ? (
-                                                        /* eslint-disable-next-line @next/next/no-img-element */
+                                                {showImages && item.image && (
+                                                    <div className="w-11 h-11 rounded-lg bg-orange-50 overflow-hidden flex-shrink-0">
+                                                        {/* eslint-disable-next-line @next/next/no-img-element */}
                                                         <img src={item.image} alt={item.name} className="w-full h-full object-cover" />
-                                                    ) : (
-                                                        <UtensilsCrossed className="w-5 h-5 text-zinc-300 dark:text-zinc-700" strokeWidth={1.4} />
-                                                    )}
-                                                </div>
+                                                    </div>
+                                                )}
                                                 <div className="flex-1 min-w-0">
                                                     <div className="text-[13.5px] font-medium text-zinc-900 dark:text-[var(--brand-text-dark)] truncate">{item.name}</div>
                                                     {item.description && (
@@ -259,6 +257,7 @@ export default function FavouritesPage() {
                                     // Stock check wins if both apply; meal-period
                                     // unavailability shows the time hint instead.
                                     const dimmed = outOfStock || !mp.orderable || offlineOnly;
+                                    const photo = showImages ? item.image : undefined;
                                     const canAdd = (isOpen || !!settings.restaurant) && !outOfStock && mp.orderable && !offlineOnly;
                                     const buttonLabel = outOfStock
                                       ? "Unavailable"
@@ -269,19 +268,15 @@ export default function FavouritesPage() {
                                           : "Add to order";
                                     return (
                                         <div key={item.id} className="bg-white dark:bg-[var(--brand-surface-dark)] rounded-2xl border border-zinc-200/70 dark:border-[var(--brand-border-dark)] shadow-sm overflow-hidden group flex flex-col">
-                                            {/* Image */}
-                                            {/* The band stays when photos are off (it carries the heart and badges) but shrinks. */}
-                                            <div className={`relative ${showImages ? "h-[160px]" : "h-[96px]"} bg-orange-50 overflow-hidden flex-shrink-0`}>
-                                                {showImages && item.image ? (
-                                                    /* eslint-disable-next-line @next/next/no-img-element */
-                                                    <img src={item.image} alt={item.name}
-                                                        className={`absolute inset-0 w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.03] ${dimmed ? "grayscale opacity-50" : ""}`}
-                                                    />
-                                                ) : (
-                                                    <div className="w-full h-full flex items-center justify-center">
-                                                        <UtensilsCrossed className="w-8 h-8 text-zinc-300 dark:text-zinc-700" strokeWidth={1.2} />
-                                                    </div>
-                                                )}
+                                            {/* Photo band — only when there is a photo to show. Without one the
+                                                card is text only and the heart and badges move into a top row,
+                                                after the reference design: no placeholder. */}
+                                            {photo && (
+                                            <div className="relative h-[160px] bg-orange-50 overflow-hidden flex-shrink-0">
+                                                {/* eslint-disable-next-line @next/next/no-img-element */}
+                                                <img src={photo} alt={item.name}
+                                                    className={`absolute inset-0 w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.03] ${dimmed ? "grayscale opacity-50" : ""}`}
+                                                />
                                                 {/* Remove from favourites */}
                                                 <button
                                                     onClick={() => toggleFavourite(item.id)}
@@ -301,8 +296,30 @@ export default function FavouritesPage() {
                                                     </span>
                                                 )}
                                             </div>
+                                            )}
                                             {/* Body */}
                                             <div className="p-4 flex-1 flex flex-col">
+                                                {!photo && (
+                                                    <div className="flex items-center gap-1.5 flex-wrap mb-3 min-h-[20px]">
+                                                        {!outOfStock && !mp.orderable && mp.label && (
+                                                            <span className="inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded-full bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-900">
+                                                                <Clock className="w-3 h-3" /> {mp.label}
+                                                            </span>
+                                                        )}
+                                                        {!outOfStock && offlineOnly && (
+                                                            <span className="inline-flex items-center text-[10px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded-full bg-zinc-100 dark:bg-white/10 text-zinc-600 dark:text-zinc-300">
+                                                                Not available online
+                                                            </span>
+                                                        )}
+                                                        <button
+                                                            onClick={() => toggleFavourite(item.id)}
+                                                            aria-label="Remove from favourites"
+                                                            className="ml-auto w-7 h-7 -my-1 -mr-1 rounded-full flex items-center justify-center text-red-500 hover:text-red-600 transition-colors"
+                                                        >
+                                                            <Heart className="w-4 h-4" strokeWidth={2} fill="currentColor" />
+                                                        </button>
+                                                    </div>
+                                                )}
                                                 <div className="flex flex-col flex-1">
                                                     <div className="flex items-start justify-between gap-2 mb-1">
                                                         <h3 className="font-medium text-[15px] leading-snug text-zinc-900 dark:text-[var(--brand-text-dark)]">{item.name}</h3>
