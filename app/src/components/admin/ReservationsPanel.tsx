@@ -740,6 +740,13 @@ export default function ReservationsPanel() {
       setAddError("Phone number is required for phone bookings.");
       return;
     }
+    // Phone bookings also need an email — it's how the confirmation/cancel
+    // link reaches the guest, same as an online booking would. Walk-ins skip
+    // this: they're already at the table.
+    if (addSource === "phone" && !addEmail.trim()) {
+      setAddError("Email is required for phone bookings.");
+      return;
+    }
 
     const table = settings.diningTables?.find((t) => t.id === addTableId);
     if (!table) { setAddError("Selected table no longer exists. Refresh and try again."); return; }
@@ -978,7 +985,8 @@ export default function ReservationsPanel() {
         const maxParty = rs.maxPartySize ?? 10;
         const partyTooLarge = addParty > maxParty;
         const phoneMissing = addSource === "phone" && !addPhone.trim();
-        const canSubmit = !addSaving && !!addTableId && !!addName.trim() && !slotPast && !isBlackout && !partyTooLarge && !phoneMissing;
+        const emailMissing = addSource === "phone" && !addEmail.trim();
+        const canSubmit = !addSaving && !!addTableId && !!addName.trim() && !slotPast && !isBlackout && !partyTooLarge && !phoneMissing && !emailMissing;
         const selectedAddTable = activeTables.find((t) => t.id === addTableId);
         const addTableIsVip = !!selectedAddTable?.isVip && (selectedAddTable.vipPrice ?? 0) > 0;
         const currencySymbol = settings.currency?.symbol ?? "£";
@@ -1175,7 +1183,8 @@ export default function ReservationsPanel() {
                   <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Guest details</p>
                   <input type="text" required value={addName} onChange={(e) => setAddName(e.target.value)} placeholder="Full name *"
                     className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-orange-400 transition" />
-                  <input type="email" autoComplete="off" value={addEmail} onChange={(e) => setAddEmail(e.target.value)} placeholder="Email (optional)"
+                  <input type="email" autoComplete="off" required={addSource === "phone"} value={addEmail} onChange={(e) => setAddEmail(e.target.value)}
+                    placeholder={addSource === "phone" ? "Email *" : "Email (optional)"}
                     className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-orange-400 transition" />
                   <input type="tel" inputMode="tel" autoComplete="off" required={addSource === "phone"} value={addPhone} onChange={(e) => setAddPhone(cleanPhone(e.target.value))}
                     placeholder={addSource === "phone" ? "Phone *" : "Phone (optional)"}

@@ -25,7 +25,7 @@ export const ReservationPublicSchema = z.object({
 // is recorded for the receipt but no charge is taken through Stripe/PayPal.
 const ManualPaymentMethod = z.enum(["cash", "card"]);
 
-// Admin walk-in / phone — email optional, but phone required for "phone" bookings.
+// Admin walk-in / phone — email + phone optional for walk-ins, both required for "phone" bookings.
 export const ReservationAdminSchema = z.object({
   tableId:       NonEmptyString,
   date:          IsoDate,
@@ -44,6 +44,9 @@ export const ReservationAdminSchema = z.object({
 }).refine(
   (data) => data.source !== "phone" || (data.customerPhone && data.customerPhone.length > 0),
   { message: "Phone number is required for phone bookings.", path: ["customerPhone"] },
+).refine(
+  (data) => data.source !== "phone" || (data.customerEmail && data.customerEmail.length > 0),
+  { message: "Email is required for phone bookings.", path: ["customerEmail"] },
 );
 
 // POS — staff already has the table object cached client-side, so the body
@@ -69,6 +72,9 @@ export const ReservationPosSchema = z.object({
 }).refine(
   (data) => data.source !== "phone" || (data.customerPhone && data.customerPhone.length > 0),
   { message: "Phone number is required for phone bookings.", path: ["customerPhone"] },
+).refine(
+  (data) => data.source !== "phone" || (data.customerEmail && data.customerEmail.length > 0),
+  { message: "Email is required for phone bookings.", path: ["customerEmail"] },
 );
 
 // Online VIP booking-fee payment intent. Same fields as the public booking, plus

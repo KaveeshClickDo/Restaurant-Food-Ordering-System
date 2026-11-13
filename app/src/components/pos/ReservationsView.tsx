@@ -219,6 +219,13 @@ export default function ReservationsView() {
       setAddError("Phone number is required for phone bookings.");
       return;
     }
+    // Phone bookings also need an email — it's how the confirmation/cancel
+    // link reaches the guest, same as an online booking would. Walk-ins skip
+    // this: they're already at the table.
+    if (addSource === "phone" && !addEmail.trim()) {
+      setAddError("Email is required for phone bookings.");
+      return;
+    }
     // Soft-warn: seating a walk-in on a table that's booked again soon. Allowed,
     // but confirm so staff know the next party is coming.
     if (addSource === "walk-in" && addUpcoming[addTableMeta.id]) {
@@ -771,7 +778,7 @@ export default function ReservationsView() {
                 <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Guest details</p>
                 <input type="text" placeholder="Full name *" value={addName} onChange={(e) => setAddName(e.target.value)}
                   className="w-full bg-slate-800 border border-slate-600 rounded-xl px-4 py-2.5 text-slate-200 text-sm placeholder-slate-500 focus:outline-none focus:border-orange-500 transition" />
-                <input type="email" autoComplete="off" placeholder="Email (optional)" value={addEmail} onChange={(e) => setAddEmail(e.target.value)}
+                <input type="email" autoComplete="off" placeholder={addSource === "phone" ? "Email *" : "Email (optional)"} value={addEmail} onChange={(e) => setAddEmail(e.target.value)}
                   className="w-full bg-slate-800 border border-slate-600 rounded-xl px-4 py-2.5 text-slate-200 text-sm placeholder-slate-500 focus:outline-none focus:border-orange-500 transition" />
                 <input type="tel" inputMode="tel" autoComplete="off" placeholder={addSource === "phone" ? "Phone *" : "Phone (optional)"}
                   value={addPhone} onChange={(e) => setAddPhone(cleanPhone(e.target.value))}
@@ -827,7 +834,7 @@ export default function ReservationsView() {
               <button onClick={() => setShowAdd(false)} className="text-slate-400 hover:text-slate-200 text-sm font-semibold transition">Cancel</button>
               <button
                 onClick={handleAddBooking}
-                disabled={addSaving || !addName.trim() || !addTableMeta || (addSource !== "walk-in" && isSlotPastRes(addTime, addDate)) || (addSource === "phone" && !addPhone.trim())}
+                disabled={addSaving || !addName.trim() || !addTableMeta || (addSource !== "walk-in" && isSlotPastRes(addTime, addDate)) || (addSource === "phone" && !addPhone.trim()) || (addSource === "phone" && !addEmail.trim())}
                 className="flex items-center gap-1.5 bg-orange-500 hover:bg-orange-400 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-semibold px-5 py-2.5 rounded-xl transition-all"
               >
                 {addSaving ? <><Loader2 size={14} className="animate-spin" />Saving…</> :
