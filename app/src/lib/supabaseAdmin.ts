@@ -19,15 +19,14 @@ let _client: SupabaseClient | null = null;
 
 function getClient(): SupabaseClient {
   if (!_client) {
+    // The detail goes to the server log; the message can reach the screen, so keep it plain.
     if (!serviceRoleKey) {
-      throw new Error(
-        "SUPABASE_SERVICE_ROLE_KEY is not set. Add it to .env.local — it must never be committed to source control.",
-      );
+      console.error("SUPABASE_SERVICE_ROLE_KEY is not set. Add it to .env.local — it must never be committed to source control.");
+      throw new Error("The system is not set up yet. Please contact support.");
     }
     if (!supabaseUrl) {
-      throw new Error(
-        "NEXT_PUBLIC_SUPABASE_URL is not set. Add it to .env.local.",
-      );
+      console.error("NEXT_PUBLIC_SUPABASE_URL is not set. Add it to .env.local.");
+      throw new Error("The system is not set up yet. Please contact support.");
     }
     _client = createClient(supabaseUrl, serviceRoleKey, {
       auth: { persistSession: false, autoRefreshToken: false },

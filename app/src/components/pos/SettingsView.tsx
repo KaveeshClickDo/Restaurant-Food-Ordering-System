@@ -606,15 +606,8 @@ export default function SettingsView() {
             <div className="bg-slate-800 border border-slate-700 rounded-2xl p-5 space-y-4">
               <div>
                 <h3 className="text-white font-semibold text-sm flex items-center gap-2">
-                  <Mail size={16} className="text-slate-400" /> Email Receipts (SMTP)
+                  <Mail size={16} className="text-slate-400" /> Email Receipts
                 </h3>
-                <p className="text-slate-400 text-xs mt-1">
-                  SMTP credentials are configured via server-side environment variables
-                  (<code className="font-mono text-orange-400">SMTP_HOST</code>,{" "}
-                  <code className="font-mono text-orange-400">SMTP_USER</code>,{" "}
-                  <code className="font-mono text-orange-400">SMTP_PASS</code>).
-                  They are never stored in the browser.
-                </p>
               </div>
               <div>
                 <label className="text-xs text-slate-400 mb-1 block">From Name (shown to customer)</label>

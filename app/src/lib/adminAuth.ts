@@ -71,7 +71,14 @@ export function unauthorizedResponse(): NextResponse {
   return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
 }
 
-/** Short-circuit helper: returns a 503 JSON response when a required env var is missing. */
+/**
+ * Short-circuit helper: returns a 503 JSON response when a required env var is missing.
+ * The technical detail goes to the server log only; the person signing in sees a plain message.
+ */
 export function misconfiguredResponse(detail: string): NextResponse {
-  return NextResponse.json({ ok: false, error: `Server misconfiguration: ${detail}` }, { status: 503 });
+  console.error(`Server misconfiguration: ${detail}`);
+  return NextResponse.json(
+    { ok: false, error: "Admin sign-in is not set up yet. Please contact support." },
+    { status: 503 },
+  );
 }

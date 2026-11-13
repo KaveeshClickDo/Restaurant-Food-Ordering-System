@@ -517,8 +517,7 @@ export default function POSStaffPanel() {
         <strong className="block mb-1 text-white">How it works</strong>
         POS staff log in at <code>/pos/login</code> using their password. Roles
         determine which tabs they see inside the POS terminal — Admins get
-        everything; Cashiers see only Sale + Tables. Passwords are bcrypt-hashed and
-        validated server-side; the browser never holds a real password.
+        everything; Cashiers see only Sale + Tables.
       </div>
       </div>
       )}

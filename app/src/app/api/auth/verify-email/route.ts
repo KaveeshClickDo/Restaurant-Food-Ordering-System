@@ -27,7 +27,9 @@ export async function POST(req: NextRequest) {
     .maybeSingle();
 
   if (error?.code === "PGRST204") {
-    return NextResponse.json({ ok: false, error: "Email verification is not set up yet. Apply supabase/schema.sql first." }, { status: 503 });
+    // The detail goes to the server log; customers see a plain message.
+    console.error("[auth/verify-email] the customers table has no email verification columns: apply supabase/schema.sql.");
+    return NextResponse.json({ ok: false, error: "Email verification isn't available right now. Please contact the restaurant." }, { status: 503 });
   }
 
   const invalid = () =>

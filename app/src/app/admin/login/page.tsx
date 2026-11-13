@@ -90,12 +90,6 @@ export default function AdminLoginPage() {
               {loading ? "Signing in…" : "Sign in"}
             </button>
           </form>
-
-          {!process.env.NEXT_PUBLIC_ADMIN_CONFIGURED && (
-          <p className="mt-4 text-gray-600 text-xs text-center">
-            Set <code className="text-gray-500">ADMIN_PASSWORD</code> in <code className="text-gray-500">.env.local</code>
-          </p>
-        )}
         </div>
       </main>
 

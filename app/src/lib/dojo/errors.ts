@@ -23,7 +23,7 @@ export class DojoApiError extends Error {
 /** Thrown when a Dojo route is used while DOJO_MODE is off. */
 export class DojoDisabledError extends Error {
   constructor() {
-    super("Dojo payments are not enabled (DOJO_MODE=off).");
+    super("Card machine payments are not turned on.");
     this.name = "DojoDisabledError";
   }
 }

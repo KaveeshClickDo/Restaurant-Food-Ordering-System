@@ -132,7 +132,7 @@ export async function POST(
     } else if (orderRow.paypal_capture_id) {
       if (!paypalIsConfigured()) {
         return NextResponse.json(
-          { ok: false, error: "PayPal credentials are not configured on the server." },
+          { ok: false, error: "PayPal is not set up yet. Please contact support." },
           { status: 500 },
         );
       }

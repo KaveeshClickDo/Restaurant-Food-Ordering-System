@@ -26,7 +26,7 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ id
 
   if (!emailConfigured()) {
     return NextResponse.json(
-      { ok: false, error: "Email is not configured (set RESEND_API_KEY or SMTP_HOST)." },
+      { ok: false, error: "Email sending is not set up yet. Please contact support." },
       { status: 503 },
     );
   }

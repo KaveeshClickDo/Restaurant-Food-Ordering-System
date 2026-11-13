@@ -15,10 +15,10 @@ const PAPER_WIDTHS = [
 ] as const;
 
 const POS_CONNECTION_OPTIONS = [
-  { value: "network"   as const, label: "Network / IP",  sub: "ESC/POS over TCP — same LAN as server" },
-  { value: "bluetooth" as const, label: "Bluetooth",     sub: "Classic BT (SPP) — Android app, works offline" },
-  { value: "usb"       as const, label: "USB (direct)",  sub: "Web USB — printer plugged into this device" },
-  { value: "browser"   as const, label: "Browser print", sub: "window.print() — any OS-visible printer" },
+  { value: "network"   as const, label: "Network / IP",  sub: "Printer on the same network" },
+  { value: "bluetooth" as const, label: "Bluetooth",     sub: "Android app, works offline" },
+  { value: "usb"       as const, label: "USB (direct)",  sub: "Printer plugged into this device" },
+  { value: "browser"   as const, label: "Browser print", sub: "Any printer this device can see" },
 ] as const;
 
 type POSConnectionMode = "network" | "bluetooth" | "usb" | "browser";

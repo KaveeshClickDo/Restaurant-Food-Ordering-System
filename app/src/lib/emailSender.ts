@@ -189,7 +189,7 @@ export async function sendEmail(args: SendEmailArgs): Promise<SendEmailResult> {
   const smtpHost  = process.env.SMTP_HOST?.trim();
 
   if (!resendKey && !smtpHost) {
-    return { ok: false, error: "Email not configured (set RESEND_API_KEY or SMTP_HOST)" };
+    return { ok: false, error: "Email sending is not set up yet. Please contact support." };
   }
 
   const from = buildFromHeader(args.fromName);

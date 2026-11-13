@@ -54,9 +54,11 @@ function getCredentials(): { clientId: string; clientSecret: string } {
     "";
   const clientSecret = process.env.PAYPAL_CLIENT_SECRET ?? "";
   if (!clientId || !clientSecret) {
-    throw new Error(
+    // The detail goes to the server log; the message can reach the screen, so keep it plain.
+    console.error(
       "PayPal credentials not configured. Set NEXT_PUBLIC_PAYPAL_CLIENT_ID and PAYPAL_CLIENT_SECRET in .env.local (sandbox values during development).",
     );
+    throw new Error("PayPal is not set up yet. Please contact support.");
   }
   return { clientId, clientSecret };
 }

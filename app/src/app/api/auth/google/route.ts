@@ -18,8 +18,10 @@ function getSecret(): string {
 export async function GET() {
   const clientId = process.env.GOOGLE_CLIENT_ID;
   if (!clientId) {
+    // The detail goes to the server log; customers see a plain message.
+    console.error("[auth/google] GOOGLE_CLIENT_ID is not set, so Google sign-in is unavailable.");
     return NextResponse.json(
-      { error: "Google OAuth is not configured (GOOGLE_CLIENT_ID missing)." },
+      { error: "Google sign-in isn't available right now. Please sign in with your email instead." },
       { status: 500 },
     );
   }

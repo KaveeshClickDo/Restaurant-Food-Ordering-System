@@ -405,8 +405,7 @@ export default function CollectionStaffPanel() {
       <div className="bg-blue-950/60 border border-blue-700/60 rounded-xl p-4 text-blue-100 text-xs leading-relaxed">
         <strong className="block mb-1 text-white">How it works</strong>
         Collection staff log in at <code>/collection/login</code> using their password to take pickup payments and
-        complete handovers. Sessions are signed HMAC cookies; passwords are bcrypt-hashed and validated
-        server-side — never exposed in the browser. Deactivating a member signs them out on their next request.
+        complete handovers. Deactivating a member signs them out.
       </div>
     </div>
   );

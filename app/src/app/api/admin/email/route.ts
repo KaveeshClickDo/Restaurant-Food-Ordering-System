@@ -27,7 +27,7 @@ export async function POST(request: Request) {
 
   if (!emailConfigured()) {
     return NextResponse.json(
-      { ok: false, error: "Email is not configured. Set RESEND_API_KEY or SMTP_HOST in environment variables." },
+      { ok: false, error: "Email sending is not set up yet. Please contact support." },
       { status: 503 },
     );
   }

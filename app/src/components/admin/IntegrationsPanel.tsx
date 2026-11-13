@@ -351,17 +351,6 @@ function PaymentMethodsTab() {
 
 // ─── API Keys & Email Tab ─────────────────────────────────────────────────────
 
-function EnvVarRow({ name, description }: { name: string; description: string }) {
-  return (
-    <div className="flex flex-wrap items-start gap-3 py-3 border-b border-gray-50 last:border-0">
-      <code className="text-xs font-mono font-semibold text-indigo-700 bg-indigo-50 px-2 py-1 rounded-lg whitespace-nowrap flex-shrink-0 mt-0.5">
-        {name}
-      </code>
-      <p className="text-sm text-gray-500">{description}</p>
-    </div>
-  );
-}
-
 function ApiKeysTab() {
   const { settings, updateSettings } = useApp();
   const [saved, setSaved] = useState(false);
@@ -369,43 +358,6 @@ function ApiKeysTab() {
 
   return (
     <div className="space-y-5">
-      {/* Security notice */}
-      <div className="flex items-start gap-3 bg-amber-50 border border-amber-200 rounded-2xl px-5 py-4">
-        <ShieldAlert size={18} className="text-amber-600 flex-shrink-0 mt-0.5" />
-        <div>
-          <p className="font-semibold text-amber-800 text-sm">Sensitive credentials use environment variables</p>
-          <p className="text-amber-700 text-xs mt-1 leading-relaxed">
-            SMTP passwords, Stripe secret keys, and PayPal credentials are configured as
-            server-side environment variables — they are never stored in the database or sent to
-            the browser. Set them in your <code className="font-mono bg-amber-100 px-1 rounded">.env.local</code> file
-            (or your deployment platform&apos;s environment variables panel) and restart the server.
-          </p>
-        </div>
-      </div>
-
-      {/* Env var reference */}
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-        <div className="px-5 py-4 border-b border-gray-100">
-          <h3 className="font-semibold text-gray-900 text-sm">Required environment variables</h3>
-          <p className="text-xs text-gray-400 mt-0.5">Add these to <code className="font-mono">.env.local</code> — never commit them to source control.</p>
-        </div>
-        <div className="px-5 divide-y divide-gray-50">
-          <EnvVarRow name="SMTP_HOST" description="SMTP server hostname (e.g. smtp.gmail.com)" />
-          <EnvVarRow name="SMTP_PORT" description="SMTP port — 587 for STARTTLS (default), 465 for SSL" />
-          <EnvVarRow name="SMTP_USER" description="SMTP username / sender address" />
-          <EnvVarRow name="SMTP_PASS" description="SMTP password or app-specific password" />
-          <EnvVarRow name="STRIPE_SECRET_KEY" description="Stripe secret key (sk_live_… or sk_test_…)" />
-          <EnvVarRow name="STRIPE_WEBHOOK_SECRET" description="Webhook signing secret (whsec_…) from Stripe Dashboard → Webhooks" />
-          <EnvVarRow name="NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY" description="Stripe publishable key (pk_live_… or pk_test_…) — public, sent to the browser" />
-          <EnvVarRow name="APPLE_PAY_DOMAIN_ASSOCIATION" description="Apple Pay domain verification file contents (optional)" />
-          <EnvVarRow name="NEXT_PUBLIC_PAYPAL_CLIENT_ID" description="PayPal REST API client ID — public, sent to the browser" />
-          <EnvVarRow name="PAYPAL_CLIENT_SECRET" description="PayPal REST API secret — server-side only" />
-          <EnvVarRow name="PAYPAL_WEBHOOK_ID" description="PayPal webhook ID from Developer Dashboard → Webhooks" />
-          <EnvVarRow name="PAYPAL_ENV" description="PayPal environment — 'sandbox' for testing, 'live' for production" />
-          <EnvVarRow name="SUPABASE_SERVICE_ROLE_KEY" description="Supabase service-role key — used by server API routes only" />
-        </div>
-      </div>
-
       {/* Stripe public key — safe to store in DB */}
       <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
         <div className="px-5 py-4 border-b border-gray-100">
@@ -450,22 +402,22 @@ const CONNECTION_OPTIONS = [
   {
     value: "network" as const,
     label: "Network / IP",
-    sub: "ESC/POS over TCP — Epson, Star, Citizen (same LAN as server)",
+    sub: "Epson, Star, Citizen printers on the same network",
   },
   {
     value: "bluetooth" as const,
     label: "Bluetooth",
-    sub: "Classic BT (SPP) — Android app only, works fully offline",
+    sub: "Android app only, works fully offline",
   },
   {
     value: "usb" as const,
     label: "USB (direct)",
-    sub: "Web USB API — printer plugged into this device (Chrome/Edge only)",
+    sub: "Printer plugged into this device (Chrome/Edge only)",
   },
   {
     value: "browser" as const,
     label: "Browser print",
-    sub: "window.print() — any printer the OS can see (USB, Bluetooth, network)",
+    sub: "Any printer this device can see (USB, Bluetooth, network)",
   },
 ] as const;
 
@@ -1279,10 +1231,6 @@ function AdminEmailsTab() {
             <span className="text-xs text-gray-400">Test goes to {draft.recipients[0]}</span>
           )}
         </div>
-        <p className="text-[11px] text-gray-400">
-          Sending requires <code className="font-mono">RESEND_API_KEY</code> or <code className="font-mono">SMTP_HOST</code> to be
-          configured — see the API Keys &amp; Email tab. The test button reports if they are missing.
-        </p>
       </div>
     </div>
   );
@@ -1331,11 +1279,11 @@ function CardTerminalTab() {
         <div className="flex-1 min-w-0">
           <p className="font-bold text-gray-900 text-sm">Dojo card terminal</p>
           <p className="text-xs text-gray-400 mt-0.5">
-            {loading ? "Checking server…"
+            {loading ? "Checking…"
               : effective && missing.length > 0 ? "Set up incomplete — card machine payments will fail"
-              : effective ? `Active${status?.sandbox ? " · sandbox/test" : ""} — card payments can use the Dojo machine`
+              : effective ? `Active${status?.sandbox ? " · test mode" : ""} — card payments can use the Dojo machine`
               : envAvailable ? "Turned off — card payments use the manual method"
-              : "Unavailable — configure the server first"}
+              : "Not set up yet"}
           </p>
         </div>
         <div className={!envAvailable && !loading ? "opacity-40 pointer-events-none" : ""}>
@@ -1348,13 +1296,9 @@ function CardTerminalTab() {
         <div className="flex items-start gap-3 bg-red-50 border border-red-200 rounded-2xl px-5 py-4">
           <AlertTriangle size={18} className="text-red-500 flex-shrink-0 mt-0.5" />
           <div>
-            <p className="font-semibold text-red-800 text-sm">Missing on the server</p>
+            <p className="font-semibold text-red-800 text-sm">Card machine setup is incomplete</p>
             <p className="text-red-700 text-xs mt-1 leading-relaxed">
-              {missing.map((name) => (
-                <code key={name} className="font-mono bg-red-100 px-1 rounded mr-1">{name}</code>
-              ))}
-              is not set, so card machine payments are refused before anything reaches Dojo. Add it
-              to the server&apos;s environment settings and restart the server.
+              Card machine payments will be refused until the setup is finished. Please contact support.
             </p>
           </div>
         </div>
@@ -1365,12 +1309,10 @@ function CardTerminalTab() {
         <div className="flex items-start gap-3 bg-amber-50 border border-amber-200 rounded-2xl px-5 py-4">
           <ShieldAlert size={18} className="text-amber-600 flex-shrink-0 mt-0.5" />
           <div>
-            <p className="font-semibold text-amber-800 text-sm">Set up the server first</p>
+            <p className="font-semibold text-amber-800 text-sm">Card machine not set up yet</p>
             <p className="text-amber-700 text-xs mt-1 leading-relaxed">
-              The card terminal is gated by the <code className="font-mono bg-amber-100 px-1 rounded">DOJO_MODE</code> server
-              environment variable (it holds the secret key). While it is <code className="font-mono bg-amber-100 px-1 rounded">off</code> this
-              toggle stays locked and Dojo appears nowhere. Set <code className="font-mono bg-amber-100 px-1 rounded">DOJO_MODE=mock</code> (test)
-              or <code className="font-mono bg-amber-100 px-1 rounded">DOJO_MODE=live</code> + an API key, then restart the server.
+              The Dojo card machine has not been set up for this restaurant, so this switch is locked.
+              Please contact support to get it set up.
             </p>
           </div>
         </div>
@@ -1383,11 +1325,11 @@ function CardTerminalTab() {
           <li>When on, every <strong>card</strong> payment (POS, waiter, collection, gift cards, bookings) offers <strong>“Card machine (Dojo)”</strong> or <strong>“Other”</strong>.</li>
           <li>“Card machine” drives the Dojo terminal and records the transaction automatically.</li>
           <li>“Other” settles the old way — staff run their own machine and confirm.</li>
-          <li>Turn this off (or unset the env) and card payments revert entirely to the manual method.</li>
+          <li>Turn this off and card payments go back to the manual method.</li>
         </ul>
-        {!loading && envAvailable && (
+        {!loading && envAvailable && (status?.sandbox || saved) && (
           <p className="text-[11px] text-gray-400 mt-3">
-            Environment mode: <code className="font-mono">{status?.envMode}</code>{status?.sandbox ? " (sandbox/test — no real charges)" : ""}.
+            {status?.sandbox && "Test mode — no real charges."}
             {saved && <span className="text-green-600 font-semibold ml-1">Saved.</span>}
           </p>
         )}

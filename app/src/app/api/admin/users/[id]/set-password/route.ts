@@ -100,7 +100,7 @@ export async function POST(
   // ── Admin ─────────────────────────────────────────────────────────────────
   if (type === "admin") {
     return NextResponse.json(
-      { ok: false, error: "Admin password is set via ADMIN_PASSWORD env var." },
+      { ok: false, error: "The main admin password can't be changed here." },
       { status: 400 },
     );
   }

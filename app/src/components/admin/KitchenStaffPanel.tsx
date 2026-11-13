@@ -422,9 +422,8 @@ export default function KitchenStaffPanel() {
       {/* Info box */}
       <div className="bg-blue-950/60 border border-blue-700/60 rounded-xl p-4 text-blue-100 text-xs leading-relaxed">
         <strong className="block mb-1 text-white">How it works</strong>
-        Kitchen staff log in at <code>/kitchen/login</code> using their password. Sessions are signed HMAC cookies
-        valid for 30 days. Passwords are stored in admin settings and validated server-side — never exposed
-        in the browser&apos;s network tab. Each status update records the staff member&apos;s name in the order.
+        Kitchen staff log in at <code>/kitchen/login</code> using their password and stay signed in for 30 days.
+        Each status update records the staff member&apos;s name in the order.
       </div>
     </div>
   );

@@ -29,7 +29,7 @@ export function dojoErrorResponse(err: unknown, op: DojoOp): NextResponse {
     );
   }
   if (cause instanceof DojoConfigError) {
-    // Staff can't fix it; the admin panel names the setting (api/admin/dojo/status).
+    // Staff can't fix it; the setting is named in the server log below and in `detail`.
     console.error(`[dojo] ${op} refused: ${cause.message}`);
     return NextResponse.json(
       {
