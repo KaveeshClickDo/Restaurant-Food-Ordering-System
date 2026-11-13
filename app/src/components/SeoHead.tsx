@@ -3,6 +3,7 @@
 import { useEffect, useRef } from "react";
 import { usePathname } from "next/navigation";
 import { AdminSettings } from "@/types";
+import { staffScreenOf } from "@/lib/windowTitle";
 
 /**
  * Injected inside AppProvider — runs on every page.
@@ -109,6 +110,12 @@ export default function SeoHead({ settings }: { settings: AdminSettings }) {
   const siteUrl     = seo.siteUrl?.trim()         || "";
   const siteName    = settings.restaurant?.name   || "";
 
+  // Staff screens (till, admin, kitchen, ...) title their tab "<Screen> - <Restaurant>"
+  // from their layout's metadata (lib/windowTitle.ts). The SEO title is for the
+  // customer website only: rendered there too, it would be a second <title>, and
+  // whichever React hoists first into <head> would win the tab.
+  const tabTitle    = staffScreenOf(pathname) ? "" : title;
+
   // Build per-page canonical: siteUrl + current path
   const canonical   = siteUrl
     ? `${siteUrl.replace(/\/$/, "")}${pathname === "/" ? "" : pathname}`
@@ -116,7 +123,7 @@ export default function SeoHead({ settings }: { settings: AdminSettings }) {
 
   return (
     <>
-      {title       && <title>{title}</title>}
+      {tabTitle    && <title>{tabTitle}</title>}
       {description && <meta name="description"        content={description} />}
       {keywords    && <meta name="keywords"           content={keywords} />}
       {canonical   && <link rel="canonical"           href={canonical} />}
