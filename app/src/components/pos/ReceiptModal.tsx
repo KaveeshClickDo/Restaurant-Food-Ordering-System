@@ -14,7 +14,14 @@ import { resolveActivePrinter } from "@/lib/escpos";
 import { isCapacitorAndroid } from "@/lib/capacitorBridge";
 
 export default function ReceiptModal(
-  { sale, onClose, autoPrint = false }: { sale: POSSale; onClose: () => void; autoPrint?: boolean },
+  { sale, onClose, autoPrint = false, sendToKitchen = true }: {
+    sale: POSSale;
+    onClose: () => void;
+    autoPrint?: boolean;
+    /** Staff switched "Send to kitchen" off for this sale at checkout — skip
+     *  the kitchen-printer auto-print below. */
+    sendToKitchen?: boolean;
+  },
 ) {
   const { settings, customers } = usePOS();
   const { settings: appSettings } = useApp();
@@ -35,7 +42,8 @@ export default function ReceiptModal(
   const kitchenPrinter = resolveActivePrinter(appSettings, "kitchen");
   const noReceiptPrinter = autoPrint && !posPrinter;
   const receiptAutoPrintOff = autoPrint && !!posPrinter && !posPrinter.autoPrint;
-  const kitchenAutoPrintOff = autoPrint && !!kitchenPrinter && !kitchenPrinter.autoPrint;
+  const kitchenAutoPrintOff = autoPrint && sendToKitchen && !!kitchenPrinter && !kitchenPrinter.autoPrint;
+  const kitchenSkippedByStaff = autoPrint && !sendToKitchen;
   const sym = settings.currencySymbol;
   // window.print() is a no-op inside the Android WebView, so on Android we never
   // fall back to it — we surface an actionable message instead.
@@ -150,16 +158,17 @@ export default function ReceiptModal(
     const kitchen = resolveActivePrinter(appSettings, "kitchen");
     const pos = resolveActivePrinter(appSettings, "pos");
     const printReceipt = !!pos?.autoPrint && pos.connection !== "browser";
-    if (!kitchen?.autoPrint && !printReceipt) return;
+    const printKitchen = sendToKitchen && !!kitchen?.autoPrint;
+    if (!printKitchen && !printReceipt) return;
     autoPrinted.current = true;
-    if (kitchen?.autoPrint) {
+    if (printKitchen) {
       // `skipped` is not a failure.
       void printSaleToKitchen(sale, settings, appSettings, effectiveName, rs).then((r) => {
         if (!r.ok) setKitchenError(r.error ?? "The Kitchen printer failed.");
       });
     }
     if (printReceipt) void handlePrint();
-  }, [autoPrint, appSettings, handlePrint, sale, settings, effectiveName, rs]);
+  }, [autoPrint, sendToKitchen, appSettings, handlePrint, sale, settings, effectiveName, rs]);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
@@ -385,6 +394,11 @@ export default function ReceiptModal(
         {kitchenAutoPrintOff && (
           <InfoNote>
             The Kitchen printer&apos;s Auto-print is off, so no kitchen slip was printed. An admin can turn it on in Admin → Integrations.
+          </InfoNote>
+        )}
+        {kitchenSkippedByStaff && (
+          <InfoNote>
+            Not sent to kitchen — marked by staff at checkout.
           </InfoNote>
         )}
         {kitchenError && (

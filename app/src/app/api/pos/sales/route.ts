@@ -80,9 +80,10 @@ export async function POST(req: NextRequest) {
 
   const parsed = await parseBody(req, PosSaleCreateSchema);
   if (!parsed.ok) return NextResponse.json({ ok: false, error: parsed.error }, { status: parsed.status });
-  // kitchenNote isn't on POSSale (it's a transient create-only field that
-  // lands in the KDS ticket header but is never persisted on pos_sales).
-  const body = parsed.data as unknown as Partial<POSSale> & { kitchenNote?: string };
+  // kitchenNote / sendToKitchen aren't on POSSale — they're transient
+  // create-only fields that steer the KDS mirror row but are never persisted
+  // on pos_sales.
+  const body = parsed.data as unknown as Partial<POSSale> & { kitchenNote?: string; sendToKitchen?: boolean };
 
   // Offline-sale replay: a Capacitor POS rang this sale while offline (it minted
   // an 'OFF…' receipt number) and the outbox is now replaying it on reconnect.
@@ -426,17 +427,30 @@ export async function POST(req: NextRequest) {
     await rewardLoyaltyPoints(saleCustomerId, moneyPaid, { posSaleId: String(body.id) });
   }
 
-  // KDS sync — fire-and-await so the client knows whether the kitchen has
-  // the ticket. Failure here doesn't roll back the sale. kitchenNote is
-  // passed separately because it's only on the create body, not persisted
-  // on pos_sales and therefore not on POSSale.
-  const kdsResult = await pushToKDS(sale, typeof body.kitchenNote === "string" ? body.kitchenNote : undefined);
+  // Orders mirror sync — doesn't roll back the sale on failure. kitchenNote is
+  // passed separately since it's create-body-only, not persisted on pos_sales.
+  //
+  // "Send to kitchen" off only skips the KDS ticket and kitchen-printer
+  // auto-print (gated in ReceiptModal). The mirror row is always written —
+  // Delivery board, Reports, and Collection History all read it — just born
+  // "delivered" instead of "pending" so it skips every active view but still
+  // shows wherever completed orders normally do.
+  const sendToKitchen = body.sendToKitchen !== false;
+  const kdsResult = await pushToKDS(
+    sale,
+    typeof body.kitchenNote === "string" ? body.kitchenNote : undefined,
+    { completed: !sendToKitchen },
+  );
 
   return NextResponse.json({ ok: true, sale, kds: kdsResult });
 }
 
-// ── KDS sync helper ──────────────────────────────────────────────────────────
-async function pushToKDS(sale: POSSale, kitchenNote?: string): Promise<{ ok: boolean; error?: string }> {
+// ── Orders-mirror sync helper ──────────────────────────────────────────────
+async function pushToKDS(
+  sale: POSSale,
+  kitchenNote?: string,
+  opts?: { completed?: boolean },
+): Promise<{ ok: boolean; error?: string }> {
   // The kitchen display reads from the orders table. POS sales are recorded
   // there as collection orders with a "[POS]" marker in the note so KDS can
   // distinguish them.
@@ -484,7 +498,8 @@ async function pushToKDS(sale: POSSale, kitchenNote?: string): Promise<{ ok: boo
     id:             sale.id,
     customer_id:    POS_CUSTOMER_ID,
     date:           sale.date,
-    status:         "pending",
+    // "Send to kitchen" off → born already delivered: nothing to prepare
+    status:         opts?.completed ? "delivered" : "pending",
     fulfillment:    "collection",
     total:          sale.total,
     items,

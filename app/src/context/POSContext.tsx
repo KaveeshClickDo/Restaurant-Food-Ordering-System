@@ -295,6 +295,8 @@ interface POSContextValue {
   setTipAmount: React.Dispatch<React.SetStateAction<number>>;
   kitchenNote: string;
   setKitchenNote: React.Dispatch<React.SetStateAction<string>>;
+  sendToKitchen: boolean;
+  setSendToKitchen: React.Dispatch<React.SetStateAction<boolean>>;
   assignedCustomer: POSCustomer | null;
   setAssignedCustomer: React.Dispatch<React.SetStateAction<POSCustomer | null>>;
   // Computed totals
@@ -323,7 +325,7 @@ interface POSContextValue {
     // ONE sale only: the server treats a repeated id as a replay of the first
     // sale. Omitted → a fresh id.
     saleId?: string,
-  ) => Promise<{ sale: POSSale | null; error?: string }>;
+  ) => Promise<{ sale: POSSale | null; error?: string; sendToKitchen: boolean }>;
   /** True when the Dojo card-terminal flow is on: DOJO_MODE (mock|live) AND
    *  the admin toggle. */
   dojoEnabled: boolean;
@@ -667,6 +669,7 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
   const [tipAmount, setTipAmount] = useState(0);
   const [serviceFeePct, setServiceFeePct] = useState({ pct: 0 });
   const [kitchenNote, setKitchenNote] = useState("");
+  const [sendToKitchen, setSendToKitchen] = useState(true);
   const [assignedCustomer, setAssignedCustomer] = useState<POSCustomer | null>(null);
 
   // ── Staff — DB-backed (pos_staff table) ──────────────────────────────────
@@ -1330,6 +1333,7 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
     setTipAmount(0);
     setServiceFeePct({ pct: 0 });
     setKitchenNote("");
+    setSendToKitchen(true);
     setAssignedCustomer(null);
   }, []);
 
@@ -1387,7 +1391,8 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
     giftCard?: { code: string; amount: number },
     dojo?: DojoSaleResult,
     presetSaleId?: string,
-  ): Promise<{ sale: POSSale | null; error?: string }> => {
+  ): Promise<{ sale: POSSale | null; error?: string; sendToKitchen: boolean }> => {
+    const saleSendToKitchen = sendToKitchen;
     // Compute totals at full precision, then round each money field to 2dp
     // before sending. The server's Money primitive rejects float garbage
     // (15.000000000000002, 13.043478260869563, etc.) — round at the producer
@@ -1434,6 +1439,7 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
       discountAmount: round2(disc),
       discountNote: discount.note,
       kitchenNote:  kitchenNote.trim() || undefined,
+      sendToKitchen,
       taxAmount: round2(tax),
       // Snapshot the VAT mode + rate at time of sale so receipts always show
       // the correct label, even if the settings change later.
@@ -1551,7 +1557,7 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
       }
     }
 
-    if (!sale) return { sale: null, error: serverError };
+    if (!sale) return { sale: null, error: serverError, sendToKitchen: saleSendToKitchen };
 
     // Optimistic local state update + downstream effects only run after the
     // sale is durably persisted in the DB.
@@ -1588,8 +1594,8 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
     // and could push our stale value back to the server.
 
     clearCart();
-    return { sale };
-  }, [cart, discount, tipAmount, serviceFeePct, kitchenNote, settings, currentStaff, assignedCustomer, clearCart, fetchCustomers]);
+    return { sale, sendToKitchen: saleSendToKitchen };
+  }, [cart, discount, tipAmount, serviceFeePct, kitchenNote, sendToKitchen, settings, currentStaff, assignedCustomer, clearCart, fetchCustomers]);
 
   const voidSale = useCallback(async (
     saleId: string,
@@ -1806,6 +1812,7 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
       tipAmount, setTipAmount,
       serviceFeePct, setServiceFeePct, serviceFeeAmount,
       kitchenNote, setKitchenNote,
+      sendToKitchen, setSendToKitchen,
       assignedCustomer, setAssignedCustomer,
       subtotal, discountAmount, taxAmount, afterTaxTotal, grandTotal,
       completeSale, voidSale, dojoEnabled,
