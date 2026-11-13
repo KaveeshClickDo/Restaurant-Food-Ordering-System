@@ -45,7 +45,7 @@ export default function ReceiptModal({ receipt, onClose, onRefund, thermalPrint,
   const isPrinting = printState === "printing" || !!autoPrinting;
 
   function handlePrint() {
-    const html = buildReceiptHtml(receipt, restaurantName, rs?.address ?? "", rs?.phone ?? "", rs?.website ?? "", rs?.vatNumber ?? "", rs?.thankYouMessage ?? "Thank you for dining with us!", sym);
+    const html = buildReceiptHtml(receipt, restaurantName, rs?.address ?? "", rs?.phone ?? "", rs?.website ?? "", rs?.companyNumber ?? "", rs?.vatNumber ?? "", rs?.thankYouMessage ?? "Thank you for dining with us!", sym);
     const win = window.open("", "_blank", "width=400,height=600");
     if (!win) {
       alert("Pop-up was blocked. Allow pop-ups for this site and try again.");
@@ -105,7 +105,7 @@ export default function ReceiptModal({ receipt, onClose, onRefund, thermalPrint,
   async function handleEmail() {
     if (!emailTo.trim()) return;
     setEmailStatus("sending");
-    const html = buildReceiptHtml(receipt, restaurantName, rs?.address ?? "", rs?.phone ?? "", rs?.website ?? "", rs?.vatNumber ?? "", rs?.thankYouMessage ?? "Thank you for dining with us!", sym);
+    const html = buildReceiptHtml(receipt, restaurantName, rs?.address ?? "", rs?.phone ?? "", rs?.website ?? "", rs?.companyNumber ?? "", rs?.vatNumber ?? "", rs?.thankYouMessage ?? "Thank you for dining with us!", sym);
     const subject = `Your receipt from ${restaurantName} — Table ${receipt.tableLabel}`;
     const res = await fetch("/api/email", {
       method: "POST",
@@ -151,6 +151,7 @@ export default function ReceiptModal({ receipt, onClose, onRefund, thermalPrint,
             <p className="text-slate-400 text-xs">{new Date(receipt.date).toLocaleString("en-GB")}</p>
             <p className="text-slate-400 text-xs">Table: <span className="text-white font-bold">{receipt.tableLabel}</span></p>
             <p className="text-slate-400 text-xs">Served by: <span className="text-white">{receipt.waiterName}</span></p>
+            {rs?.companyNumber && <p className="text-slate-500 text-[10px]">Company No: {rs.companyNumber}</p>}
             {rs?.vatNumber && <p className="text-slate-500 text-[10px]">VAT No: {rs.vatNumber}</p>}
           </div>
 

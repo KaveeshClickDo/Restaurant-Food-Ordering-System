@@ -62,7 +62,7 @@ export const DEFAULT_CURRENCY: CurrencySettings = { code: "GBP", symbol: "£" };
 
 export const DEFAULT_RECEIPT: ReceiptSettings = {
   showLogo: false, logoUrl: "", logoDither: false, restaurantName: restaurantInfo.name, address: "",
-  phone: restaurantInfo.phone, website: "", email: "", vatNumber: "",
+  phone: restaurantInfo.phone, website: "", email: "", companyNumber: "", vatNumber: "",
   thankYouMessage: "Thank you for your order!", customMessage: "",
 };
 

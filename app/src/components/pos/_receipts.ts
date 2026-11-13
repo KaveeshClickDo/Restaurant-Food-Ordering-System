@@ -123,6 +123,7 @@ export function buildReceiptHtml(sale: POSSale, settings: POSSettings, receipt: 
     ${sale.receiptNo?.startsWith("OFF") ? `<div style="font-size:11px;font-weight:700;color:#b45309;margin-top:2px;letter-spacing:0.5px">OFFLINE SALE</div>` : ""}
     ${sale.staffName ? `<div style="font-size:11px;color:#6b7280">Served by: ${sale.staffName}</div>` : ""}
     ${sale.customerName ? `<div style="font-size:11px;color:#6b7280">Customer: ${sale.customerName}</div>` : ""}
+    ${receipt.companyNumber ? `<div style="font-size:10px;color:#9ca3af">Company No: ${receipt.companyNumber}</div>` : ""}
     ${receipt.vatNumber ? `<div style="font-size:10px;color:#9ca3af">VAT No: ${receipt.vatNumber}</div>` : ""}
   </div>
   <hr style="border:none;border-top:1px dashed #d1d5db;margin:12px 0">
@@ -184,6 +185,7 @@ export function buildDineInReceiptHtml(order: DineInOrder, settings: POSSettings
     <div style="font-size:11px;color:#6b7280">Table: ${order.tableLabel}</div>
     <div style="font-size:11px;color:#6b7280">Served by: ${order.staffName}</div>
     ${order.covers > 0 ? `<div style="font-size:11px;color:#6b7280">${order.covers} cover${order.covers !== 1 ? "s" : ""}</div>` : ""}
+    ${receipt.companyNumber ? `<div style="font-size:10px;color:#9ca3af">Company No: ${receipt.companyNumber}</div>` : ""}
     ${receipt.vatNumber ? `<div style="font-size:10px;color:#9ca3af">VAT No: ${receipt.vatNumber}</div>` : ""}
   </div>
   <hr style="border:none;border-top:1px dashed #d1d5db;margin:12px 0">

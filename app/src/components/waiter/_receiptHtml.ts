@@ -6,7 +6,7 @@
 
 import type { WaiterReceipt } from "./_types";
 
-export function buildReceiptHtml(receipt: WaiterReceipt, restaurantName: string, address: string, receiptPhone: string, receiptWebsite: string, vatNumber: string, thankYou: string, sym: string): string {
+export function buildReceiptHtml(receipt: WaiterReceipt, restaurantName: string, address: string, receiptPhone: string, receiptWebsite: string, companyNumber: string, vatNumber: string, thankYou: string, sym: string): string {
   const itemsHtml = receipt.items.map((it) =>
     `<tr>
       <td style="padding:2px 0;font-size:12px">${it.name} ×${it.qty}</td>
@@ -54,6 +54,7 @@ export function buildReceiptHtml(receipt: WaiterReceipt, restaurantName: string,
     <div style="font-size:11px;color:#6b7280">${new Date(receipt.date).toLocaleString("en-GB")}</div>
     <div style="font-size:11px;color:#6b7280">Table: ${receipt.tableLabel}</div>
     <div style="font-size:11px;color:#6b7280">Served by: ${receipt.waiterName}</div>
+    ${companyNumber ? `<div style="font-size:10px;color:#9ca3af">Company No: ${companyNumber}</div>` : ""}
     ${vatNumber ? `<div style="font-size:10px;color:#9ca3af">VAT No: ${vatNumber}</div>` : ""}
   </div>
   <hr style="border:none;border-top:1px dashed #d1d5db;margin:12px 0">

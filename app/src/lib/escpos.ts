@@ -413,6 +413,7 @@ export function buildReceipt(
   if (receiptPhone)        b.line(receiptPhone);
   if (rs?.website?.trim()) b.line(rs.website.trim());
   if (rs?.email?.trim())   b.line(rs.email.trim());
+  if (rs?.companyNumber?.trim()) b.line(`Company No: ${rs.companyNumber.trim()}`);
   if (rs?.vatNumber?.trim()) b.line(`VAT: ${rs.vatNumber.trim()}`);
 
   b.separator("=", W);
@@ -811,6 +812,7 @@ export function printReceiptBrowser(
   if (receiptPhone)          lines.push(center(receiptPhone));
   if (rs?.website?.trim())   lines.push(center(rs.website.trim()));
   if (rs?.email?.trim())     lines.push(center(rs.email.trim()));
+  if (rs?.companyNumber?.trim()) lines.push(center(`Company No: ${rs.companyNumber.trim()}`));
   if (rs?.vatNumber?.trim()) lines.push(center(`VAT: ${rs.vatNumber.trim()}`));
   lines.push(dbl);
 

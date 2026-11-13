@@ -63,6 +63,7 @@ export function buildPOSReceiptBytes(
   if (rc.phone?.trim())     b.line(rc.phone.trim());
   if (rc.website?.trim())   b.line(rc.website.trim());
   if (rc.email?.trim())     b.line(rc.email.trim());
+  if (rc.companyNumber?.trim()) b.line(`Company No: ${rc.companyNumber.trim()}`);
   if (rc.vatNumber?.trim()) b.line(`VAT: ${rc.vatNumber.trim()}`);
 
   const when = new Date(sale.date).toLocaleString("en-GB", {
@@ -165,6 +166,7 @@ export function buildDineInReceiptBytes(
 
   if (rc.address?.trim())   rc.address.split("\n").forEach((ln) => { if (ln.trim()) b.line(ln.trim()); });
   if (rc.phone?.trim())     b.line(rc.phone.trim());
+  if (rc.companyNumber?.trim()) b.line(`Company No: ${rc.companyNumber.trim()}`);
   if (rc.vatNumber?.trim()) b.line(`VAT: ${rc.vatNumber.trim()}`);
 
   b.line(new Date(order.date).toLocaleString("en-GB", {

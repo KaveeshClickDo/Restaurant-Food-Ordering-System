@@ -256,6 +256,7 @@ export const PosSettingsPatchSchema = z
         phone:           z.string().optional(),
         website:         z.string().optional(),
         email:           z.string().optional(),
+        companyNumber:   z.string().optional(),
         vatNumber:       z.string().optional(),
         thankYouMessage: z.string().optional(),
         customMessage:   z.string().optional(),

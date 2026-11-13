@@ -185,6 +185,9 @@ export default function ReceiptModal(
             {isOfflineSale(sale.receiptNo) && <p className="font-bold text-amber-600 tracking-wide">OFFLINE SALE</p>}
             {sale.staffName && <p className="text-gray-500">Served by: {sale.staffName}</p>}
             {sale.customerName && <p className="text-gray-500">Customer: {sale.customerName}</p>}
+            {rs.companyNumber && (
+              <p className="text-gray-400 text-[10px]">Company No: {rs.companyNumber}</p>
+            )}
             {rs.vatNumber && (
               <p className="text-gray-400 text-[10px]">VAT No: {rs.vatNumber}</p>
             )}

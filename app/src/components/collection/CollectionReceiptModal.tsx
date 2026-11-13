@@ -141,6 +141,7 @@ export default function CollectionReceiptModal({
             {customer.phone && <p className="text-slate-400 text-xs">Phone: <span className="text-white">{customer.phone}</span></p>}
             <p className="text-slate-400 text-xs">Type: <span className="text-white">Collection</span></p>
             {order.scheduledTime && <p className="text-slate-400 text-xs">Scheduled: <span className="text-white">{order.scheduledTime}</span></p>}
+            {rs.companyNumber && <p className="text-slate-500 text-[10px]">Company No: {rs.companyNumber}</p>}
             {rs.vatNumber && <p className="text-slate-500 text-[10px]">VAT No: {rs.vatNumber}</p>}
           </div>
 
