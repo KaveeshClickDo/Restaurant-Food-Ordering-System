@@ -45,7 +45,7 @@ export default function ReceiptModal({ receipt, onClose, onRefund, thermalPrint,
   const isPrinting = printState === "printing" || !!autoPrinting;
 
   function handlePrint() {
-    const html = buildReceiptHtml(receipt, restaurantName, rs?.address ?? "", rs?.phone ?? "", rs?.website ?? "", rs?.companyNumber ?? "", rs?.vatNumber ?? "", rs?.thankYouMessage ?? "Thank you for dining with us!", sym);
+    const html = buildReceiptHtml(receipt, restaurantName, rs, sym);
     const win = window.open("", "_blank", "width=400,height=600");
     if (!win) {
       alert("Pop-up was blocked. Allow pop-ups for this site and try again.");
@@ -105,7 +105,7 @@ export default function ReceiptModal({ receipt, onClose, onRefund, thermalPrint,
   async function handleEmail() {
     if (!emailTo.trim()) return;
     setEmailStatus("sending");
-    const html = buildReceiptHtml(receipt, restaurantName, rs?.address ?? "", rs?.phone ?? "", rs?.website ?? "", rs?.companyNumber ?? "", rs?.vatNumber ?? "", rs?.thankYouMessage ?? "Thank you for dining with us!", sym);
+    const html = buildReceiptHtml(receipt, restaurantName, rs, sym);
     const subject = `Your receipt from ${restaurantName} — Table ${receipt.tableLabel}`;
     const res = await fetch("/api/email", {
       method: "POST",
@@ -145,6 +145,13 @@ export default function ReceiptModal({ receipt, onClose, onRefund, thermalPrint,
         <div className="p-5 flex-1 space-y-4">
           {/* Header block */}
           <div className="text-center space-y-0.5">
+            {rs?.showLogo && rs?.logoUrl && (
+              <div className="flex justify-center mb-2">
+                {/* eslint-disable-next-line @next/next/no-img-element -- arbitrary URL or data: URI, needs onError fallback */}
+                <img src={rs.logoUrl} alt="Logo" className="h-10 w-auto object-contain"
+                  onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
+              </div>
+            )}
             <p className="text-white font-black text-base tracking-widest uppercase">{restaurantName}</p>
             {rs?.phone && <p className="text-slate-400 text-xs">{rs.phone}</p>}
             {rs?.website && <p className="text-slate-400 text-xs">{rs.website}</p>}
@@ -241,6 +248,9 @@ export default function ReceiptModal({ receipt, onClose, onRefund, thermalPrint,
 
           {rs?.thankYouMessage && (
             <p className="text-center text-slate-300 text-xs font-semibold pt-1">{rs.thankYouMessage}</p>
+          )}
+          {rs?.customMessage && (
+            <p className="text-center text-slate-500 text-[11px] whitespace-pre-wrap">{rs.customMessage}</p>
           )}
 
           {/* Email section */}

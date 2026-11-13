@@ -4,9 +4,23 @@
  * view's print preview so all three render the identical document.
  */
 
+import type { ReceiptSettings } from "@/types";
 import type { WaiterReceipt } from "./_types";
 
-export function buildReceiptHtml(receipt: WaiterReceipt, restaurantName: string, address: string, receiptPhone: string, receiptWebsite: string, companyNumber: string, vatNumber: string, thankYou: string, sym: string): string {
+export function buildReceiptHtml(
+  receipt: WaiterReceipt,
+  restaurantName: string,
+  rs: Partial<ReceiptSettings> | undefined | null,
+  sym: string,
+): string {
+  const address       = rs?.address?.trim() ?? "";
+  const receiptPhone   = rs?.phone ?? "";
+  const receiptWebsite = rs?.website ?? "";
+  const companyNumber  = rs?.companyNumber ?? "";
+  const vatNumber      = rs?.vatNumber ?? "";
+  const thankYou       = rs?.thankYouMessage ?? "Thank you for dining with us!";
+  const customMessage  = rs?.customMessage ?? "";
+
   const itemsHtml = receipt.items.map((it) =>
     `<tr>
       <td style="padding:2px 0;font-size:12px">${it.name} ×${it.qty}</td>
@@ -47,8 +61,9 @@ export function buildReceiptHtml(receipt: WaiterReceipt, restaurantName: string,
 <body style="margin:0;background:#f9fafb;font-family:monospace">
 <div style="max-width:320px;margin:24px auto;background:#fff;border-radius:12px;padding:24px">
   <div style="text-align:center;margin-bottom:16px">
+    ${rs?.showLogo && rs?.logoUrl?.trim() ? `<div style="margin-bottom:12px"><img src="${rs.logoUrl.trim()}" alt="Logo" style="max-height:40px;width:auto;display:inline-block;vertical-align:middle;" /></div>` : ""}
     <div style="font-weight:700;font-size:16px;letter-spacing:1px">${restaurantName.toUpperCase()}</div>
-    ${address?.trim() ? `<div style="font-size:11px;color:#6b7280;white-space:pre-line">${address.trim()}</div>` : ""}
+    ${address ? `<div style="font-size:11px;color:#6b7280;white-space:pre-line">${address}</div>` : ""}
     ${receiptPhone ? `<div style="font-size:11px;color:#6b7280">${receiptPhone}</div>` : ""}
     ${receiptWebsite ? `<div style="font-size:11px;color:#6b7280">${receiptWebsite}</div>` : ""}
     <div style="font-size:11px;color:#6b7280">${new Date(receipt.date).toLocaleString("en-GB")}</div>
@@ -69,5 +84,6 @@ export function buildReceiptHtml(receipt: WaiterReceipt, restaurantName: string,
   </table>
   <hr style="border:none;border-top:1px dashed #d1d5db;margin:12px 0">
   ${thankYou ? `<div style="text-align:center;font-weight:600;color:#374151;font-size:12px">${thankYou}</div>` : ""}
+  ${customMessage ? `<div style="text-align:center;color:#6b7280;font-size:11px;white-space:pre-wrap;margin-top:3px">${customMessage}</div>` : ""}
 </div></body></html>`;
 }

@@ -319,7 +319,7 @@ export default function BillView({ table, waiter, receipt, setReceipt, onCheckou
       orderIds: billOrders.map(o => o.id),
     };
     const restaurantName = rs?.restaurantName?.trim() || appSettings?.restaurant?.name || "Restaurant";
-    const html = buildReceiptHtml(tempReceipt, restaurantName, rs?.address ?? "", rs?.phone ?? "", rs?.website ?? "", rs?.companyNumber ?? "", rs?.vatNumber ?? "", rs?.thankYouMessage ?? "Thank you for dining with us!", sym);
+    const html = buildReceiptHtml(tempReceipt, restaurantName, rs, sym);
     const win = window.open("", "_blank", "width=400,height=600");
     if (!win) {
       alert("Pop-up was blocked. Allow pop-ups for this site and try again.");

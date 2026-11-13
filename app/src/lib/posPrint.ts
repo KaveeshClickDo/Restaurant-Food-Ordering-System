@@ -221,6 +221,7 @@ export function buildDineInReceiptBytes(
 
   b.separator("=", W).align("center").feed(1);
   if (rc.thankYouMessage?.trim()) b.bold(true).line(rc.thankYouMessage.trim()).bold(false);
+  if (rc.customMessage?.trim())   b.line(rc.customMessage.trim());
 
   b.feed(5).cut();
   return b.build();
