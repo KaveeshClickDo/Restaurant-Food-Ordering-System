@@ -224,21 +224,23 @@ function AvailableOrderCard({
           const details = [v, a].filter(Boolean).join(" / ");
 
           return (
-            <div key={i} className="flex flex-wrap items-start gap-2">
-              <span className="text-orange-500 font-extrabold text-base min-w-[3rem] text-center flex-shrink-0 leading-tight">
+            <div key={i} className="flex items-start gap-2">
+              <span className="mt-1 text-orange-500 font-extrabold text-sm leading-tight flex-shrink-0 min-w-[2rem]">
                 {item.qty}×
               </span>
 
-              <span className="text-gray-800 font-semibold text-sm leading-tight">
-                {item.name} -
-              </span>
+              <div className="min-w-0">
+                <span className="text-gray-800 font-semibold text-sm leading-tight">
+                  {item.name}
+                </span>
 
-              {/* 2. Sub-details for variations/add-ons */}
-              {details && (
-                <p className="text-[12px] text-gray-400 font-medium leading-tight mt-0.5">
-                  {details}
-                </p>
-              )}
+                {/* 2. Sub-details for variations/add-ons */}
+                {details && (
+                  <p className="text-[12px] text-gray-400 font-medium leading-tight mt-0.5">
+                    {details}
+                  </p>
+                )}
+              </div>
             </div>
           );
         })}
@@ -445,21 +447,23 @@ function OrderCard({
           const details = [v, a].filter(Boolean).join(" / ");
 
           return (
-            <div key={i} className="flex flex-wrap items-start gap-2">
-              <span className="text-orange-500 font-extrabold text-base min-w-[3rem] text-center flex-shrink-0 leading-tight">
-                {item.qty}×
+            <div key={i} className="flex items-start gap-2">
+              <span className="mt-1 text-orange-500 font-extrabold text-sm leading-tight flex-shrink-0 min-w-[2rem]">
+                {item.qty}{" "}×
               </span>
 
-              <span className="text-gray-800 font-semibold text-sm leading-tight">
-                {item.name} -
-              </span>
+              <div className="min-w-0">
+                <span className="text-gray-800 font-semibold text-sm leading-tight">
+                  {item.name}
+                </span>
 
-              {/* 2. Sub-details for variations/add-ons */}
-              {details && (
-                <p className="text-[12px] text-gray-400 font-medium leading-tight mt-0.5">
-                  {details}
-                </p>
-              )}
+                {/* 2. Sub-details for variations/add-ons */}
+                {details && (
+                  <p className="text-[12px] text-gray-400 font-medium leading-tight mt-0.5">
+                    {details}
+                  </p>
+                )}
+              </div>
             </div>
           );
         })}

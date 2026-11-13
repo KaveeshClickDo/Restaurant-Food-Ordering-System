@@ -341,7 +341,7 @@ function ItemLine({
 
   return (
     <div className="flex items-start gap-2">
-      <div className="min-w-8">
+      <div className="min-w-[2.1rem]">
         <span className={`${textClass} font-extrabold text-sm lg:text-base leading-snug flex-shrink-0`}>
           {item.qty}{" "}×
         </span>
