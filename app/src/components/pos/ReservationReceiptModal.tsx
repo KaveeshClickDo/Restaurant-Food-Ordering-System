@@ -2,32 +2,43 @@
 
 /**
  * Receipt for a walk-in, phone, or online booking — fixed confirmation
- * layout, not the sale receipt. Auto-prints once only right after POS
- * creates a walk-in/phone booking (if the printer's Auto-print is on);
- * reopened from the list it's Print-button only. Email is always manual,
- * so it never duplicates the automatic "reservation_confirmation" email.
+ * layout, not the sale receipt. Shared by POS (ReservationsView.tsx) and the
+ * Admin Reservations panel — `surface` picks the printer category and
+ * transport: POS's native-first "pos" printer (Settings → Hardware) or
+ * Admin's browser-based "online" printer (Admin → Integrations). Auto-prints
+ * once only right after creating a walk-in/phone booking (if that printer's
+ * Auto-print is on); reopened from the list it's Print-button only. Email is
+ * always manual, so it never duplicates the automatic "reservation_confirmation"
+ * email.
  */
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import { apiBase } from "@/lib/apiBase";
 import { useApp } from "@/context/AppContext";
-import { usePOS } from "@/context/POSContext";
 import { Mail, CheckCircle2, RefreshCw, Printer, AlertTriangle, Info, FileDown } from "lucide-react";
 import { resolveActivePrinter } from "@/lib/escpos";
 import { isCapacitorAndroid } from "@/lib/capacitorBridge";
-import { printReservationReceipt } from "@/lib/posPrint";
+import { printReservationReceipt, printAdminReservationReceipt } from "@/lib/posPrint";
 import {
   buildReservationReceiptHtml, reservationReference, reservationSourceLabel, fmtResDate, fmtResTime,
   RESERVATION_THANK_YOU, type ReservationReceiptData,
 } from "./_reservationReceipt";
 
 export default function ReservationReceiptModal(
-  { data, onClose, autoPrint = false }: { data: ReservationReceiptData; onClose: () => void; autoPrint?: boolean },
+  { data, onClose, autoPrint = false, surface = "pos" }: {
+    data: ReservationReceiptData;
+    onClose: () => void;
+    autoPrint?: boolean;
+    surface?: "pos" | "admin";
+  },
 ) {
   const { settings: appSettings } = useApp();
-  const { settings } = usePOS();
   const rs = appSettings.receiptSettings;
   const sym = appSettings.currency?.symbol ?? "£";
+  const printerCategory = surface === "admin" ? "online" : "pos";
+  const printerLabel = surface === "admin" ? "Online" : "Receipt";
+  const doPrint = surface === "admin" ? printAdminReservationReceipt : printReservationReceipt;
+  const settingsPath = surface === "admin" ? "Admin → Integrations" : "Settings → Hardware";
 
   const [emailTo, setEmailTo] = useState(data.customerEmail);
   const [marketingOptIn, setMarketingOptIn] = useState(true);
@@ -37,9 +48,9 @@ export default function ReservationReceiptModal(
   const [printError, setPrintError] = useState("");
   const [printNoPrinter, setPrintNoPrinter] = useState(false);
 
-  const posPrinter = resolveActivePrinter(appSettings, "pos");
-  const noReceiptPrinter = autoPrint && !posPrinter;
-  const receiptAutoPrintOff = autoPrint && !!posPrinter && !posPrinter.autoPrint;
+  const activePrinter = resolveActivePrinter(appSettings, printerCategory);
+  const noReceiptPrinter = autoPrint && !activePrinter;
+  const receiptAutoPrintOff = autoPrint && !!activePrinter && !activePrinter.autoPrint;
   const onAndroid = isCapacitorAndroid();
 
   const effectiveName = appSettings.restaurant?.name || rs.restaurantName?.trim() || "Restaurant";
@@ -51,8 +62,7 @@ export default function ReservationReceiptModal(
     setEmailError("");
     try {
       const html = buildReservationReceiptHtml(data, rs, effectiveName, sym);
-      const fromName = settings.smtpFromName?.trim() || effectiveName;
-      const subject = `Your booking confirmation from ${fromName} — ${reservationReference(data.id)}`;
+      const subject = `Your booking confirmation from ${effectiveName} — ${reservationReference(data.id)}`;
       const res = await fetch(apiBase() + "/api/email", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -90,17 +100,17 @@ export default function ReservationReceiptModal(
     setPrintStatus("printing");
     setPrintError("");
     setPrintNoPrinter(false);
-    const r = await printReservationReceipt(data, sym, appSettings, effectiveName, rs);
+    const r = await doPrint(data, sym, appSettings, effectiveName, rs);
     if (r.noPrinter) {
       setPrintStatus("error");
       setPrintNoPrinter(true);
-      setPrintError("No receipt printer is set up. Add one in Settings → Hardware.");
+      setPrintError(`No receipt printer is set up. Add one in ${settingsPath}.`);
       return;
     }
     if (r.browser) {
       if (onAndroid) {
         setPrintStatus("error");
-        setPrintError("Printer set to “browser” mode, which isn’t available on the tablet. Pick Bluetooth, USB, or Network in Settings → Hardware.");
+        setPrintError(`Printer set to “browser” mode, which isn’t available on the tablet. Pick Bluetooth, USB, or Network in ${settingsPath}.`);
       } else {
         setPrintStatus("idle");
         handlePdf();
@@ -114,18 +124,18 @@ export default function ReservationReceiptModal(
       setPrintStatus("error");
       setPrintError(r.error ?? "Printing failed.");
     }
-  }, [data, sym, appSettings, effectiveName, onAndroid, rs, handlePdf]);
+  }, [data, sym, appSettings, effectiveName, onAndroid, rs, doPrint, settingsPath, handlePdf]);
 
   // Auto-print once, right after the booking is created (autoPrint prop) —
-  // follows the Receipt/POS printer's own Auto-print setting, same rule as
-  // the sale receipt. Never fires when reopened from the reservations list.
+  // follows the active printer's own Auto-print setting, same rule as the
+  // sale receipt. Never fires when reopened from the reservations list.
   const autoPrinted = useRef(false);
   useEffect(() => {
     if (autoPrinted.current || !autoPrint) return;
-    if (!posPrinter?.autoPrint) return;
+    if (!activePrinter?.autoPrint) return;
     autoPrinted.current = true;
     void handlePrint();
-  }, [autoPrint, posPrinter, handlePrint]);
+  }, [autoPrint, activePrinter, handlePrint]);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
@@ -249,13 +259,13 @@ export default function ReservationReceiptModal(
         {noReceiptPrinter && (
           <InfoNote>
             {onAndroid
-              ? "No receipt printer is set up. Set one up in Settings → Hardware to print receipts."
-              : "No receipt printer is set up, so nothing printed automatically. Tap PDF to save or print it from the browser, or set one up in Settings → Hardware."}
+              ? `No receipt printer is set up. Set one up in ${settingsPath} to print receipts.`
+              : `No receipt printer is set up, so nothing printed automatically. Tap PDF to save or print it from the browser, or set one up in ${settingsPath}.`}
           </InfoNote>
         )}
         {receiptAutoPrintOff && (
           <InfoNote>
-            The Receipt printer&apos;s Auto-print is off, so the receipt was not printed. Tap Print, or turn Auto-print on in Settings → Hardware.
+            The {printerLabel} printer&apos;s Auto-print is off, so the receipt was not printed. Tap Print, or turn Auto-print on in {settingsPath}.
           </InfoNote>
         )}
         {printStatus === "error" && (

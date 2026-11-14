@@ -24,7 +24,7 @@ import type { AdminSettings, PrinterSettings, ReceiptSettings } from "@/types";
 import type { DineInOrder } from "@/components/pos/_receipts";
 import { type ReservationReceiptData, reservationReference, reservationSourceLabel, fmtResDate, fmtResTime, RESERVATION_THANK_YOU } from "@/components/pos/_reservationReceipt";
 import { ReceiptBuilder, logoToRaster, paperDotWidth, resolveActivePrinter } from "./escpos";
-import { sendToPrinter, sendToPrinterUSB } from "./escpos";
+import { sendToPrinter, sendToPrinterUSB, sendToPrinterBluetooth } from "./escpos";
 import { isCapacitorAndroid, sendBluetooth, sendUsb, sendTcpNative } from "./capacitorBridge";
 
 /** A sale rung while offline carries an OFF<seq> receipt number. */
@@ -448,4 +448,40 @@ export async function printReservationReceipt(
     logoBytes,
   });
   return sendReceiptToPrinter(bytes, printer);
+}
+
+/**
+ * Print a reservation receipt from the Admin panel, on the active "online"
+ * printer — mirrors printOnlineOrderAsAdmin's transport logic (escpos.ts).
+ * No Capacitor shell here, so bluetooth/usb go straight through Web
+ * Bluetooth/USB, and network goes through "/api/admin/print" (admin
+ * session, not POS). "browser" mode is reported back, not handled here —
+ * same contract as printReservationReceipt.
+ */
+export async function printAdminReservationReceipt(
+  res: ReservationReceiptData,
+  sym: string,
+  appSettings: AdminSettings,
+  restaurantName: string,
+  receipt: ReceiptSettings,
+): Promise<{ ok: boolean; error?: string; browser?: boolean; noPrinter?: boolean }> {
+  const printer = resolveActivePrinter(appSettings, "online");
+  if (!printer) return { ok: false, noPrinter: true };
+  const mode = printer.connection ?? "network";
+  if (mode === "browser") return { ok: false, browser: true };
+
+  const logoBytes = receipt.showLogo && receipt.logoUrl
+    ? await logoToRaster(receipt.logoUrl, paperDotWidth(printer.paperWidth), { dither: receipt.logoDither })
+    : null;
+  const bytes = buildReservationReceiptBytes(res, sym, {
+    paperWidth: printer.paperWidth,
+    restaurantName,
+    receipt,
+    logoBytes,
+  });
+
+  if (mode === "bluetooth") return sendToPrinterBluetooth(bytes, printer.bluetoothAddress ?? "");
+  if (mode === "usb")       return sendToPrinterUSB(bytes);
+  if (!printer.ip?.trim())  return { ok: false, error: "No printer IP set. Add one in Admin → Integrations." };
+  return sendToPrinter(bytes, printer.ip.trim(), printer.port, "/api/admin/print");
 }

@@ -7,10 +7,12 @@ import ConfirmDialog from "@/components/ConfirmDialog";
 import {
   CalendarDays, Clock, Users, UtensilsCrossed, CheckCircle2, XCircle,
   AlertTriangle, Trash2, RefreshCw, MapPin, ChevronDown, Loader2,
-  ToggleLeft, ToggleRight, Settings2, Search, Mail, Phone,
+  ToggleLeft, ToggleRight, Settings2, Search, Mail, Phone, Receipt,
   LogIn, LogOut, UserPlus, Ban, Star, Link, ExternalLink, Crown,
 } from "lucide-react";
 import { cleanPhone } from "@/lib/inputUtils";
+import ReservationReceiptModal from "@/components/pos/ReservationReceiptModal";
+import type { ReservationReceiptData } from "@/components/pos/_reservationReceipt";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -242,10 +244,12 @@ function ReservationCard({
   res,
   onStatusChange,
   onDelete,
+  onOpenReceipt,
 }: {
   res: Reservation;
   onStatusChange: (id: string, status: ReservationStatus) => Promise<void>;
   onDelete: (id: string) => Promise<void>;
+  onOpenReceipt: (res: Reservation) => void;
 }) {
   const { settings } = useApp();
   const currencySymbol = settings.currency?.symbol ?? "£";
@@ -404,6 +408,12 @@ function ReservationCard({
             <Loader2 size={16} className="animate-spin text-gray-400" />
           ) : (
             <>
+              <button
+                onClick={() => onOpenReceipt(res)}
+                className="flex items-center gap-1.5 bg-gray-100 hover:bg-gray-200 border border-gray-200 active:scale-95 text-gray-600 text-xs font-semibold px-3 py-2 rounded-xl transition-all"
+              >
+                <Receipt size={13} /> Receipt
+              </button>
               {/* Prominent check-in / check-out buttons */}
               {res.status === "confirmed" && (
                 <button
@@ -536,6 +546,11 @@ export default function ReservationsPanel() {
   // (a walk-in can be seated) but show a "booked HH:MM" warning so staff decide.
   const [addUpcoming,   setAddUpcoming]   = useState<Record<string, string>>({});
   const [addLoadingTbl, setAddLoadingTbl] = useState(false);
+  // Shown after creating a booking (autoPrint: true), or on demand via a
+  // card's Receipt button (autoPrint: false) — mirrors the POS reservations
+  // receipt (ReservationsView.tsx), printing to the "online" printer instead
+  // of POS's "pos" one (surface="admin").
+  const [receiptModal, setReceiptModal] = useState<{ data: ReservationReceiptData; autoPrint: boolean } | null>(null);
 
   // Fetch which tables are already booked at the chosen date/time. Reuses the
   // public availability endpoint (no auth required) — same data the customer
@@ -788,10 +803,24 @@ export default function ReservationsPanel() {
           ...(table.isVip && (table.vipPrice ?? 0) > 0 ? { paymentMethod: addPayMethod } : {}),
         }),
       });
-      const json = await res.json() as { ok: boolean; error?: string };
+      const json = await res.json() as { ok: boolean; error?: string; reservationId?: string };
       if (json.ok) {
         setShowAddModal(false);
         fetchReservations();
+        if (json.reservationId) {
+          setReceiptModal({
+            autoPrint: true,
+            data: {
+              id: json.reservationId,
+              customerName: addName.trim(), customerEmail: addEmail.trim(), customerPhone: addPhone.trim(),
+              date: addDate, time: addTime, partySize: addParty,
+              tableLabel: table.label, section: table.section ?? "",
+              source: addSource, note: addNote.trim(), staffName: "",
+              vipFee: table.isVip ? (table.vipPrice ?? 0) : 0,
+              paymentMethod: table.isVip ? addPayMethod : undefined,
+            },
+          });
+        }
       } else {
         setAddError(json.error ?? "Failed to create booking.");
       }
@@ -801,6 +830,25 @@ export default function ReservationsPanel() {
       addInFlight.current = false;
       setAddSaving(false);
     }
+  }
+
+  /** Reopen the receipt for an existing reservation row (any source, any
+   *  status) — view/print/email on demand. Staff attribution isn't tracked
+   *  on the admin surface (password login, no named-staff concept), so
+   *  staffName is left blank here, same as POS does when reopened from its list. */
+  function openReceiptFor(res: Reservation) {
+    setReceiptModal({
+      autoPrint: false,
+      data: {
+        id: res.id,
+        customerName: res.customerName, customerEmail: res.customerEmail, customerPhone: res.customerPhone,
+        date: res.date, time: res.time, partySize: res.partySize,
+        tableLabel: res.tableLabel, section: res.section ?? "",
+        source: res.source ?? "online", note: res.note ?? "", staffName: "",
+        vipFee: res.vipFee ?? 0,
+        paymentMethod: res.paymentMethod,
+      },
+    });
   }
 
   const filtered = reservations.filter((r) => {
@@ -966,6 +1014,7 @@ export default function ReservationsPanel() {
               res={res}
               onStatusChange={handleStatusChange}
               onDelete={handleDelete}
+              onOpenReceipt={openReceiptFor}
             />
           ))}
         </div>
@@ -1249,6 +1298,15 @@ export default function ReservationsPanel() {
           </div>
         );
       })()}
+
+      {receiptModal && (
+        <ReservationReceiptModal
+          data={receiptModal.data}
+          autoPrint={receiptModal.autoPrint}
+          surface="admin"
+          onClose={() => setReceiptModal(null)}
+        />
+      )}
     </div>
   );
 }
