@@ -48,7 +48,7 @@ function orderTypeLabel(order: Order): string {
 export function buildPrintHtml(
     order: Order,
     customer: Customer,
-    rs: { showLogo: boolean; logoUrl: string; restaurantName: string; address: string; phone: string; website: string; email: string; vatNumber: string; thankYouMessage: string; customMessage: string },
+    rs: { showLogo: boolean; logoUrl: string; restaurantName: string; address: string; phone: string; website: string; email: string; companyNumber: string; vatNumber: string; thankYouMessage: string; customMessage: string },
     restaurantAddress: string,
     sym: string,
     showVat: boolean,
@@ -92,6 +92,7 @@ export function buildPrintHtml(
   ${rs.phone ? `<div class="c sm">${rs.phone}</div>` : ""}
   ${rs.website ? `<div class="c sm">${rs.website}</div>` : ""}
   ${rs.email ? `<div class="c sm">${rs.email}</div>` : ""}
+  ${rs.companyNumber ? `<div class="c sm">Company No: ${rs.companyNumber}</div>` : ""}
   ${rs.vatNumber ? `<div class="c sm">VAT: ${rs.vatNumber}</div>` : ""}
   <div class="d"></div>
   <div class="c b">RECEIPT</div>
@@ -265,6 +266,7 @@ export function ReceiptModal({
                         {rs.phone && <p className="text-gray-500">{rs.phone}</p>}
                         {rs.website && <p className="text-gray-500">{rs.website}</p>}
                         {rs.email && <p className="text-gray-500">{rs.email}</p>}
+                        {rs.companyNumber && <p className="text-gray-500">Company No: {rs.companyNumber}</p>}
                         {rs.vatNumber && <p className="text-gray-500">VAT: {rs.vatNumber}</p>}
                     </div>
 

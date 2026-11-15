@@ -439,9 +439,10 @@ export default function SettingsView() {
                   { key: "phone", label: "Phone Number", type: "tel", placeholder: "e.g. 020 7123 4567" },
                   { key: "website", label: "Website", type: "text", placeholder: "e.g. www.restaurant.co.uk" },
                   { key: "email", label: "Email", type: "email", placeholder: "e.g. hello@restaurant.co.uk" },
+                  { key: "companyNumber", label: "Company Number", type: "text", placeholder: "e.g. 12345678", hint: "Leave blank if not applicable" },
                   { key: "vatNumber", label: "VAT Number", type: "text", placeholder: "e.g. GB 123 4567 89", hint: "Leave blank if not VAT registered" },
                 ] as { key: keyof ReceiptSettings; label: string; type: string; placeholder: string; hint?: string }[]).map((f) => (
-                  <div key={f.key} className={f.key === "vatNumber" ? "sm:col-span-2" : ""}>
+                  <div key={f.key} className={f.key === "vatNumber" || f.key === "companyNumber" ? "sm:col-span-2" : ""}>
                     <label className="text-xs text-slate-400 mb-1 block">{f.label}</label>
                     <input
                       type={f.type}
@@ -482,9 +483,10 @@ export default function SettingsView() {
               <h3 className="text-white font-semibold text-sm mb-4">Receipt Preview</h3>
               {(() => {
                 const W = 31;
-                const center = (s: string) => {
-                  const str = s.slice(0, W);
-                  const pad = Math.max(0, Math.floor((W - str.length) / 2));
+                const center = (s: string, scale = 1) => {
+                  const effectiveW = Math.floor(W / scale);
+                  const str = s.slice(0, effectiveW);
+                  const pad = Math.max(0, Math.floor((effectiveW - str.length) / 2));
                   return " ".repeat(pad) + str;
                 };
                 const twoCol = (l: string, r: string) => {
@@ -498,17 +500,18 @@ export default function SettingsView() {
                 const lines: Line[] = [];
 
                 const name = (receiptDraft.restaurantName || appSettings.restaurant?.name || "Restaurant Name").toUpperCase();
-                lines.push({ text: center(name), bold: true, large: true });
+                lines.push({ text: center(name, 13 / 11), bold: true, large: true });
                 if (receiptDraft.address) receiptDraft.address.split("\n").forEach((ln) => { if (ln.trim()) lines.push({ text: center(ln.trim()) }); });
                 if (receiptDraft.phone) lines.push({ text: center(receiptDraft.phone) });
                 if (receiptDraft.website) lines.push({ text: center(receiptDraft.website) });
                 if (receiptDraft.email) lines.push({ text: center(receiptDraft.email) });
+                if (receiptDraft.companyNumber) lines.push({ text: center(`Company No: ${receiptDraft.companyNumber}`), dim: true });
                 if (receiptDraft.vatNumber) lines.push({ text: center(`VAT: ${receiptDraft.vatNumber}`), dim: true });
                 lines.push({ text: eq });
-                lines.push({ text: "ORDER  ORD-A1B2C3D4", bold: true });
-                lines.push({ text: "Date:  16 Apr 2026, 12:34" });
-                lines.push({ text: "Type:  DINE IN · Table 4" });
-                lines.push({ text: "Pay:   Card" });
+                lines.push({ text: center("ORDER  ORD-A1B2C3D4"), bold: true });
+                lines.push({ text: center("Date:  16 Apr 2026, 12:34") });
+                lines.push({ text: center("Type:  DINE IN · Table 4") });
+                lines.push({ text: center("Pay:   Card") });
                 lines.push({ text: eq });
                 lines.push({ text: twoCol("ITEM", "PRICE"), bold: true });
                 lines.push({ text: dash });

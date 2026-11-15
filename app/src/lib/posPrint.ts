@@ -22,8 +22,9 @@ import type { POSSale, POSSettings } from "@/types/pos";
 import { cardChargedTotal, cardDetailLine } from "./posCardPayment";
 import type { AdminSettings, PrinterSettings, ReceiptSettings } from "@/types";
 import type { DineInOrder } from "@/components/pos/_receipts";
+import { type ReservationReceiptData, reservationReference, reservationSourceLabel, fmtResDate, fmtResTime, RESERVATION_THANK_YOU } from "@/components/pos/_reservationReceipt";
 import { ReceiptBuilder, logoToRaster, paperDotWidth, resolveActivePrinter } from "./escpos";
-import { sendToPrinter, sendToPrinterUSB } from "./escpos";
+import { sendToPrinter, sendToPrinterUSB, sendToPrinterBluetooth } from "./escpos";
 import { isCapacitorAndroid, sendBluetooth, sendUsb, sendTcpNative } from "./capacitorBridge";
 
 /** A sale rung while offline carries an OFF<seq> receipt number. */
@@ -63,6 +64,7 @@ export function buildPOSReceiptBytes(
   if (rc.phone?.trim())     b.line(rc.phone.trim());
   if (rc.website?.trim())   b.line(rc.website.trim());
   if (rc.email?.trim())     b.line(rc.email.trim());
+  if (rc.companyNumber?.trim()) b.line(`Company No: ${rc.companyNumber.trim()}`);
   if (rc.vatNumber?.trim()) b.line(`VAT: ${rc.vatNumber.trim()}`);
 
   const when = new Date(sale.date).toLocaleString("en-GB", {
@@ -165,6 +167,7 @@ export function buildDineInReceiptBytes(
 
   if (rc.address?.trim())   rc.address.split("\n").forEach((ln) => { if (ln.trim()) b.line(ln.trim()); });
   if (rc.phone?.trim())     b.line(rc.phone.trim());
+  if (rc.companyNumber?.trim()) b.line(`Company No: ${rc.companyNumber.trim()}`);
   if (rc.vatNumber?.trim()) b.line(`VAT: ${rc.vatNumber.trim()}`);
 
   b.line(new Date(order.date).toLocaleString("en-GB", {
@@ -219,6 +222,7 @@ export function buildDineInReceiptBytes(
 
   b.separator("=", W).align("center").feed(1);
   if (rc.thankYouMessage?.trim()) b.bold(true).line(rc.thankYouMessage.trim()).bold(false);
+  if (rc.customMessage?.trim())   b.line(rc.customMessage.trim());
 
   b.feed(5).cut();
   return b.build();
@@ -364,4 +368,120 @@ export async function printDineInBill(
     logoBytes,
   });
   return sendReceiptToPrinter(bytes, printer);
+}
+
+/** Render a walk-in/phone booking confirmation as ESC/POS bytes — mirrors
+ *  buildReservationReceiptHtml. Booking details only, no items/totals. */
+export function buildReservationReceiptBytes(
+  res: ReservationReceiptData,
+  sym: string,
+  opts: { paperWidth: number; restaurantName: string; receipt: ReceiptSettings; logoBytes?: number[] | null },
+): number[] {
+  const W  = [32, 48].includes(opts.paperWidth) ? opts.paperWidth : 48;
+  const rc = opts.receipt;
+  const b  = new ReceiptBuilder();
+
+  b.init().align("center");
+  if (opts.logoBytes && opts.logoBytes.length) b.raw(opts.logoBytes).feed(1);
+  b.bold(true)
+   .size(true, true)
+   .line(opts.restaurantName.toUpperCase())
+   .size(false, false)
+   .bold(false);
+
+  if (rc.address?.trim())   rc.address.split("\n").forEach((ln) => { if (ln.trim()) b.line(ln.trim()); });
+  if (rc.phone?.trim())     b.line(rc.phone.trim());
+  if (rc.website?.trim())   b.line(rc.website.trim());
+  if (rc.email?.trim())     b.line(rc.email.trim());
+  if (rc.companyNumber?.trim()) b.line(`Company No: ${rc.companyNumber.trim()}`);
+  if (rc.vatNumber?.trim()) b.line(`VAT: ${rc.vatNumber.trim()}`);
+
+  b.separator("=", W);
+  b.align("center").bold(true).line("RESERVATION CONFIRMATION").bold(false);
+  b.separator("=", W).align("left");
+
+  b.twoCol("Reference", reservationReference(res.id), W);
+  b.twoCol("Guest", res.customerName, W);
+  b.twoCol("Party size", String(res.partySize), W);
+  b.twoCol("Date", fmtResDate(res.date), W);
+  b.twoCol("Time", fmtResTime(res.time), W);
+  b.twoCol("Table", res.tableLabel + (res.section ? ` (${res.section})` : ""), W);
+  b.twoCol("Booking type", reservationSourceLabel(res.source), W);
+  if (res.staffName) b.twoCol("Taken by", res.staffName, W);
+
+  if (res.vipFee > 0) {
+    b.separator("-", W);
+    b.bold(true).twoCol("VIP booking fee", `${sym}${res.vipFee.toFixed(2)}`, W).bold(false);
+    if (res.paymentMethod) b.twoCol("Paid by", res.paymentMethod.charAt(0).toUpperCase() + res.paymentMethod.slice(1), W);
+  }
+
+  if (res.note.trim()) {
+    b.separator("-", W);
+    b.line("Note:").line(res.note.trim());
+  }
+
+  b.separator("-", W).align("center").bold(true).line(RESERVATION_THANK_YOU).bold(false);
+
+  b.feed(5).cut();
+  return b.build();
+}
+
+/** Print a walk-in/phone booking confirmation on the active "pos" printer.
+ *  Same return contract as printPOSSale. */
+export async function printReservationReceipt(
+  res: ReservationReceiptData,
+  sym: string,
+  appSettings: AdminSettings,
+  restaurantName: string,
+  receipt: ReceiptSettings,
+): Promise<{ ok: boolean; error?: string; browser?: boolean; noPrinter?: boolean }> {
+  const printer = resolveActivePrinter(appSettings, "pos");
+  if (!printer) return { ok: false, noPrinter: true };
+  if (printer.connection === "browser") return { ok: false, browser: true };
+  const logoBytes = receipt.showLogo && receipt.logoUrl
+    ? await logoToRaster(receipt.logoUrl, paperDotWidth(printer.paperWidth), { dither: receipt.logoDither })
+    : null;
+  const bytes = buildReservationReceiptBytes(res, sym, {
+    paperWidth: printer.paperWidth,
+    restaurantName,
+    receipt,
+    logoBytes,
+  });
+  return sendReceiptToPrinter(bytes, printer);
+}
+
+/**
+ * Print a reservation receipt from the Admin panel, on the active "online"
+ * printer — mirrors printOnlineOrderAsAdmin's transport logic (escpos.ts).
+ * No Capacitor shell here, so bluetooth/usb go straight through Web
+ * Bluetooth/USB, and network goes through "/api/admin/print" (admin
+ * session, not POS). "browser" mode is reported back, not handled here —
+ * same contract as printReservationReceipt.
+ */
+export async function printAdminReservationReceipt(
+  res: ReservationReceiptData,
+  sym: string,
+  appSettings: AdminSettings,
+  restaurantName: string,
+  receipt: ReceiptSettings,
+): Promise<{ ok: boolean; error?: string; browser?: boolean; noPrinter?: boolean }> {
+  const printer = resolveActivePrinter(appSettings, "online");
+  if (!printer) return { ok: false, noPrinter: true };
+  const mode = printer.connection ?? "network";
+  if (mode === "browser") return { ok: false, browser: true };
+
+  const logoBytes = receipt.showLogo && receipt.logoUrl
+    ? await logoToRaster(receipt.logoUrl, paperDotWidth(printer.paperWidth), { dither: receipt.logoDither })
+    : null;
+  const bytes = buildReservationReceiptBytes(res, sym, {
+    paperWidth: printer.paperWidth,
+    restaurantName,
+    receipt,
+    logoBytes,
+  });
+
+  if (mode === "bluetooth") return sendToPrinterBluetooth(bytes, printer.bluetoothAddress ?? "");
+  if (mode === "usb")       return sendToPrinterUSB(bytes);
+  if (!printer.ip?.trim())  return { ok: false, error: "No printer IP set. Add one in Admin → Integrations." };
+  return sendToPrinter(bytes, printer.ip.trim(), printer.port, "/api/admin/print");
 }

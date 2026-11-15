@@ -685,6 +685,7 @@ export function buildEmailDocument(
   if (footerPhone) footerParts.push(footerPhone);
   if (receiptSettings?.website?.trim()) footerParts.push(receiptSettings.website.trim());
   if (receiptSettings?.email?.trim()) footerParts.push(receiptSettings.email.trim());
+  if (receiptSettings?.companyNumber?.trim()) footerParts.push(`Company No: ${receiptSettings.companyNumber.trim()}`);
   if (receiptSettings?.vatNumber?.trim()) footerParts.push(`VAT: ${receiptSettings.vatNumber.trim()}`);
 
   // Optional bottom messages

@@ -33,6 +33,9 @@ export default function SaleView({ isOffline = false }: { isOffline?: boolean })
   const [showCustomer, setShowCustomer] = useState(false);
   const [showMobileCart, setShowMobileCart] = useState(false);
   const [completedSale, setCompletedSale] = useState<POSSale | null>(null);
+  // Captured at charge time — by the time the receipt opens, POSContext's own
+  // sendToKitchen has already reset to true for the next sale (clearCart()).
+  const [completedSaleSendToKitchen, setCompletedSaleSendToKitchen] = useState(true);
   const [showDiscount, setShowDiscount] = useState(false);
   const [showTip, setShowTip] = useState(false);
   const [showServiceFee, setShowServiceFee] = useState(false);
@@ -138,7 +141,7 @@ export default function SaleView({ isOffline = false }: { isOffline?: boolean })
     giftCard?: { code: string; amount: number },
     dojo?: DojoSaleResult,
   ) {
-    const { sale, error } = await completeSale(method, payments, cashTendered, giftCard, dojo, paymentSaleId ?? undefined);
+    const { sale, error, sendToKitchen } = await completeSale(method, payments, cashTendered, giftCard, dojo, paymentSaleId ?? undefined);
     if (!sale) {
       // Surface the server's actual reason (e.g. "'Burger' is no longer
       // available on the menu", "Insufficient stock") instead of a generic
@@ -152,6 +155,7 @@ export default function SaleView({ isOffline = false }: { isOffline?: boolean })
     }
     setPaymentSaleId(null);
     setShowMobileCart(false);
+    setCompletedSaleSendToKitchen(sendToKitchen);
     setCompletedSale(sale);
     return true;
   }
@@ -206,7 +210,7 @@ export default function SaleView({ isOffline = false }: { isOffline?: boolean })
       {/* Receipt modal — autoPrint: fires the configured thermal printer once,
           straight after the sale (only on this post-sale instance). */}
       {completedSale && (
-        <ReceiptModal sale={completedSale} onClose={() => setCompletedSale(null)} autoPrint />
+        <ReceiptModal sale={completedSale} onClose={() => setCompletedSale(null)} autoPrint sendToKitchen={completedSaleSendToKitchen} />
       )}
 
       {/* Discount modal */}

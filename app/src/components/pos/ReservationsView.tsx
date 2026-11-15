@@ -9,10 +9,12 @@ import DojoChargePanel from "./DojoChargePanel";
 import type { DojoSaleResult } from "@/lib/dojo/types";
 import {
   AlertTriangle, Calendar, CalendarDays, CheckCircle2, Clock, Loader2,
-  LogIn, LogOut, RefreshCw, Search, UserPlus, Users, UtensilsCrossed, X, Crown, CreditCard, Phone,
+  LogIn, LogOut, RefreshCw, Search, UserPlus, Users, UtensilsCrossed, X, Crown, CreditCard, Phone, Receipt,
 } from "lucide-react";
 import { type ResRow, fmt12Pos, fmtTsPos } from "./_reservations";
 import { cleanPhone } from "@/lib/inputUtils";
+import ReservationReceiptModal from "./ReservationReceiptModal";
+import type { ReservationReceiptData } from "./_reservationReceipt";
 
 // ─── Reservations View (POS) ──────────────────────────────────────────────────
 
@@ -75,7 +77,7 @@ interface AvailTablePos { id: string; label: string; seats: number; section: str
 
 export default function ReservationsView() {
   const { settings: appSettings } = useApp();
-  const { dojoEnabled } = usePOS();
+  const { dojoEnabled, currentStaff } = usePOS();
   const rs = appSettings.reservationSystem ?? {};
   const currencySymbol = appSettings.currency?.symbol ?? "£";
   const maxParty = rs.maxPartySize ?? 10;
@@ -120,6 +122,10 @@ export default function ReservationsView() {
   const [addPayMethod,   setAddPayMethod]   = useState<"cash" | "card">("cash");
   const [addSaving,      setAddSaving]      = useState(false);
   const [addError,       setAddError]       = useState("");
+  // Shown after a successful walk-in/phone booking (autoPrint: true), or on
+  // demand from any existing row's Receipt button (autoPrint: false) —
+  // Close/PDF/Print + manual email, same shape as the POS sale receipt.
+  const [receiptModal,   setReceiptModal]   = useState<{ data: ReservationReceiptData; autoPrint: boolean } | null>(null);
   // VIP-fee card flow: "choose" = terminal-vs-manual choice; "dojo" = driving the
   // terminal; "keyed" = the same, with the card details typed in (phone
   // bookings: the guest isn't there). "none" = no overlay.
@@ -219,6 +225,13 @@ export default function ReservationsView() {
       setAddError("Phone number is required for phone bookings.");
       return;
     }
+    // Phone bookings also need an email — it's how the confirmation/cancel
+    // link reaches the guest, same as an online booking would. Walk-ins skip
+    // this: they're already at the table.
+    if (addSource === "phone" && !addEmail.trim()) {
+      setAddError("Email is required for phone bookings.");
+      return;
+    }
     // Soft-warn: seating a walk-in on a table that's booked again soon. Allowed,
     // but confirm so staff know the next party is coming.
     if (addSource === "walk-in" && addUpcoming[addTableMeta.id]) {
@@ -266,8 +279,24 @@ export default function ReservationsView() {
           ...(dojo ? { dojo } : {}),
         }),
       });
-      const json = await res.json().catch(() => ({ ok: false })) as { ok: boolean; error?: string };
-      if (json.ok) { vipIntent.current = null; setShowAdd(false); fetchRows(false); }
+      const json = await res.json().catch(() => ({ ok: false })) as { ok: boolean; error?: string; reservationId?: string };
+      if (json.ok) {
+        vipIntent.current = null; setShowAdd(false); fetchRows(false);
+        if (json.reservationId) {
+          setReceiptModal({
+            autoPrint: true,
+            data: {
+              id: json.reservationId,
+              customerName: addName.trim(), customerEmail: addEmail.trim(), customerPhone: addPhone.trim(),
+              date: addDate, time: addTime, partySize: addParty,
+              tableLabel: addTableMeta.label, section: addTableMeta.section,
+              source: addSource, note: addNote.trim(), staffName: currentStaff?.name ?? "",
+              vipFee: addTableMeta.isVip ? (addTableMeta.vipPrice ?? 0) : 0,
+              paymentMethod: addTableMeta.isVip ? addPayMethod : undefined,
+            },
+          });
+        }
+      }
       else message = json.error ?? "Failed to create booking.";
     } catch { message = "Network error — please try again."; }
     finally { setAddSaving(false); }
@@ -275,6 +304,24 @@ export default function ReservationsView() {
     if (message) setAddError(message);
     setCardStage("none");
     return message;
+  }
+
+  /** Reopen the receipt for an existing reservation row (any source, any
+   *  status) — view/print/email on demand. Staff attribution isn't stored on
+   *  the row, so staffName is left blank here (only known right at creation). */
+  function openReceiptFor(r: ResRowEx) {
+    setReceiptModal({
+      autoPrint: false,
+      data: {
+        id: r.id,
+        customerName: r.customer_name, customerEmail: r.customer_email, customerPhone: r.customer_phone,
+        date: r.date, time: r.time, partySize: r.party_size,
+        tableLabel: r.table_label, section: r.section,
+        source: r.source ?? "online", note: r.note ?? "", staffName: "",
+        vipFee: r.vip_fee ?? 0,
+        paymentMethod: r.payment_method,
+      },
+    });
   }
 
   // ── Main list ──────────────────────────────────────────────────────────────
@@ -566,6 +613,12 @@ export default function ReservationsView() {
                       <Loader2 size={16} className="animate-spin text-slate-400 mx-auto" />
                     ) : (
                       <>
+                        <button
+                          onClick={() => openReceiptFor(r)}
+                          className="flex items-center gap-1.5 bg-slate-700 hover:bg-slate-600 border border-slate-600 active:scale-95 text-slate-300 text-xs font-semibold px-3 py-2 rounded-xl transition-all"
+                        >
+                          <Receipt size={13} /> Receipt
+                        </button>
                         {r.status === "pending" && (
                           <button
                             onClick={() => doStatus(r.id, "confirmed")}
@@ -771,7 +824,7 @@ export default function ReservationsView() {
                 <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Guest details</p>
                 <input type="text" placeholder="Full name *" value={addName} onChange={(e) => setAddName(e.target.value)}
                   className="w-full bg-slate-800 border border-slate-600 rounded-xl px-4 py-2.5 text-slate-200 text-sm placeholder-slate-500 focus:outline-none focus:border-orange-500 transition" />
-                <input type="email" autoComplete="off" placeholder="Email (optional)" value={addEmail} onChange={(e) => setAddEmail(e.target.value)}
+                <input type="email" autoComplete="off" placeholder={addSource === "phone" ? "Email *" : "Email (optional)"} value={addEmail} onChange={(e) => setAddEmail(e.target.value)}
                   className="w-full bg-slate-800 border border-slate-600 rounded-xl px-4 py-2.5 text-slate-200 text-sm placeholder-slate-500 focus:outline-none focus:border-orange-500 transition" />
                 <input type="tel" inputMode="tel" autoComplete="off" placeholder={addSource === "phone" ? "Phone *" : "Phone (optional)"}
                   value={addPhone} onChange={(e) => setAddPhone(cleanPhone(e.target.value))}
@@ -827,7 +880,7 @@ export default function ReservationsView() {
               <button onClick={() => setShowAdd(false)} className="text-slate-400 hover:text-slate-200 text-sm font-semibold transition">Cancel</button>
               <button
                 onClick={handleAddBooking}
-                disabled={addSaving || !addName.trim() || !addTableMeta || (addSource !== "walk-in" && isSlotPastRes(addTime, addDate)) || (addSource === "phone" && !addPhone.trim())}
+                disabled={addSaving || !addName.trim() || !addTableMeta || (addSource !== "walk-in" && isSlotPastRes(addTime, addDate)) || (addSource === "phone" && !addPhone.trim()) || (addSource === "phone" && !addEmail.trim())}
                 className="flex items-center gap-1.5 bg-orange-500 hover:bg-orange-400 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-semibold px-5 py-2.5 rounded-xl transition-all"
               >
                 {addSaving ? <><Loader2 size={14} className="animate-spin" />Saving…</> :
@@ -908,6 +961,14 @@ export default function ReservationsView() {
         }}
         onCancel={() => setCancelConfirm(null)}
       />
+
+      {receiptModal && (
+        <ReservationReceiptModal
+          data={receiptModal.data}
+          autoPrint={receiptModal.autoPrint}
+          onClose={() => setReceiptModal(null)}
+        />
+      )}
     </div>
   );
 }

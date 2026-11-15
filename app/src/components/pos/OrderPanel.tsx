@@ -5,7 +5,7 @@ import { cartLineTotal, cartLineSaving } from "@/types/pos";
 import {
   ShoppingCart, Trash2, Users, Star, ChevronRight,
   Minus, Plus, Percent, BadgeDollarSign, CreditCard,
-  DollarSign,
+  DollarSign, ChefHat, ToggleLeft, ToggleRight,
 } from "lucide-react";
 import { fmt } from "./_utils";
 
@@ -26,7 +26,7 @@ export default function OrderPanel({
     cart, updateCartQty, clearCart,
     subtotal, discountAmount, taxAmount, grandTotal, tipAmount, serviceFeeAmount, serviceFeePct,
     discount, settings, assignedCustomer, currentStaff,
-    kitchenNote, setKitchenNote,
+    kitchenNote, setKitchenNote, sendToKitchen, setSendToKitchen,
   } = usePOS();
 
   return (
@@ -213,15 +213,32 @@ export default function OrderPanel({
             </div>
           </div>
 
+          {/* Send to kitchen — whole-order switch, on by default. Off for
+              sales with nothing for the kitchen to make (e.g. a cake slice). */}
+          <button
+            onClick={() => setSendToKitchen((v) => !v)}
+            role="switch"
+            aria-checked={sendToKitchen}
+            className="w-full flex items-center justify-between gap-2 px-3 py-2 rounded-xl bg-slate-800 border border-slate-700"
+          >
+            <span className="flex items-center gap-2 text-sm font-medium text-slate-300">
+              <ChefHat size={14} className="text-slate-400" /> Send to kitchen
+            </span>
+            {sendToKitchen
+              ? <ToggleRight size={26} className="text-green-400" />
+              : <ToggleLeft size={26} className="text-slate-500" />}
+          </button>
+
           {/* Kitchen note — one note for the whole order; lands in the KDS
               ticket header alongside [POS] / Customer / Staff / Receipt. */}
           <input
             type="text"
             value={kitchenNote}
             onChange={(e) => setKitchenNote(e.target.value)}
-            placeholder="Note to kitchen (optional)…"
+            disabled={!sendToKitchen}
+            placeholder={sendToKitchen ? "Note to kitchen (optional)…" : "Not sent to kitchen"}
             maxLength={300}
-            className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-sm text-white placeholder-slate-500 outline-none focus:border-orange-500"
+            className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-sm text-white placeholder-slate-500 outline-none focus:border-orange-500 disabled:opacity-50 disabled:cursor-not-allowed"
           />
 
           {/* Charge button */}

@@ -433,6 +433,7 @@ export interface ReceiptSettings {
   phone: string;
   website: string;
   email: string;
+  companyNumber: string;      // e.g. company registration number
   vatNumber: string;          // e.g. "GB 123 4567 89"
   thankYouMessage: string;    // bottom of receipt
   customMessage: string;      // optional extra line at bottom

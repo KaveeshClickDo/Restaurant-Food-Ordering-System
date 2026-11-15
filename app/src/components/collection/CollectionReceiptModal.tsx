@@ -132,6 +132,13 @@ export default function CollectionReceiptModal({
         <div className="p-5 flex-1 min-h-0 overflow-y-auto space-y-4">
           {/* Header block */}
           <div className="text-center space-y-0.5">
+            {rs.showLogo && rs.logoUrl && (
+              <div className="flex justify-center mb-2">
+                {/* eslint-disable-next-line @next/next/no-img-element -- arbitrary URL or data: URI, needs onError fallback */}
+                <img src={rs.logoUrl} alt="Logo" className="h-10 w-auto object-contain"
+                  onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
+              </div>
+            )}
             <p className="text-white font-black text-base tracking-widest uppercase">{restaurantName}</p>
             {restaurantAddress && <p className="text-slate-500 text-[10px]">{restaurantAddress}</p>}
             {rs.phone && <p className="text-slate-400 text-xs">{rs.phone}</p>}
@@ -141,6 +148,7 @@ export default function CollectionReceiptModal({
             {customer.phone && <p className="text-slate-400 text-xs">Phone: <span className="text-white">{customer.phone}</span></p>}
             <p className="text-slate-400 text-xs">Type: <span className="text-white">Collection</span></p>
             {order.scheduledTime && <p className="text-slate-400 text-xs">Scheduled: <span className="text-white">{order.scheduledTime}</span></p>}
+            {rs.companyNumber && <p className="text-slate-500 text-[10px]">Company No: {rs.companyNumber}</p>}
             {rs.vatNumber && <p className="text-slate-500 text-[10px]">VAT No: {rs.vatNumber}</p>}
           </div>
 

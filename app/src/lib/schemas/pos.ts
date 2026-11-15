@@ -31,6 +31,9 @@ export const PosSaleCreateSchema = z.object({
   // the KDS ticket header so chefs see one combined instruction string. Not
   // persisted on pos_sales separately — see /api/pos/sales/route.ts.
   kitchenNote:    z.string().max(300).optional(),
+  // Whole-order switch — off for sales with nothing for the kitchen to make
+  // (e.g. a pre-made cake slice). Defaults to true when omitted
+  sendToKitchen:  z.boolean().optional(),
   taxAmount:      Money.optional(),
   taxRate:        z.number().nonnegative().optional(),
   taxInclusive:   z.boolean().optional(),
@@ -256,6 +259,7 @@ export const PosSettingsPatchSchema = z
         phone:           z.string().optional(),
         website:         z.string().optional(),
         email:           z.string().optional(),
+        companyNumber:   z.string().optional(),
         vatNumber:       z.string().optional(),
         thankYouMessage: z.string().optional(),
         customMessage:   z.string().optional(),

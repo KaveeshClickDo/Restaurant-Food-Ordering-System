@@ -116,6 +116,7 @@ function ReceiptPreview({ r, restaurantName }: { r: ReceiptSettings; restaurantN
   if (r.phone)     lines.push({ text: center(r.phone) });
   if (r.website)   lines.push({ text: center(r.website) });
   if (r.email)     lines.push({ text: center(r.email) });
+  if (r.companyNumber) lines.push({ text: center(`Company No: ${r.companyNumber}`), dim: true });
   if (r.vatNumber) lines.push({ text: center(`VAT: ${r.vatNumber}`), dim: true });
   lines.push({ text: eq });
 
@@ -376,6 +377,14 @@ export default function ReceiptSettingsPanel() {
                   onChange={(v) => patch({ email: v })}
                   placeholder="e.g. hello@restaurant.co.uk"
                   type="email"
+                />
+                <Field
+                  label="Company Number"
+                  value={draft.companyNumber}
+                  onChange={(v) => patch({ companyNumber: v })}
+                  placeholder="e.g. 12345678"
+                  hint="Leave blank if not applicable"
+                  span2
                 />
                 <Field
                   label="VAT Number"
