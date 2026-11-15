@@ -42,6 +42,15 @@ export function reservationSourceLabel(source: string): string {
  *  closes with this same message regardless of admin settings. */
 export const RESERVATION_THANK_YOU = "Thank you for your reservation — we look forward to welcoming you!";
 
+/** Guest-typed text (name, note) and other booking values go into the HTML as
+ *  plain text, never as markup: an online booking's name and note come from a
+ *  public form. */
+function esc(s: string): string {
+  return s
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+}
+
 export function fmtResDate(dateStr: string): string {
   if (!dateStr) return "";
   return new Date(`${dateStr}T00:00:00`).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
@@ -73,7 +82,7 @@ export function buildReservationReceiptHtml(
   const name = (restaurantName || receipt.restaurantName?.trim() || "Restaurant").toUpperCase();
 
   const row = (l: string, r: string, bold = false) =>
-    `<tr><td style="padding:2px 0;color:#6b7280;${bold ? "font-weight:700;color:#111827;" : ""}font-size:12px">${l}</td><td style="padding:2px 0;text-align:right;${bold ? "font-weight:700;color:#111827;" : ""}font-size:12px">${r}</td></tr>`;
+    `<tr><td style="padding:2px 0;color:#6b7280;${bold ? "font-weight:700;color:#111827;" : ""}font-size:12px">${esc(l)}</td><td style="padding:2px 0;text-align:right;${bold ? "font-weight:700;color:#111827;" : ""}font-size:12px">${esc(r)}</td></tr>`;
 
   const vipHtml = res.vipFee > 0 ? `
   <hr style="border:none;border-top:1px dashed #d1d5db;margin:12px 0">
@@ -84,7 +93,7 @@ export function buildReservationReceiptHtml(
 
   const noteHtml = res.note.trim() ? `
   <hr style="border:none;border-top:1px dashed #d1d5db;margin:12px 0">
-  <div style="font-size:11px;color:#6b7280"><span style="font-weight:700;color:#374151">Note:</span> ${res.note.trim()}</div>` : "";
+  <div style="font-size:11px;color:#6b7280"><span style="font-weight:700;color:#374151">Note:</span> ${esc(res.note.trim())}</div>` : "";
 
   return `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Reservation Receipt</title></head>
 <body style="margin:0;background:#f9fafb;font-family:monospace">
