@@ -115,9 +115,11 @@ function LiveClock() {
 function MarqueeLabel({
   label,
   className,
+  onDurationMs,
 }: {
   label: string;
   className?: string;
+  onDurationMs?: (ms: number) => void;
 }) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const textRef = useRef<HTMLSpanElement>(null);
@@ -143,8 +145,13 @@ function MarqueeLabel({
 
   const needsScroll = label.length > 8 && overflowPx > 0;
 
-  // Speed: 2s base + 0.06s per overflow-px → smooth at any card width / screen size
-  const durationSec = needsScroll ? (2 + overflowPx * 0.02).toFixed(2) : "0";
+  // Speed: 3s base + 0.03s per overflow-px → smooth at any card width / screen size
+  const durationSec = needsScroll ? 3 + overflowPx * 0.03 : 0;
+
+  useEffect(() => {
+    onDurationMs?.(durationSec * 1000);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [durationSec]);
 
   return (
     <div ref={wrapRef} className="w-full overflow-hidden flex-shrink-0">
@@ -154,7 +161,7 @@ function MarqueeLabel({
           needsScroll
             ? ({
               "--slide-px": `-${overflowPx}px`,
-              "--slide-dur": `${durationSec}s`,
+              "--slide-dur": `${durationSec.toFixed(2)}s`,
               animation: "order-slide var(--slide-dur) ease-in-out infinite",
             } as React.CSSProperties)
             : undefined
@@ -177,12 +184,14 @@ function OrderCard({
   order,
   isReady,
   cols,
-  maxRows
+  maxRows,
+  onLabelDurationMs,
 }: {
   order: DisplayOrder;
   isReady: boolean;
   cols: number;
   maxRows: number;
+  onLabelDurationMs?: (ms: number) => void;
 }) {
   const prevReady = useRef(isReady);
   const [flash, setFlash] = useState(false);
@@ -232,6 +241,7 @@ function OrderCard({
           label={order.label}
           className={`font-black tracking-widest ${numCls} ${isReady ? "text-emerald-300" : "text-orange-400"
             }`}
+          onDurationMs={onLabelDurationMs}
         />
 
         <div className={`flex-shrink-0 border-t ${isReady ? "border-emerald-800/60" : "border-gray-700/70"}`} />
@@ -308,23 +318,43 @@ function OrderPanel({
   const [page, setPage] = useState(0);
   const [fade, setFade] = useState(false);
 
+  const durationsRef = useRef<Map<string, number>>(new Map());
+  const visibleRef = useRef<DisplayOrder[]>([]);
+
   useEffect(() => setPage(0), [cols, maxRows]);
 
-  // Auto-advance pages with a 300 ms opacity fade
+  // Auto-advance pages with a 300 ms opacity fade — delayed past PAGE_INTERVAL
+  // when a visible order number is still mid-scroll, so it never gets cut off.
   useEffect(() => {
     if (pageCount <= 1) return;
-    const id = setInterval(() => {
-      setFade(true);
-      setTimeout(() => {
-        setPage((p) => (p + 1) % pageCount);
-        setFade(false);
-      }, 350);
-    }, PAGE_INTERVAL);
-    return () => clearInterval(id);
+    let cancelled = false;
+    let timeoutId: ReturnType<typeof setTimeout>;
+
+    function tick() {
+      const maxLabelMs = visibleRef.current.reduce(
+        (max, o) => Math.max(max, durationsRef.current.get(o.id) ?? 0),
+        0,
+      );
+      const delay = Math.max(PAGE_INTERVAL, maxLabelMs + 500);
+      timeoutId = setTimeout(() => {
+        if (cancelled) return;
+        setFade(true);
+        setTimeout(() => {
+          if (cancelled) return;
+          setPage((p) => (p + 1) % pageCount);
+          setFade(false);
+          tick();
+        }, 350);
+      }, delay);
+    }
+
+    tick();
+    return () => { cancelled = true; clearTimeout(timeoutId); };
   }, [pageCount]);
 
   const safePage = Math.min(page, pageCount - 1);
   const visible = orders.slice(safePage * pageSize, (safePage + 1) * pageSize);
+  visibleRef.current = visible;
 
   return (
     <div className="flex flex-col flex-1 min-h-0 w-full overflow-hidden">
@@ -357,7 +387,14 @@ function OrderPanel({
             }}
           >
             {visible.map((order) => (
-              <OrderCard key={order.id} order={order} isReady={isReady} cols={cols} maxRows={maxRows} />
+              <OrderCard
+                key={order.id}
+                order={order}
+                isReady={isReady}
+                cols={cols}
+                maxRows={maxRows}
+                onLabelDurationMs={(ms) => { durationsRef.current.set(order.id, ms); }}
+              />
             ))}
           </div>
         </div>
