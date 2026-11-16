@@ -25,7 +25,7 @@ import { parseBody }                            from "@/lib/apiValidation";
 import { AdminRefundSchema }                    from "@/lib/schemas/waiter";
 import { restoreStock, type StockItem }         from "@/lib/stockMutation";
 import { deductLoyaltyPoints, refundRedeemedPoints } from "@/lib/loyaltyUtils";
-import { sendOrderStatusEmail }                 from "@/lib/emailServer";
+import { sendOrderStatusEmail, sendRefundEmail } from "@/lib/emailServer";
 import { notifyOrderCancelledOrRefunded }       from "@/lib/adminNotifications";
 import { refundDojoPayment }                    from "@/lib/dojo/refund";
 import { dojoErrorResponse }                    from "@/lib/dojo/respond";
@@ -289,6 +289,22 @@ export async function POST(
       reason: newest.reason,
     }).catch((err: unknown) =>
       console.error("[admin/orders refund] admin notification:", err instanceof Error ? err.message : err),
+    );
+  }
+
+  // Customer-facing refund confirmation — also fires on every refund (partial
+  // or full), independent of the cancellation email above: one says "your
+  // money is coming back", the other says "this order won't be fulfilled",
+  // and a full refund on an undelivered order can trigger both. No-op for
+  // guests / POS / when no "Order Refunded" template is enabled.
+  if (newest) {
+    sendRefundEmail(id, {
+      amount: Number(newest.amount),
+      reason: newest.reason,
+      type:   newest.type,
+      method: newest.method,
+    }).catch((err) =>
+      console.error("[admin/orders refund] refund email:", err instanceof Error ? err.message : err),
     );
   }
 

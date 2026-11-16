@@ -33,6 +33,10 @@ export const TEMPLATE_VARS: VarDef[] = [
   { name: "delivery_address", label: "Delivery address", group: "Order", preview: "42 Example St, London" },
   { name: "payment_method", label: "Payment method", group: "Order", preview: "Cash on Delivery" },
   { name: "estimated_time", label: "Estimated time (min)", group: "Order", preview: "30–45" },
+  { name: "refund_amount", label: "Refund amount", group: "Order", preview: "£8.50" },
+  { name: "refund_type", label: "Refund type (refund emails only)", group: "Order", preview: "Partial refund" },
+  { name: "refund_method", label: "Refund method (refund emails only)", group: "Order", preview: "Card (Stripe)" },
+  { name: "refund_reason", label: "Refund reason (refund emails only)", group: "Order", preview: "<i>(styled reason line — only when a reason was given)</i>" },
   { name: "delivery_code", label: "Delivery confirmation code (delivery only)", group: "Order", preview: "<i>(styled PIN block — only for delivery orders)</i>" },
   // Restaurant
   { name: "restaurant_name", label: "Restaurant name", group: "Restaurant", preview: "Your Restaurant" },
@@ -80,6 +84,7 @@ export const EVENT_CONFIGS: EventConfig[] = [
   { event: "order_ready", name: "Order Ready", description: "Sent when the order is ready", color: "bg-green-100", textColor: "text-green-700", emoji: "🥡" },
   { event: "order_delivered", name: "Order Delivered", description: "Sent when the order has been delivered", color: "bg-emerald-100", textColor: "text-emerald-700", emoji: "🚀" },
   { event: "order_cancelled", name: "Order Cancelled", description: "Sent when an order is cancelled", color: "bg-red-100", textColor: "text-red-700", emoji: "❌" },
+  { event: "order_refunded", name: "Order Refunded", description: "Sent when a refund is issued (full or partial)", color: "bg-teal-100", textColor: "text-teal-700", emoji: "💷" },
   { event: "reservation_confirmation", name: "Reservation Confirmed", description: "Sent when a customer books a table", color: "bg-teal-100", textColor: "text-teal-700", emoji: "📅" },
   { event: "reservation_update", name: "Reservation Update", description: "Sent when admin confirms or changes the status", color: "bg-blue-100", textColor: "text-blue-700", emoji: "🔄" },
   { event: "reservation_cancellation", name: "Reservation Cancelled", description: "Sent when a reservation is cancelled", color: "bg-rose-100", textColor: "text-rose-700", emoji: "🚫" },
@@ -176,6 +181,21 @@ export const DEFAULT_EMAIL_TEMPLATES: EmailTemplate[] = [
 <p>We're sorry to inform you that your order <strong>{{order_id}}</strong> has been cancelled.</p>
 <p>If you have any questions, please contact us at <strong>{{restaurant_phone}}</strong>.</p>
 <p>We apologise for any inconvenience and hope to serve you again soon.</p>
+<p style="color:#6b7280;font-size:14px">— The team at <strong>{{restaurant_name}}</strong></p>`,
+    enabled: true,
+    lastModified: new Date(0).toISOString(),
+  },
+  {
+    event: "order_refunded",
+    name: "Order Refunded",
+    subject: "Your refund has been processed — {{order_id}}",
+    body: `<h2 style="color:#0d9488;margin:0 0 16px 0">Refund Processed 💷</h2>
+<p>Hi <strong>{{customer_name}}</strong>,</p>
+<p>We've processed a <strong>{{refund_type}}</strong> of <strong>{{refund_amount}}</strong> for your order <strong>{{order_id}}</strong>.</p>
+<p><strong>Refunded to:</strong> {{refund_method}}</p>
+{{refund_reason}}
+<p style="color:#6b7280;font-size:14px">This usually appears within 5–10 business days, depending on your bank or card provider.</p>
+<p>If you have any questions, please contact us at <strong>{{restaurant_phone}}</strong>.</p>
 <p style="color:#6b7280;font-size:14px">— The team at <strong>{{restaurant_name}}</strong></p>`,
     enabled: true,
     lastModified: new Date(0).toISOString(),
@@ -317,7 +337,7 @@ export const DEFAULT_EMAIL_TEMPLATES: EmailTemplate[] = [
  * System-generated values (order IDs, monetary amounts, dates) and pre-built
  * HTML fragments (order_items table, brand colours) do not need escaping.
  */
-function escHtml(s: string): string {
+export function escHtml(s: string): string {
   return s
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
@@ -641,6 +661,10 @@ export function buildPreviewVarMap(settings: AdminSettings): Record<string, stri
     delivery_address: "42 Example Street, London, E1 6RF",
     payment_method: "Cash on Delivery",
     estimated_time: `${settings.restaurant.deliveryTime}`,
+    refund_amount: `${sym}8.50`,
+    refund_type: "Partial refund",
+    refund_method: "Card (Stripe)",
+    refund_reason: `<p><strong>Reason:</strong> Customer request</p>`,
     restaurant_name: settings.restaurant.name,
     restaurant_phone: settings.restaurant.phone,
     restaurant_address: restAddr,

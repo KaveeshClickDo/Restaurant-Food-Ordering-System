@@ -304,6 +304,7 @@ export type EmailTemplateEvent =
   | "order_ready"
   | "order_delivered"
   | "order_cancelled"
+  | "order_refunded"
   | "reservation_confirmation"
   | "reservation_update"
   | "reservation_cancellation"
