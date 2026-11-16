@@ -16,6 +16,12 @@ const inter = Inter({
 
 const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL ?? "https://demo.directdine.tech";
 
+// Shown until a tenant uploads their own favicon in SEO settings. Lives as a
+// plain /public asset (not app/favicon.ico) so Next's file-convention icon
+// metadata never auto-injects a second, un-versioned <link rel="icon"> that
+// fights the one driven by seo.faviconUrl below.
+const DEFAULT_FAVICON = "/favicon-default.ico";
+
 // ── Dynamic metadata (reads DB on every request) ─────────────────────────────
 
 export async function generateMetadata(): Promise<Metadata> {
@@ -43,7 +49,7 @@ export async function generateMetadata(): Promise<Metadata> {
     title,
     description,
     keywords,
-    ...(versionedFavicon && { icons: { icon: versionedFavicon } }),
+    icons: { icon: versionedFavicon || DEFAULT_FAVICON },
     alternates: {
       canonical: siteUrl,
     },
@@ -154,7 +160,7 @@ export default async function RootLayout({
          * that the server already rendered the current favicon. React owns this
          * node — nothing may remove it from the DOM (see SeoHead.tsx).
          */}
-        {faviconUrl && <link id="sg-favicon" rel="icon" href={faviconHref} />}
+        <link id="sg-favicon" rel="icon" href={faviconHref || DEFAULT_FAVICON} />
 
         {/*
          * Primary: server-rendered brand CSS injected directly into the HTML.
