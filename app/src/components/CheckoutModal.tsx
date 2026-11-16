@@ -1051,7 +1051,7 @@ export default function CheckoutModal({ onClose, onOrderPlaced }: Props) {
           </p>
           {chosenMethod?.id === "cash" ? (
             <p className="text-green-700 dark:text-green-300 font-semibold mt-3 text-sm bg-green-50 dark:bg-green-950/40 rounded-xl px-4 py-2">
-              💵 {chosenMethod.adminNote || "Please pay on delivery or in store."}
+              💵 {chosenMethod.adminNote || (isDelivery ? "Please pay on delivery." : "Please pay in store.")}
             </p>
           ) : null}
           {placedScheduledTime ? (
