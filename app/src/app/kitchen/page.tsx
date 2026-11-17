@@ -420,10 +420,12 @@ function OrderCard({
   order,
   col,
   onAdvance,
+  onServe,
 }: {
   order: KDSOrder;
   col: ColumnConfig;
   onAdvance?: () => void;
+  onServe?: () => void;
 }) {
   const isDelivery = order.fulfillment === "delivery";
   const isDineIn   = order.fulfillment === "dine-in";
@@ -481,6 +483,27 @@ function OrderCard({
     setConfirming(false);
   }
   useEffect(() => () => { if (confirmTimer.current) clearTimeout(confirmTimer.current); }, []);
+
+  // Same two-step confirm as "Mark as Collected" above, for the dine-in
+  // equivalent action — this clears the ticket for every waiter too, so it's
+  // worth a confirm tap rather than a single accidental click.
+  const [confirmingServe, setConfirmingServe] = useState(false);
+  const serveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  function handleServeClick() {
+    setConfirmingServe(true);
+    serveTimer.current = setTimeout(() => setConfirmingServe(false), 4000);
+  }
+  function handleConfirmServe() {
+    if (serveTimer.current) clearTimeout(serveTimer.current);
+    setConfirmingServe(false);
+    onServe?.();
+  }
+  function handleCancelServe() {
+    if (serveTimer.current) clearTimeout(serveTimer.current);
+    setConfirmingServe(false);
+  }
+  useEffect(() => () => { if (serveTimer.current) clearTimeout(serveTimer.current); }, []);
 
   const u = mins !== null ? urgencyClass(mins) : { ring: "", pulse: false };
 
@@ -628,6 +651,28 @@ function OrderCard({
               </button>
             )
           )}
+          {/* Dine-in: kitchen/food-runner staff can mark a ready ticket served
+              themselves, same action the waiter floor's "Served" button does —
+              clears it from every screen, table stays occupied until settled. */}
+          {isDineIn && (
+            confirmingServe ? (
+              <div className="flex gap-2">
+                <button onClick={handleConfirmServe}
+                  className="flex-1 bg-emerald-500 hover:bg-emerald-400 active:scale-[0.97] text-white font-black text-xs py-2.5 rounded-xl transition-all">
+                  ✓ Confirm Served
+                </button>
+                <button onClick={handleCancelServe}
+                  className="flex-1 bg-gray-700 hover:bg-gray-600 active:scale-[0.97] text-gray-300 font-semibold text-xs py-2.5 rounded-xl transition-all">
+                  Cancel
+                </button>
+              </div>
+            ) : (
+              <button onClick={handleServeClick}
+                className="w-full flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-xs font-semibold text-emerald-500 border border-emerald-800 hover:bg-emerald-900/30 active:scale-[0.97] transition-all">
+                <CheckCircle2 size={12} /> Mark as Served
+              </button>
+            )
+          )}
         </div>
       )}
     </div>
@@ -640,10 +685,12 @@ function KanbanColumn({
   col,
   orders,
   onAdvance,
+  onServe,
 }: {
   col: ColumnConfig;
   orders: KDSOrder[];
   onAdvance: (order: KDSOrder) => void;
+  onServe: (order: KDSOrder) => void;
 }) {
   return (
     <div className={`flex flex-col rounded-2xl ${col.colBg} border border-gray-700/40 md:overflow-hidden`}>
@@ -667,6 +714,7 @@ function KanbanColumn({
               order={order}
               col={col}
               onAdvance={col.nextStatus ? () => onAdvance(order) : undefined}
+              onServe={!col.nextStatus ? () => onServe(order) : undefined}
             />
           ))
         )}
@@ -740,6 +788,8 @@ export default function KitchenPage() {
   // server view catches up or when the TTL expires. Mirrors AppContext's
   // pendingOrderStatusRef guard used by the admin Online Orders board.
   const pendingStatusRef = useRef<Map<string, { status: KDSStatus; until: number }>>(new Map());
+  // Same idea, for "served" — it removes the row instead of changing a status.
+  const pendingServedRef = useRef<Map<string, number>>(new Map());
 
   // ── Fetch via authenticated server endpoint + poll every 4 s ──────────────
   // Replaces the prior direct supabase.from("orders") read + realtime channel.
@@ -762,19 +812,29 @@ export default function KitchenPage() {
         // is still stale. Without this, the card briefly jumps back to its old
         // column before the next poll arrives with the committed status.
         const pending = pendingStatusRef.current;
+        const pendingServed = pendingServedRef.current;
         const now = Date.now();
-        setOrders(json.orders.map((row) => {
-          const o = mapRow(row);
-          const p = pending.get(o.id);
-          if (!p) return o;
-          if (p.until < now || o.status === p.status) {
-            // TTL elapsed, or server caught up — drop the guard and trust server.
-            pending.delete(o.id);
-            return o;
-          }
-          // Server is still serving pre-mutation data — keep optimistic status.
-          return { ...o, status: p.status };
-        }));
+        setOrders(
+          json.orders
+            .filter((row) => {
+              const until = pendingServed.get(String(row.id));
+              if (until === undefined) return true;
+              if (until < now) { pendingServed.delete(String(row.id)); return true; }
+              return false;
+            })
+            .map((row) => {
+              const o = mapRow(row);
+              const p = pending.get(o.id);
+              if (!p) return o;
+              if (p.until < now || o.status === p.status) {
+                // TTL elapsed, or server caught up — drop the guard and trust server.
+                pending.delete(o.id);
+                return o;
+              }
+              // Server is still serving pre-mutation data — keep optimistic status.
+              return { ...o, status: p.status };
+            }),
+        );
       } catch {
         // Network error — keep last-known orders, try again next tick.
       } finally {
@@ -828,6 +888,31 @@ export default function KitchenPage() {
       );
     } finally {
       advanceInFlight.current.delete(order.id);
+    }
+  }
+
+  // ── Kitchen staff mark a ready dine-in ticket served themselves ───────────
+  const serveInFlight = useRef<Set<string>>(new Set());
+
+  async function markServed(order: KDSOrder) {
+    if (serveInFlight.current.has(order.id)) return;
+    serveInFlight.current.add(order.id);
+    setOrders((prev) => prev.filter((o) => o.id !== order.id));
+    pendingServedRef.current.set(order.id, Date.now() + 10_000);
+
+    try {
+      const res = await fetch(`/api/kds/orders/${order.id}/serve`, { method: "PUT" });
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({})) as { error?: string };
+        console.error("KDS serve failed:", j.error);
+        pendingServedRef.current.delete(order.id);
+        setOrders((prev) => (prev.some((o) => o.id === order.id) ? prev : [...prev, order]));
+      }
+    } catch {
+      pendingServedRef.current.delete(order.id);
+      setOrders((prev) => (prev.some((o) => o.id === order.id) ? prev : [...prev, order]));
+    } finally {
+      serveInFlight.current.delete(order.id);
     }
   }
 
@@ -939,6 +1024,7 @@ export default function KitchenPage() {
               col={col}
               orders={orders.filter((o) => col.statuses.includes(o.status))}
               onAdvance={(order) => col.nextStatus && advanceOrder(order, col.nextStatus)}
+              onServe={(order) => markServed(order)}
             />
           ))}
         </div>

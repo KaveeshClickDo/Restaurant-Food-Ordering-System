@@ -108,7 +108,9 @@ export interface TileReservation {
 export interface WaiterActiveOrder {
   id: string;
   tableLabel: string;
-  /** Kitchen lifecycle: pending | confirmed | preparing | ready.
+  /** Kitchen lifecycle: pending | confirmed | preparing | ready | served.
+   *  "served" means the waiter carried the food out but the bill is still
+   *  open — it still occupies the table, just no longer counts as ready.
    *  (delivered/cancelled rows are filtered out — they free the table.) */
   status: string;
   items: { name: string; qty: number; price: number }[];

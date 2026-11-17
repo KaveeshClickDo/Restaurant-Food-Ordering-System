@@ -12,7 +12,7 @@ import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { requireWaiterAuth } from "@/lib/waiterAuth";
 
-const ACTIVE_TICKET_STATUSES = ["pending", "confirmed", "preparing", "ready", "delivered"];
+const ACTIVE_TICKET_STATUSES = ["pending", "confirmed", "preparing", "ready", "served", "delivered"];
 
 export async function GET() {
   const authError = await requireWaiterAuth();
