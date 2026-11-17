@@ -14,6 +14,7 @@ import {
 import { type ResRow, fmt12Pos, fmtTsPos } from "./_reservations";
 import { cleanPhone } from "@/lib/inputUtils";
 import ReservationReceiptModal from "./ReservationReceiptModal";
+import CheckInLookup from "@/components/reservation/CheckInLookup";
 import type { ReservationReceiptData } from "./_reservationReceipt";
 
 // ─── Reservations View (POS) ──────────────────────────────────────────────────
@@ -279,7 +280,7 @@ export default function ReservationsView() {
           ...(dojo ? { dojo } : {}),
         }),
       });
-      const json = await res.json().catch(() => ({ ok: false })) as { ok: boolean; error?: string; reservationId?: string };
+      const json = await res.json().catch(() => ({ ok: false })) as { ok: boolean; error?: string; reservationId?: string; checkInCode?: string };
       if (json.ok) {
         vipIntent.current = null; setShowAdd(false); fetchRows(false);
         if (json.reservationId) {
@@ -293,6 +294,9 @@ export default function ReservationsView() {
               source: addSource, note: addNote.trim(), staffName: currentStaff?.name ?? "",
               vipFee: addTableMeta.isVip ? (addTableMeta.vipPrice ?? 0) : 0,
               paymentMethod: addTableMeta.isVip ? addPayMethod : undefined,
+              // A phone booking is still to come, so its receipt carries the
+              // check-in QR; a walk-in is already seated.
+              checkInCode: addSource === "phone" ? json.checkInCode : undefined,
             },
           });
         }
@@ -320,6 +324,7 @@ export default function ReservationsView() {
         source: r.source ?? "online", note: r.note ?? "", staffName: "",
         vipFee: r.vip_fee ?? 0,
         paymentMethod: r.payment_method,
+        checkInCode: r.status === "pending" || r.status === "confirmed" ? r.check_in_code : undefined,
       },
     });
   }
@@ -408,9 +413,13 @@ export default function ReservationsView() {
   const filtered = rows.filter((r) => {
     if (!search) return true;
     const q = search.toLowerCase();
+    // Phone and reference ignore spaces (and a leading "#"), as people read them out.
+    const compact = q.replace(/[\s#]/g, "");
     return r.customer_name.toLowerCase().includes(q) ||
            r.customer_email.toLowerCase().includes(q) ||
-           r.table_label.toLowerCase().includes(q);
+           r.table_label.toLowerCase().includes(q) ||
+           (!!compact && (r.customer_phone ?? "").replace(/\s/g, "").includes(compact)) ||
+           (compact.length >= 4 && r.id.toLowerCase().startsWith(compact));
   });
 
   const stats = {
@@ -455,6 +464,24 @@ export default function ReservationsView() {
           </button>
         </div>
       </div>
+
+      {/* Check in a guest: plug-in scanner, typed reference or camera */}
+      <CheckInLookup
+        surface="pos"
+        theme="dark"
+        currencySymbol={currencySymbol}
+        onCheckedIn={() => { void fetchRows(false); }}
+        onViewReceipt={(res) => openReceiptFor({
+          ...res,
+          note:           res.note ?? undefined,
+          source:         res.source ?? undefined,
+          checked_in_at:  res.checked_in_at ?? undefined,
+          checked_out_at: res.checked_out_at ?? undefined,
+          payment_status: res.payment_status ?? undefined,
+          payment_method: res.payment_method ?? undefined,
+          check_in_code:  res.check_in_code ?? undefined,
+        })}
+      />
 
       {/* Stats */}
       <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
@@ -512,7 +539,7 @@ export default function ReservationsView() {
           <Search size={13} className="text-slate-500 flex-shrink-0" />
           <input
             type="text"
-            placeholder="Name, email, table…"
+            placeholder="Name, phone, email, table, reference…"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="w-full bg-transparent text-slate-200 text-sm focus:outline-none placeholder-slate-500"

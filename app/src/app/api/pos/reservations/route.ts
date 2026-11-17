@@ -125,5 +125,5 @@ export async function POST(req: NextRequest) {
     });
   }
 
-  return NextResponse.json({ ok: true, reservationId: result.reservationId });
+  return NextResponse.json({ ok: true, reservationId: result.reservationId, checkInCode: result.checkInCode });
 }

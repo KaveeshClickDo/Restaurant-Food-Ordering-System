@@ -6,6 +6,7 @@ import {
   CalendarDays, Clock, Users, UtensilsCrossed, CheckCircle2,
   XCircle, Loader2, AlertTriangle, MapPin,
 } from "lucide-react";
+import CheckInQr from "@/components/reservation/CheckInQr";
 
 interface BookingDetails {
   id: string;
@@ -17,6 +18,8 @@ interface BookingDetails {
   party_size: number;
   status: string;
   note?: string;
+  /** The guest's check-in code, shown as a QR while the booking is upcoming. */
+  check_in_code?: string;
 }
 
 function fmt12(t: string) {
@@ -162,6 +165,13 @@ export default function ReservationTokenPage() {
                 </div>
               )}
             </div>
+          </div>
+        )}
+
+        {/* Check-in QR — only while the booking is still upcoming */}
+        {booking?.check_in_code && !cancelled && (booking.status === "pending" || booking.status === "confirmed") && (
+          <div className="bg-white dark:bg-[var(--brand-surface-dark)] rounded-2xl border border-zinc-200 dark:border-[var(--brand-border-dark)] shadow-sm p-6">
+            <CheckInQr code={booking.check_in_code} reference={booking.id.slice(0, 8).toUpperCase()} size={200} />
           </div>
         )}
 

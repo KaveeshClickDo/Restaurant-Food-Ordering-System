@@ -102,3 +102,17 @@ export const ReservationFormSchema = z.object({
   partySize:     PartySize,
   note:          z.string().optional(),
 });
+
+// Staff QR check-in (POS / admin). `code` is whatever was scanned or typed:
+// the QR text, a bare check-in code, or the 8-character booking reference.
+// `today` is the staff device's own date, so "is this booking for today?"
+// follows the restaurant's clock rather than the server's time zone.
+export const ReservationCheckInLookupSchema = z.object({
+  code:  z.string().trim().min(1, "Scan a QR code or type a booking reference.").max(200),
+  today: IsoDate,
+});
+
+export const ReservationCheckInSchema = z.object({
+  id:    NonEmptyString,
+  today: IsoDate,
+});

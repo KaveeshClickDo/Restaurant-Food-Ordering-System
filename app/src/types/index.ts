@@ -472,6 +472,7 @@ export interface Reservation {
   paymentStatus?: "none" | "paid";  // "paid" once the VIP booking fee is collected
   paymentMethod?: string; // "stripe" | "paypal" (online) | "cash" | "card" (POS/admin)
   paymentRef?: string;    // gateway id or till receipt reference
+  checkInCode?: string;   // secret code the guest shows as a QR (lib/reservationCheckIn.ts)
 }
 
 /** Where a marketing contact's email entered the system (see

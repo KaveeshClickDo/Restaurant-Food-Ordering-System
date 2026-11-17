@@ -16,12 +16,15 @@ import {
   buildEmailDocument,
   buildVarMap,
   buildReservationVarMap,
+  checkInQrEmailBlock,
   DEFAULT_EMAIL_TEMPLATES,
   escHtml,
 } from "./emailTemplates";
 import type { ReservationEmailData } from "./emailTemplates";
-import { sendEmail } from "./emailSender";
+import { sendEmail, emailConfigured, type EmailAttachment } from "./emailSender";
 import { supabaseAdmin } from "./supabaseAdmin";
+import { bookingReference, CHECK_IN_QR_CID } from "./reservationCheckIn";
+import { checkInQrPng } from "./checkInQrImage";
 
 /**
  * Fetch just the brand primary color from the admin settings row.
@@ -46,31 +49,71 @@ export async function sendEmailDirect(
   to: string,
   subject: string,
   html: string,
+  attachments?: EmailAttachment[],
 ): Promise<{ ok: boolean; error?: string }> {
-  return sendEmail({ to, subject, html });
+  return sendEmail({ to, subject, html, attachments });
+}
+
+/** Reservation emails that carry the guest's check-in QR code. */
+const CHECK_IN_QR_EVENTS: readonly EmailTemplateEvent[] = ["reservation_confirmation", "reservation_update"];
+
+/** The check-in QR image for this email, or null when it shouldn't have one
+ *  (other events, or a booking that has already started or ended). */
+async function checkInQrAttachment(event: EmailTemplateEvent, res: ReservationEmailData): Promise<EmailAttachment | null> {
+  if (!CHECK_IN_QR_EVENTS.includes(event)) return null;
+  if (res.status !== "pending" && res.status !== "confirmed") return null;
+  let code = res.check_in_code;
+  if (!code) {
+    // Status-change callers don't select the code; read it here. Best-effort:
+    // a database without the column just sends the email without a QR.
+    const { data } = await supabaseAdmin.from("reservations").select("check_in_code").eq("id", res.id).maybeSingle();
+    code = (data as { check_in_code?: string } | null)?.check_in_code ?? undefined;
+  }
+  if (!code) return null;
+  try {
+    return {
+      filename:    `booking-${bookingReference(res.id)}-check-in.png`,
+      content:     await checkInQrPng(code),
+      contentType: "image/png",
+      cid:         CHECK_IN_QR_CID,
+    };
+  } catch (err) {
+    console.error("[email] check-in QR image failed:", err instanceof Error ? err.message : err);
+    return null;
+  }
 }
 
 /**
- * High-level server-side reservation email sender.
- * Finds the template, applies variables, builds the HTML document, and sends.
- * Silent no-op when the template is disabled or SMTP is not configured.
- * Never throws — logs errors to console only.
+ * Build a reservation email from its template, without sending it. The
+ * confirmation emails get the check-in QR: as an inline image where the
+ * template has {{checkin_qr}}, or added after the message when a saved
+ * (older) template doesn't have the tag yet. Returns null when the template
+ * is switched off or there is no recipient.
  */
-export async function sendReservationEmailServer(
+export async function buildReservationEmail(
   event: EmailTemplateEvent,
   res: ReservationEmailData,
   settings: AdminSettings,
   siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? "",
-): Promise<void> {
+): Promise<{ to: string; subject: string; html: string; attachments: EmailAttachment[] } | null> {
   const template = settings.emailTemplates?.find((t) => t.event === event && t.enabled);
-  if (!template) return;
+  if (!template) return null;
 
   const to = res.customer_email?.trim();
-  if (!to) return;
+  if (!to) return null;
 
-  const vars    = buildReservationVarMap(res, settings, siteUrl);
+  const vars = buildReservationVarMap(res, settings, siteUrl);
+  let bodyTemplate = template.body;
+  const attachments: EmailAttachment[] = [];
+  const qr = await checkInQrAttachment(event, res);
+  if (qr) {
+    attachments.push(qr);
+    vars.checkin_qr = checkInQrEmailBlock(bookingReference(res.id));
+    if (!bodyTemplate.includes("{{checkin_qr}}")) bodyTemplate += "\n{{checkin_qr}}";
+  }
+
   const subject = applyVars(template.subject, vars);
-  const body    = applyVars(template.body,    vars);
+  const body    = applyVars(bodyTemplate,     vars);
 
   const restAddr = [
     settings.restaurant.addressLine1,
@@ -87,10 +130,29 @@ export async function sendReservationEmailServer(
     settings.colors,
   );
 
-  const result = await sendEmailDirect(to, subject, html);
-  if (!result.ok) {
-    if (result.error?.toLowerCase().includes("smtp not configured")) return;
-    console.error(`[email] ${event} failed for ${to}:`, result.error);
+  return { to, subject, html, attachments };
+}
+
+/**
+ * High-level server-side reservation email sender: builds the email
+ * ({@link buildReservationEmail}) and sends it.
+ * Silent no-op when the template is disabled or email sending isn't set up.
+ * Never throws — logs errors to console only.
+ */
+export async function sendReservationEmailServer(
+  event: EmailTemplateEvent,
+  res: ReservationEmailData,
+  settings: AdminSettings,
+  siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? "",
+): Promise<void> {
+  if (!emailConfigured()) return;
+  try {
+    const email = await buildReservationEmail(event, res, settings, siteUrl);
+    if (!email) return;
+    const result = await sendEmailDirect(email.to, email.subject, email.html, email.attachments);
+    if (!result.ok) console.error(`[email] ${event} failed for ${email.to}:`, result.error);
+  } catch (err) {
+    console.error(`[email] ${event} failed:`, err instanceof Error ? err.message : err);
   }
 }
 

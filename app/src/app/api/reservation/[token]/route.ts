@@ -14,11 +14,16 @@ export async function GET(
 ) {
   const { token } = await params;
 
-  const { data, error } = await supabaseAdmin
-    .from("reservations")
-    .select("id,customer_name,date,time,table_label,section,party_size,status,note")
-    .eq("cancel_token", token)
-    .single();
+  // check_in_code is the guest's own QR (they hold the cancel token anyway).
+  // Retried without it on a database that predates the column, so this page
+  // keeps working there, just without a QR.
+  const base = "id,customer_name,date,time,table_label,section,party_size,status,note";
+  let { data, error } = await supabaseAdmin
+    .from("reservations").select(`${base},check_in_code`).eq("cancel_token", token).single();
+  if (error?.message?.includes("check_in_code")) {
+    ({ data, error } = await supabaseAdmin
+      .from("reservations").select(base).eq("cancel_token", token).single());
+  }
 
   if (error || !data) {
     return NextResponse.json({ ok: false, error: "Booking not found." }, { status: 404 });

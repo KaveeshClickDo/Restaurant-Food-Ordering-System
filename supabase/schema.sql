@@ -1496,6 +1496,20 @@ begin
   end if;
 end $$;
 
+-- ── Reservation check-in code ────────────────────────────────────────────────
+-- A secret code per booking, shown to the guest as a QR code (confirmation
+-- email, booking page, booking receipt). Staff scan it in POS / admin to find
+-- the booking and check the guest in. Kept apart from cancel_token on purpose:
+-- whoever holds cancel_token can cancel the booking online, while this code
+-- does nothing unless a logged-in staff member scans it.
+-- 32 upper-case hex characters (letters and digits only, so a keyboard-style
+-- barcode scanner set to another keyboard layout can't garble it). The default
+-- is volatile, so adding the column gives every existing row its own code.
+alter table reservations add column if not exists check_in_code text not null
+  default upper(replace(gen_random_uuid()::text, '-', ''));
+create unique index if not exists reservations_check_in_code_unique
+  on reservations(check_in_code);
+
 
 -- ── 3. Indexes ───────────────────────────────────────────────────────────────
 -- Speeds up the queries the app actually runs (admin reports, KDS filters,

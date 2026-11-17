@@ -23,6 +23,8 @@ import {
   buildReservationReceiptHtml, reservationReference, reservationSourceLabel, fmtResDate, fmtResTime,
   RESERVATION_THANK_YOU, type ReservationReceiptData,
 } from "./_reservationReceipt";
+import CheckInQr, { checkInQrDataUrl } from "@/components/reservation/CheckInQr";
+import { CHECK_IN_QR_CID, checkInQrText } from "@/lib/reservationCheckIn";
 
 export default function ReservationReceiptModal(
   { data, onClose, autoPrint = false, surface = "pos" }: {
@@ -56,17 +58,30 @@ export default function ReservationReceiptModal(
   const effectiveName = appSettings.restaurant?.name || rs.restaurantName?.trim() || "Restaurant";
   const restaurantName = effectiveName.toUpperCase();
 
+  // The check-in QR as a data: URL, drawn once when the receipt opens so the
+  // PDF window can show it (data.checkInCode is set only while the booking is
+  // upcoming).
+  const qrDataUrl = useRef<Promise<string | null> | null>(null);
+  useEffect(() => {
+    qrDataUrl.current = data.checkInCode ? checkInQrDataUrl(data.checkInCode).catch(() => null) : null;
+  }, [data.checkInCode]);
+
   async function sendEmail() {
     if (!emailTo.trim()) return;
     setEmailStatus("sending");
     setEmailError("");
     try {
-      const html = buildReservationReceiptHtml(data, rs, effectiveName, sym);
+      // In email the QR is an inline attachment (cid:) the server draws from
+      // checkInQr, because email apps block images embedded as data: URLs.
+      const html = buildReservationReceiptHtml(data, rs, effectiveName, sym, data.checkInCode ? `cid:${CHECK_IN_QR_CID}` : undefined);
       const subject = `Your booking confirmation from ${effectiveName} — ${reservationReference(data.id)}`;
       const res = await fetch(apiBase() + "/api/email", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ to: emailTo.trim(), subject, html, marketingOptIn }),
+        body: JSON.stringify({
+          to: emailTo.trim(), subject, html, marketingOptIn,
+          ...(data.checkInCode ? { checkInQr: checkInQrText(data.checkInCode) } : {}),
+        }),
       });
       const resData = await res.json();
       if (resData.ok) {
@@ -84,14 +99,23 @@ export default function ReservationReceiptModal(
   // PDF / browser print: a small window with only the receipt, then the print dialog.
   const handlePdf = useCallback(() => {
     const script = "<script>window.onafterprint=function(){window.close();};window.onload=function(){window.focus();window.print();};</script>";
-    const html = buildReservationReceiptHtml(data, rs, effectiveName, sym).replace("</body>", `${script}</body>`);
+    // Open the window straight away (still inside the click, so it isn't
+    // blocked), then write the receipt once its QR image is ready.
     const win = window.open("", "_blank", "width=420,height=720");
     if (!win) {
       alert("Pop-up was blocked. Allow pop-ups for this site and try again.");
       return;
     }
-    win.document.write(html);
-    win.document.close();
+    const write = (qrSrc: string | null) => {
+      const html = buildReservationReceiptHtml(data, rs, effectiveName, sym, qrSrc ?? undefined).replace("</body>", `${script}</body>`);
+      win.document.write(html);
+      win.document.close();
+    };
+    const pending = data.checkInCode
+      ? (qrDataUrl.current ?? checkInQrDataUrl(data.checkInCode).catch(() => null))
+      : null;
+    if (pending) void pending.then(write);
+    else write(null);
   }, [data, rs, effectiveName, sym]);
 
   // Print to the configured thermal printer — same transport/fallback rules as
@@ -195,6 +219,15 @@ export default function ReservationReceiptModal(
             <>
               <div className="border-t border-dashed border-gray-300 my-3" />
               <p className="text-gray-500"><span className="font-semibold text-gray-700">Note:</span> {data.note.trim()}</p>
+            </>
+          )}
+
+          {data.checkInCode && (
+            <>
+              <div className="border-t border-dashed border-gray-300 my-3" />
+              <p className="text-center font-bold mb-2">Show this QR when you arrive</p>
+              <CheckInQr code={data.checkInCode} reference={reservationReference(data.id)} size={150} caption={false} />
+              <p className="text-center text-gray-500 mt-1.5">No QR? Give reference {reservationReference(data.id)}</p>
             </>
           )}
 

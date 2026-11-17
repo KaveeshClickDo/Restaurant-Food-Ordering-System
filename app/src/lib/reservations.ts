@@ -19,6 +19,7 @@ import { notifyNewOnlineReservation } from "@/lib/adminNotifications";
 import { getOrderOccupiedTableIds, getActiveDineInTableIds } from "@/lib/tableOccupancy";
 import { upsertMarketingContact } from "@/lib/marketingContacts";
 import type { AdminSettings, EmailTemplateEvent } from "@/types";
+import { newCheckInCode } from "@/lib/reservationCheckIn";
 
 function toMins(time: string): number {
   const [h, m] = time.split(":").map(Number);
@@ -66,6 +67,9 @@ export interface CreateReservationInput {
 export interface CreateReservationResult {
   ok: boolean;
   reservationId?: string;
+  /** The guest's check-in code (shown as a QR). Absent only when the database
+   *  predates the check_in_code column. */
+  checkInCode?: string;
   error?: string;
   status?: number;       // suggested HTTP status for the caller
   conflict?: boolean;    // true when the slot was taken
@@ -82,6 +86,8 @@ export async function createReservation(
 ): Promise<CreateReservationResult> {
   const id           = input.id ?? crypto.randomUUID();
   const cancel_token = input.cancelToken ?? crypto.randomUUID();
+  // Secret code the guest shows as a QR on arrival (lib/reservationCheckIn.ts).
+  const check_in_code = newCheckInCode();
   const now          = new Date().toISOString();
   const email        = input.customerEmail?.trim().toLowerCase() ?? "";
   const vipFee       = Number(input.vipFee ?? 0);
@@ -164,8 +170,10 @@ export async function createReservation(
 
   // Insert with cancel_token; fall back without the newer columns if the DB
   // predates the migration (mirrors the existing route behaviour).
-  let { error } = await supabaseAdmin.from("reservations").insert({ ...row, cancel_token });
+  let codeSaved = true;
+  let { error } = await supabaseAdmin.from("reservations").insert({ ...row, cancel_token, check_in_code });
   if (error && (
+    error.message?.includes("check_in_code") ||
     error.message?.includes("cancel_token") ||
     error.message?.includes("source") ||
     error.message?.includes("vip_fee") ||
@@ -177,6 +185,7 @@ export async function createReservation(
     const { vip_fee, payment_status, payment_method, payment_ref, source, ...baseRow } = row;
     const { error: retry } = await supabaseAdmin.from("reservations").insert(baseRow);
     error = retry ?? null;
+    codeSaved = false;
   }
   if (error) {
     return { ok: false, error: error.message, status: 500 };
@@ -213,13 +222,14 @@ export async function createReservation(
       note:           input.note ?? null,
       section:        input.section ?? "",
       cancel_token:   cancel_token,
+      check_in_code:  codeSaved ? check_in_code : undefined,
       vip_fee:        vipFee,
       payment_status: paymentStatus,
       payment_method: input.paymentMethod ?? undefined,
     }, settingsData as AdminSettings, origin).catch(() => { /* logged inside sender */ });
   }
 
-  return { ok: true, reservationId: id };
+  return { ok: true, reservationId: id, ...(codeSaved ? { checkInCode: check_in_code } : {}) };
 }
 
 // ── Webhook completion ────────────────────────────────────────────────────────
@@ -359,12 +369,18 @@ export interface StatusChangeResult {
  * returns `{ ok: true, noop: true }` WITHOUT re-sending the email or
  * re-incrementing visit_count. Best-effort throughout — never throws.
  *
+ * `guard` narrows the update further, atomically: only from these statuses
+ * and/or only on this booking date (the QR check-in uses it so a booking for
+ * another day, or one cancelled a moment ago, is never checked in). When the
+ * guard doesn't match, the result is the same `noop`.
+ *
  * Server-only.
  */
 export async function applyReservationStatusChange(
   id: string,
   status: ReservationStatusChange,
   origin?: string,
+  guard?: { fromStatuses?: readonly string[]; date?: string },
 ): Promise<StatusChangeResult> {
   const now = new Date().toISOString();
   const patch: Record<string, unknown> = { status };
@@ -374,11 +390,14 @@ export async function applyReservationStatusChange(
   // Conditional update = atomic idempotency guard. Zero rows back means the
   // reservation is already in this status (or doesn't exist) — either way,
   // there's nothing to do and no email to send.
-  const { data: resRow, error: updateErr } = await supabaseAdmin
+  let update = supabaseAdmin
     .from("reservations")
     .update(patch)
     .eq("id", id)
-    .neq("status", status)
+    .neq("status", status);
+  if (guard?.fromStatuses?.length) update = update.in("status", [...guard.fromStatuses]);
+  if (guard?.date) update = update.eq("date", guard.date);
+  const { data: resRow, error: updateErr } = await update
     .select("id,customer_name,customer_email,customer_phone,date,time,table_label,party_size,status,note,section,cancel_token")
     .maybeSingle();
 

@@ -7,6 +7,7 @@
  *  - Calling the /api/email API route to actually send
  */
 
+import { CHECK_IN_QR_CID } from "@/lib/reservationCheckIn";
 import type { AdminSettings, Customer, EmailTemplate, EmailTemplateEvent, Order } from "@/types";
 import { fullOrderNumber } from "@/lib/orderNumber";
 
@@ -53,6 +54,7 @@ export const TEMPLATE_VARS: VarDef[] = [
   { name: "reservation_status", label: "Reservation status", group: "Reservation", preview: "confirmed" },
   { name: "reservation_note", label: "Special note", group: "Reservation", preview: "Window seat preferred" },
   { name: "cancel_link", label: "Cancel booking link", group: "Reservation", preview: "https://yourdomain.com/reservation/token" },
+  { name: "checkin_qr", label: "Check-in QR code (confirmation emails; added automatically if missing)", group: "Reservation", preview: "<i>(QR code the guest shows on arrival)</i>" },
   { name: "review_url", label: "Review link (Google/TripAdvisor)", group: "Reservation", preview: "https://g.page/r/yourplaceid/review" },
   // Gift card (only for gift_card_delivered event)
   { name: "gift_code", label: "Gift card code", group: "Gift Card", preview: "GC-7K9X-LM3P-WT2Q" },
@@ -217,6 +219,7 @@ export const DEFAULT_EMAIL_TEMPLATES: EmailTemplate[] = [
   <strong>Party size:</strong> {{party_size}} guests
 </p>
 {{booking_fee_receipt}}
+{{checkin_qr}}
 <hr style="border:none;border-top:1px solid #e5e7eb;margin:20px 0">
 <p style="color:#6b7280;font-size:14px">Please arrive on time. If your plans change, contact us at <strong>{{restaurant_phone}}</strong>.</p>
 <p style="color:#6b7280;font-size:13px">Need to cancel? <a href="{{cancel_link}}" style="color:{{brand_color}}">Click here to cancel your booking</a>.</p>
@@ -239,6 +242,7 @@ export const DEFAULT_EMAIL_TEMPLATES: EmailTemplate[] = [
   <strong>Table:</strong> {{table_label}}<br>
   <strong>Status:</strong> {{reservation_status}}
 </p>
+{{checkin_qr}}
 <hr style="border:none;border-top:1px solid #e5e7eb;margin:20px 0">
 <p style="color:#6b7280;font-size:14px">Questions? Contact us at <strong>{{restaurant_phone}}</strong>.</p>
 <p>— The team at <strong>{{restaurant_name}}</strong></p>`,
@@ -788,11 +792,31 @@ export interface ReservationEmailData {
   note?: string | null;
   section?: string;
   cancel_token?: string;  // used to build the self-service cancel link
+  /** Secret check-in code; the confirmation emails show it as a QR image. */
+  check_in_code?: string;
   // VIP booking fee receipt — populated only for VIP-table reservations. Drives
   // the "booking fee paid" line in the confirmation email (the bill).
   vip_fee?: number;
   payment_status?: string;   // "none" | "paid"
   payment_method?: string;   // "stripe" | "paypal" | "cash" | "card"
+}
+
+/**
+ * The "show this when you arrive" block of a reservation email: the check-in
+ * QR image (an inline attachment, `cid:`) and the booking reference to give
+ * instead. `placeholder` swaps the image for a grey square, for the admin
+ * preview and test emails, which have no attachment.
+ */
+export function checkInQrEmailBlock(reference: string, placeholder = false): string {
+  const image = placeholder
+    ? `<div style="width:180px;height:180px;margin:0 auto;border:2px dashed #d1d5db;border-radius:8px;line-height:180px;text-align:center;color:#9ca3af;font-size:13px">QR code</div>`
+    : `<img src="cid:${CHECK_IN_QR_CID}" width="180" height="180" alt="Check-in QR code" style="display:block;margin:0 auto;width:180px;height:180px;border:0">`;
+  return `<div style="margin:20px 0;padding:18px 16px;border:1px solid #e5e7eb;border-radius:12px;text-align:center">
+  <p style="margin:0 0 4px;font-weight:700;color:#111827;font-size:15px">Your check-in code</p>
+  <p style="margin:0 0 12px;color:#6b7280;font-size:13px">Show this at the restaurant when you arrive.</p>
+  ${image}
+  <p style="margin:12px 0 0;color:#374151;font-size:13px">No QR? Give your booking reference: <strong style="letter-spacing:1px">${escHtml(reference)}</strong></p>
+</div>`;
 }
 
 /** Build variable map from a real reservation row + settings. */
@@ -861,6 +885,8 @@ export function buildReservationVarMap(
     // VIP booking fee receipt — empty string for free reservations.
     booking_fee: feeAmount > 0 ? `${sym}${feeAmount.toFixed(2)}` : "",
     booking_fee_receipt: bookingFeeReceipt,
+    // Filled by sendReservationEmailServer, which attaches the QR image itself.
+    checkin_qr: "",
   };
 }
 
@@ -931,6 +957,7 @@ export function buildReservationPreviewVarMap(settings: AdminSettings): Record<s
     brand_color_light: brandColorLight(primaryColor),
     booking_fee: "",
     booking_fee_receipt: "",
+    checkin_qr: checkInQrEmailBlock("A1B2C3D4", true),
   };
 }
 

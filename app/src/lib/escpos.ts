@@ -272,6 +272,51 @@ export async function logoToRaster(
   }
 }
 
+/**
+ * A QR code as an ESC/POS raster block (GS v 0), centred on the paper. Drawn
+ * straight from the QR's module grid at a whole number of dots per module, so
+ * every module prints as a crisp square that scanners read reliably (scaling
+ * an image would blur module edges). Includes the 4-module white quiet zone
+ * scanners need. Returns null if the QR can't be built, so callers skip it.
+ */
+export async function qrToRaster(
+  text: string,
+  dotWidth: number,
+  opts: { maxDots?: number } = {},
+): Promise<number[] | null> {
+  try {
+    const mod = await import("qrcode");
+    const create = mod.create ?? mod.default?.create;
+    const qr = create(text, { errorCorrectionLevel: "M" });
+    const size = qr.modules.size;
+    const quiet = 4;
+    const total = size + quiet * 2;
+    const maxDots = Math.min(dotWidth, opts.maxDots ?? 240);
+    const scale = Math.max(2, Math.floor(maxDots / total));
+    const px = total * scale;                       // square: width = height in dots
+    const widthBytes = Math.ceil(dotWidth / 8);
+    const xOffset = Math.max(0, Math.floor((dotWidth - px) / 2));
+    const raster = new Array<number>(widthBytes * px).fill(0);
+    for (let row = 0; row < size; row++) {
+      for (let col = 0; col < size; col++) {
+        if (!qr.modules.get(row, col)) continue;
+        for (let dy = 0; dy < scale; dy++) {
+          const y = (row + quiet) * scale + dy;
+          for (let dx = 0; dx < scale; dx++) {
+            const x = xOffset + (col + quiet) * scale + dx;
+            if (x < dotWidth) raster[y * widthBytes + (x >> 3)] |= (0x80 >> (x & 7));
+          }
+        }
+      }
+    }
+    const xL = widthBytes & 0xff, xH = (widthBytes >> 8) & 0xff;
+    const yL = px & 0xff,         yH = (px >> 8) & 0xff;
+    return [GS, 0x76, 0x30, 0x00, xL, xH, yL, yH, ...raster];
+  } catch {
+    return null;
+  }
+}
+
 // ─── Receipt templates ───────────────────────────────────────────────────────
 
 function fmt(n: number, sym: string) {

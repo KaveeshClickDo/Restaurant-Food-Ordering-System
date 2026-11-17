@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { cleanPhone } from "@/lib/inputUtils";
 import ReservationReceiptModal from "@/components/pos/ReservationReceiptModal";
+import CheckInLookup from "@/components/reservation/CheckInLookup";
 import type { ReservationReceiptData } from "@/components/pos/_reservationReceipt";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -803,7 +804,7 @@ export default function ReservationsPanel() {
           ...(table.isVip && (table.vipPrice ?? 0) > 0 ? { paymentMethod: addPayMethod } : {}),
         }),
       });
-      const json = await res.json() as { ok: boolean; error?: string; reservationId?: string };
+      const json = await res.json() as { ok: boolean; error?: string; reservationId?: string; checkInCode?: string };
       if (json.ok) {
         setShowAddModal(false);
         fetchReservations();
@@ -818,6 +819,9 @@ export default function ReservationsPanel() {
               source: addSource, note: addNote.trim(), staffName: "",
               vipFee: table.isVip ? (table.vipPrice ?? 0) : 0,
               paymentMethod: table.isVip ? addPayMethod : undefined,
+              // A phone booking is still to come, so its receipt carries the
+              // check-in QR; a walk-in is already seated.
+              checkInCode: addSource === "phone" ? json.checkInCode : undefined,
             },
           });
         }
@@ -847,6 +851,7 @@ export default function ReservationsPanel() {
         source: res.source ?? "online", note: res.note ?? "", staffName: "",
         vipFee: res.vipFee ?? 0,
         paymentMethod: res.paymentMethod,
+        checkInCode: res.status === "pending" || res.status === "confirmed" ? res.checkInCode : undefined,
       },
     });
   }
@@ -855,11 +860,14 @@ export default function ReservationsPanel() {
     if (filterSource && r.source !== filterSource) return false;
     if (!search) return true;
     const q = search.toLowerCase();
+    // Phone and reference ignore spaces (and a leading "#"), as people read them out.
+    const compact = q.replace(/[\s#]/g, "");
     return (
       r.customerName.toLowerCase().includes(q) ||
       r.customerEmail.toLowerCase().includes(q) ||
       r.tableLabel.toLowerCase().includes(q) ||
-      r.id.toLowerCase().includes(q)
+      r.id.toLowerCase().includes(q) ||
+      (!!compact && (r.customerPhone ?? "").replace(/\s/g, "").includes(compact))
     );
   });
 
@@ -919,6 +927,35 @@ export default function ReservationsPanel() {
 
       {showSettings && <ReservationSettings />}
 
+      {/* Check in a guest: plug-in scanner, typed reference or camera */}
+      <CheckInLookup
+        surface="admin"
+        theme="light"
+        currencySymbol={settings.currency?.symbol ?? "£"}
+        onCheckedIn={() => { void fetchReservations(); }}
+        onViewReceipt={(res) => openReceiptFor({
+          id:            res.id,
+          tableId:       res.table_id,
+          tableLabel:    res.table_label,
+          tableSeats:    0,
+          section:       res.section,
+          customerName:  res.customer_name,
+          customerEmail: res.customer_email,
+          customerPhone: res.customer_phone,
+          date:          res.date,
+          time:          res.time,
+          partySize:     res.party_size,
+          status:        res.status as Reservation["status"],
+          note:          res.note ?? undefined,
+          createdAt:     "",
+          source:        res.source ?? undefined,
+          vipFee:        res.vip_fee,
+          paymentStatus: (res.payment_status ?? undefined) as Reservation["paymentStatus"],
+          paymentMethod: res.payment_method ?? undefined,
+          checkInCode:   res.check_in_code ?? undefined,
+        })}
+      />
+
       {/* Stats row */}
       <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-3">
         {[
@@ -975,7 +1012,7 @@ export default function ReservationsPanel() {
           <Search size={14} className="text-gray-400 flex-shrink-0" />
           <input
             type="text"
-            placeholder="Name, email, table…"
+            placeholder="Name, phone, email, table, reference…"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="w-full text-sm focus:outline-none placeholder-gray-400"

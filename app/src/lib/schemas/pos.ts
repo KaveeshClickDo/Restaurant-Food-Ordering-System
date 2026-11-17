@@ -1,3 +1,4 @@
+import { CHECK_IN_QR_TEXT_RE } from "@/lib/reservationCheckIn";
 import { z } from "zod";
 import { NonEmptyString, Money, PositiveMoney } from "./primitives";
 import { DojoResultSchema } from "./dojo";
@@ -190,6 +191,10 @@ export const EmailRelaySchema = z.object({
   /** Marketing checkbox next to the e-bill email field (default ticked).
    *  false → the captured contact starts/stays unsubscribed. */
   marketingOptIn: z.boolean().optional().default(true),
+  /** A booking receipt's check-in QR. Only this exact format is accepted, and
+   *  the server draws the image itself (attached inline as cid:), so the relay
+   *  can't be used to send arbitrary files. */
+  checkInQr: z.string().regex(CHECK_IN_QR_TEXT_RE, "Invalid check-in QR.").optional(),
 }).strict();  // reject extra fields (especially the `smtp` injection vector)
 
 export const PrintSchema = z.object({

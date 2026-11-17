@@ -31,6 +31,9 @@ import { parseBody } from "@/lib/apiValidation";
 import { EmailRelaySchema } from "@/lib/schemas/pos";
 import { rateLimit } from "@/lib/rateLimit";
 import { upsertMarketingContact } from "@/lib/marketingContacts";
+import { checkInQrPng } from "@/lib/checkInQrImage";
+import { CHECK_IN_QR_CID, CHECK_IN_QR_PREFIX } from "@/lib/reservationCheckIn";
+import type { EmailAttachment } from "@/lib/emailSender";
 
 export const runtime = "nodejs";
 
@@ -50,7 +53,7 @@ export async function POST(request: Request) {
 
   const parsed = await parseBody(request, EmailRelaySchema);
   if (!parsed.ok) return NextResponse.json({ ok: false, error: parsed.error }, { status: parsed.status });
-  const { to, subject, html, fromName, marketingOptIn } = parsed.data;
+  const { to, subject, html, fromName, marketingOptIn, checkInQr } = parsed.data;
 
   if (!emailConfigured()) {
     return NextResponse.json(
@@ -59,7 +62,23 @@ export async function POST(request: Request) {
     );
   }
 
-  const result = await sendEmail({ to, subject, html, fromName });
+  // A booking receipt's check-in QR, drawn here and attached inline (cid:),
+  // because Gmail and Outlook block images embedded as data: URLs.
+  let attachments: EmailAttachment[] | undefined;
+  if (checkInQr) {
+    try {
+      attachments = [{
+        filename:    "booking-check-in.png",
+        content:     await checkInQrPng(checkInQr.slice(CHECK_IN_QR_PREFIX.length)),
+        contentType: "image/png",
+        cid:         CHECK_IN_QR_CID,
+      }];
+    } catch (err) {
+      console.error("[email relay] check-in QR image failed:", err instanceof Error ? err.message : err);
+    }
+  }
+
+  const result = await sendEmail({ to, subject, html, fromName, attachments });
   if (!result.ok) {
     return NextResponse.json({ ok: false, error: result.error }, { status: 500 });
   }

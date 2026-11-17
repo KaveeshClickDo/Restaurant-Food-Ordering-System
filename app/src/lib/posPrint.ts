@@ -23,7 +23,8 @@ import { cardChargedTotal, cardDetailLine } from "./posCardPayment";
 import type { AdminSettings, PrinterSettings, ReceiptSettings } from "@/types";
 import type { DineInOrder } from "@/components/pos/_receipts";
 import { type ReservationReceiptData, reservationReference, reservationSourceLabel, fmtResDate, fmtResTime, RESERVATION_THANK_YOU } from "@/components/pos/_reservationReceipt";
-import { ReceiptBuilder, logoToRaster, paperDotWidth, resolveActivePrinter } from "./escpos";
+import { ReceiptBuilder, logoToRaster, qrToRaster, paperDotWidth, resolveActivePrinter } from "./escpos";
+import { checkInQrText } from "./reservationCheckIn";
 import { sendToPrinter, sendToPrinterUSB, sendToPrinterBluetooth } from "./escpos";
 import { isCapacitorAndroid, sendBluetooth, sendUsb, sendTcpNative } from "./capacitorBridge";
 
@@ -375,7 +376,7 @@ export async function printDineInBill(
 export function buildReservationReceiptBytes(
   res: ReservationReceiptData,
   sym: string,
-  opts: { paperWidth: number; restaurantName: string; receipt: ReceiptSettings; logoBytes?: number[] | null },
+  opts: { paperWidth: number; restaurantName: string; receipt: ReceiptSettings; logoBytes?: number[] | null; qrBytes?: number[] | null },
 ): number[] {
   const W  = [32, 48].includes(opts.paperWidth) ? opts.paperWidth : 48;
   const rc = opts.receipt;
@@ -420,6 +421,13 @@ export function buildReservationReceiptBytes(
     b.line("Note:").line(res.note.trim());
   }
 
+  // Check-in QR (pre-rendered by qrToRaster) with the reference as fallback.
+  if (opts.qrBytes && opts.qrBytes.length) {
+    b.separator("-", W).align("center").bold(true).line("Show this QR when you arrive").bold(false).feed(1);
+    b.raw(opts.qrBytes).feed(1);
+    b.line(`No QR? Give reference ${reservationReference(res.id)}`).align("left");
+  }
+
   b.separator("-", W).align("center").bold(true).line(RESERVATION_THANK_YOU).bold(false);
 
   b.feed(5).cut();
@@ -441,11 +449,15 @@ export async function printReservationReceipt(
   const logoBytes = receipt.showLogo && receipt.logoUrl
     ? await logoToRaster(receipt.logoUrl, paperDotWidth(printer.paperWidth), { dither: receipt.logoDither })
     : null;
+  const qrBytes = res.checkInCode
+    ? await qrToRaster(checkInQrText(res.checkInCode), paperDotWidth(printer.paperWidth))
+    : null;
   const bytes = buildReservationReceiptBytes(res, sym, {
     paperWidth: printer.paperWidth,
     restaurantName,
     receipt,
     logoBytes,
+    qrBytes,
   });
   return sendReceiptToPrinter(bytes, printer);
 }
@@ -473,11 +485,15 @@ export async function printAdminReservationReceipt(
   const logoBytes = receipt.showLogo && receipt.logoUrl
     ? await logoToRaster(receipt.logoUrl, paperDotWidth(printer.paperWidth), { dither: receipt.logoDither })
     : null;
+  const qrBytes = res.checkInCode
+    ? await qrToRaster(checkInQrText(res.checkInCode), paperDotWidth(printer.paperWidth))
+    : null;
   const bytes = buildReservationReceiptBytes(res, sym, {
     paperWidth: printer.paperWidth,
     restaurantName,
     receipt,
     logoBytes,
+    qrBytes,
   });
 
   if (mode === "bluetooth") return sendToPrinterBluetooth(bytes, printer.bluetoothAddress ?? "");

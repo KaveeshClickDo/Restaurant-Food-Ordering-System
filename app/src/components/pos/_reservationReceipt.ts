@@ -21,6 +21,10 @@ export interface ReservationReceiptData {
   staffName: string;
   vipFee: number;
   paymentMethod?: string;
+  /** The guest's check-in code. Set only while the booking is still upcoming
+   *  (pending/confirmed, not a walk-in): the receipt then shows it as a QR
+   *  to show on arrival (lib/reservationCheckIn.ts). */
+  checkInCode?: string;
 }
 
 /** Short guest-facing reference — matches the id prefix already shown in the
@@ -78,6 +82,10 @@ export function buildReservationReceiptHtml(
   receipt: ReceiptSettings,
   restaurantName: string,
   sym: string,
+  /** Where the check-in QR image comes from: a data: URL for the PDF window,
+   *  or a cid: reference for email (the server attaches the image). Omitted
+   *  = no QR block. */
+  checkInQrSrc?: string,
 ): string {
   const name = (restaurantName || receipt.restaurantName?.trim() || "Restaurant").toUpperCase();
 
@@ -94,6 +102,14 @@ export function buildReservationReceiptHtml(
   const noteHtml = res.note.trim() ? `
   <hr style="border:none;border-top:1px dashed #d1d5db;margin:12px 0">
   <div style="font-size:11px;color:#6b7280"><span style="font-weight:700;color:#374151">Note:</span> ${esc(res.note.trim())}</div>` : "";
+
+  const qrHtml = checkInQrSrc && res.checkInCode ? `
+  <hr style="border:none;border-top:1px dashed #d1d5db;margin:12px 0">
+  <div style="text-align:center">
+    <div style="font-weight:700;font-size:12px;color:#111827;margin-bottom:8px">Show this QR when you arrive</div>
+    <img src="${checkInQrSrc}" width="150" height="150" alt="Check-in QR code" style="display:inline-block;width:150px;height:150px">
+    <div style="font-size:11px;color:#6b7280;margin-top:6px">No QR? Give reference ${reservationReference(res.id)}</div>
+  </div>` : "";
 
   return `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Reservation Receipt</title></head>
 <body style="margin:0;background:#f9fafb;font-family:monospace">
@@ -122,6 +138,7 @@ export function buildReservationReceiptHtml(
   </table>
   ${vipHtml}
   ${noteHtml}
+  ${qrHtml}
   <hr style="border:none;border-top:1px dashed #d1d5db;margin:12px 0">
   <div style="text-align:center;font-weight:700;color:#374151;font-size:12px">${RESERVATION_THANK_YOU}</div>
 </div></body></html>`;
