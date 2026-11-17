@@ -56,6 +56,7 @@ function fmtTime(iso: string) {
 function fmtAmt(n: number, sym = "£") {
   return `${sym}${n.toFixed(2)}`;
 }
+const round2 = (n: number) => Math.round(n * 100) / 100;
 
 type EligibleFilter = "all" | "in_progress" | "delivered" | "cancelled" | "partially_refunded" | "refunded";
 
@@ -290,7 +291,7 @@ export function RefundModal({
   // NET total (gift card already excluded — it's prepaid, never refundable), so
   // `total` is the refundable cash/card amount.
   const moneyPaid = order.total;
-  const maxRefundable = Math.max(0, moneyPaid - refundedAmount);
+  const maxRefundable = round2(Math.max(0, moneyPaid - refundedAmount));
 
   const [amount, setAmount]     = useState(maxRefundable.toFixed(2));
   const [reason, setReason]     = useState("");
@@ -317,7 +318,7 @@ export function RefundModal({
   function validate() {
     const e: Record<string, string> = {};
     if (!amount || amountNum <= 0) e.amount = `Enter a refund amount greater than ${sym}0.`;
-    if (amountNum > effectiveMax) e.amount = `Maximum refundable is ${fmtAmt(effectiveMax, sym)}.`;
+    if (amountNum > effectiveMax + 0.001) e.amount = `Maximum refundable is ${fmtAmt(effectiveMax, sym)}.`;
     if (!reason) e.reason = "Select a reason for this refund.";
     return e;
   }

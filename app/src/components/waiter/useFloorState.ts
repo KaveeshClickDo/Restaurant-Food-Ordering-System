@@ -10,7 +10,7 @@
  * kitchen-status panel.
  */
 
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { parseTableLabelFromNote } from "@/lib/tableLabel";
 import type { WaiterActiveOrder, WaiterReservation } from "./_types";
 
@@ -22,14 +22,14 @@ export interface FloorState {
   /** Tables holding at least one active waiter order — the "ordered" half of
    *  occupied. A checked-in reservation with no order yet is the other half. */
   occupiedLabels: Set<string>;
-  /** Ready-to-serve orders the waiter hasn't dismissed yet. */
+  /** Ready-to-serve orders. */
   readyOrders: WaiterActiveOrder[];
   readyLabels: Set<string>;
-  /** Locally dismissed ("Got it") ready orders — per-device only: the order
-   *  itself stays "ready" in the DB until the bill is settled, so other
-   *  tablets still see it. */
-  dismissedReady: Set<string>;
-  dismissReady: (orderId: string) => void;
+  /** Mark a ready ticket served — persisted server-side (PUT
+   *  /api/waiter/tickets/[id]/serve), visible to every device and the KDS
+   *  immediately. The ticket stays occupying its table (not "delivered")
+   *  until the bill is actually settled. Best-effort + idempotent. */
+  markServed: (ticketId: string) => void;
   refreshOrders: () => void;
   refreshReservations: () => void;
   /** Close out the reservation seated at a table (settle / party left).
@@ -41,7 +41,10 @@ export interface FloorState {
 export function useFloorState(polling: boolean): FloorState {
   const [activeOrders, setActiveOrders] = useState<WaiterActiveOrder[]>([]);
   const [reservations, setReservations] = useState<WaiterReservation[]>([]);
-  const [dismissedReady, setDismissedReady] = useState<Set<string>>(new Set());
+
+  // Guards markServed()'s optimistic update against the automatic 5 s poll
+  // racing ahead of the serve PUT — same idea as the KDS page's pendingStatusRef.
+  const pendingServedRef = useRef<Map<string, number>>(new Map());
 
   // ── Active dine-in tickets (occupancy + kitchen status) ─────────────────────
   // Reads the per-round kitchen tickets (one per original order / add-more), not
@@ -58,6 +61,8 @@ export function useFloorState(polling: boolean): FloorState {
       };
       if (!json.ok || !json.orders) return;
 
+      const pendingServed = pendingServedRef.current;
+      const now = Date.now();
       const next: WaiterActiveOrder[] = [];
       for (const o of json.orders) {
         if (o.status === "delivered" || o.status === "cancelled") continue;
@@ -66,10 +71,16 @@ export function useFloorState(polling: boolean): FloorState {
         // first word) so multi-word names like "Blue Occupied" match.
         const label = o.table_label?.trim() || parseTableLabelFromNote(String(o.note ?? ""));
         if (!label) continue;
+        let status = o.status ?? "pending";
+        const until = pendingServed.get(o.id);
+        if (until !== undefined) {
+          if (until < now || status === "served") pendingServed.delete(o.id);
+          else status = "served";
+        }
         next.push({
           id:         o.id,
           tableLabel: label,
-          status:     o.status ?? "pending",
+          status,
           items:      o.items ?? [],
           date:       o.date ?? "",
         });
@@ -96,30 +107,29 @@ export function useFloorState(polling: boolean): FloorState {
     [activeOrders],
   );
 
-  // Prune local dismissals once their order leaves "ready" (settled / voided)
-  // so the set can't grow without bound over a shift.
-  useEffect(() => {
-    setDismissedReady((prev) => {
-      const stillReady = new Set(activeOrders.filter((o) => o.status === "ready").map((o) => o.id));
-      const next = new Set([...prev].filter((id) => stillReady.has(id)));
-      return next.size === prev.size ? prev : next;
-    });
-  }, [activeOrders]);
-
-  // Ready-to-serve orders the waiter hasn't dismissed yet — drives the green
-  // tile badge and the kitchen panel's ready rows.
+  // Ready-to-serve orders — drives the green tile badge and the kitchen panel's ready rows.
   const readyOrders = useMemo(
-    () => activeOrders.filter((o) => o.status === "ready" && !dismissedReady.has(o.id)),
-    [activeOrders, dismissedReady],
+    () => activeOrders.filter((o) => o.status === "ready"),
+    [activeOrders],
   );
   const readyLabels = useMemo(
     () => new Set(readyOrders.map((o) => o.tableLabel)),
     [readyOrders],
   );
 
-  const dismissReady = useCallback((orderId: string) => {
-    setDismissedReady((prev) => new Set(prev).add(orderId));
-  }, []);
+  // Optimistic local flip to "served" so the badge clears instantly on this
+  // device, then the real write — refreshOrders reconciles everyone else
+  // (and this device, on the next poll) with the server's own copy.
+  const markServed = useCallback((ticketId: string) => {
+    setActiveOrders((prev) => prev.map((o) => (o.id === ticketId ? { ...o, status: "served" } : o)));
+    pendingServedRef.current.set(ticketId, Date.now() + 10_000);
+    fetch(`/api/waiter/tickets/${ticketId}/serve`, { method: "PUT" })
+      .then(() => {
+        pendingServedRef.current.delete(ticketId);
+        refreshOrders();
+      })
+      .catch(() => { /* best-effort; the guard's TTL + next poll self-heal */ });
+  }, [refreshOrders]);
 
   // ── Today's reservations overlay ─────────────────────────────────────────────
   // Always on, regardless of the admin "reservations" toggle: that toggle only
@@ -165,7 +175,7 @@ export function useFloorState(polling: boolean): FloorState {
 
   return {
     activeOrders, reservations, occupiedLabels, readyOrders, readyLabels,
-    dismissedReady, dismissReady, refreshOrders, refreshReservations,
+    markServed, refreshOrders, refreshReservations,
     checkoutReservationForLabel,
   };
 }

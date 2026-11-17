@@ -49,7 +49,7 @@ export default function TablesView({
   onCloseReceipt: () => void;
 }) {
   const { settings: appSettings } = useApp();
-  const { activeOrders, reservations, occupiedLabels, readyLabels, dismissedReady } = floor;
+  const { activeOrders, reservations, occupiedLabels, readyLabels } = floor;
   const kitchenPrinter = resolveActivePrinter(appSettings, "kitchen");
   // Auto-print off: nothing was attempted, not a failure. No printer: modal shows this itself.
   const kitchenAutoPrintOff = !!kitchenPrinter && !kitchenPrinter.autoPrint;
@@ -193,25 +193,46 @@ export default function TablesView({
         {tables.length > 0 && (
           <div className="flex items-center gap-3 px-5 py-2 flex-shrink-0 border-b border-slate-800 overflow-x-auto text-[11px] text-slate-400">
             <span className="font-bold uppercase tracking-wide text-slate-500">Key</span>
-            <span className="flex items-center gap-1.5 whitespace-nowrap">
+            <span
+              className="flex items-center gap-1.5 whitespace-nowrap cursor-help"
+              title="No reservation and no active order — free to seat a walk-in."
+            >
               <span className="w-2.5 h-2.5 rounded-full bg-slate-600" /> Available
             </span>
-            <span className="flex items-center gap-1.5 whitespace-nowrap">
+            <span
+              className="flex items-center gap-1.5 whitespace-nowrap cursor-help"
+              title="Booked for later today — not yet seated."
+            >
               <span className="w-2.5 h-2.5 rounded-full bg-amber-400" /> Reserved
             </span>
-            <span className="flex items-center gap-1.5 whitespace-nowrap">
+            <span
+              className="flex items-center gap-1.5 whitespace-nowrap cursor-help"
+              title="Guest checked in, but nothing has been sent to the kitchen yet."
+            >
               <span className="w-2.5 h-2.5 rounded-full bg-violet-400" /> Seated · no order
             </span>
-            <span className="flex items-center gap-1.5 whitespace-nowrap">
+            <span
+              className="flex items-center gap-1.5 whitespace-nowrap cursor-help"
+              title="An order is open for this table and not yet fully served."
+            >
               <span className="w-2.5 h-2.5 rounded-full bg-blue-400" /> Occupied
             </span>
-            <span className="flex items-center gap-1.5 whitespace-nowrap">
+            <span
+              className="flex items-center gap-1.5 whitespace-nowrap cursor-help"
+              title="Food is ready in the kitchen — go collect it for this table."
+            >
               <span className="w-2.5 h-2.5 rounded-full bg-green-400" /> Ready to serve
             </span>
-            <span className="flex items-center gap-1.5 whitespace-nowrap">
+            <span
+              className="flex items-center gap-1.5 whitespace-nowrap cursor-help"
+              title="A reservation's time has nearly arrived, or is already overdue."
+            >
               <span className="w-2.5 h-2.5 rounded-full bg-rose-400" /> Due / turn soon
             </span>
-            <span className="flex items-center gap-1.5 whitespace-nowrap">
+            <span
+              className="flex items-center gap-1.5 whitespace-nowrap cursor-help"
+              title="This table is marked VIP."
+            >
               <Crown size={11} className="text-amber-400" /> VIP
             </span>
           </div>
@@ -220,10 +241,9 @@ export default function TablesView({
         {/* Kitchen status — foldable panel */}
         <KitchenStatusPanel
           orders={activeOrders}
-          dismissedReady={dismissedReady}
           open={kitchenOpen}
           onToggle={onKitchenToggle}
-          onDismiss={floor.dismissReady}
+          onMarkServed={floor.markServed}
         />
 
         {/* Table grid */}

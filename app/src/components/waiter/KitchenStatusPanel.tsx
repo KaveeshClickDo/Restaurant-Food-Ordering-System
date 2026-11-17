@@ -5,25 +5,23 @@
  * The waiter's read-only window into the dine-in tickets (fed by
  * /api/waiter/orders — the same poll that drives occupancy, no KDS API
  * involved). Ready orders float to the top so the waiter knows to go grab
- * the plates; "Got it" hides a grabbed one on THIS device only (the order
- * stays "ready" until the bill settles).
+ * the plates; "Served" marks the ticket served, so it drops off every
+ * device and the KDS, while the table itself stays occupied until the bill settles.
  */
 
 import { ChefHat, ChevronDown, ChevronUp, Clock } from "lucide-react";
 import type { WaiterActiveOrder } from "./_types";
 
-export default function KitchenStatusPanel({ orders, dismissedReady, open, onToggle, onDismiss }: {
+export default function KitchenStatusPanel({ orders, open, onToggle, onMarkServed }: {
   /** All active dine-in orders (any waiter). */
   orders: WaiterActiveOrder[];
-  /** Ready orders the waiter already dismissed ("Got it") on this device. */
-  dismissedReady: Set<string>;
   open: boolean;
   onToggle: () => void;
-  onDismiss: (orderId: string) => void;
+  onMarkServed: (orderId: string) => void;
 }) {
-  const kitchenOrders = orders.filter(
-    (o) => !(o.status === "ready" && dismissedReady.has(o.id)),
-  );
+  // Served tickets stay "active" for occupancy's sake but have nothing left
+  // for the kitchen panel to show — exclude them here.
+  const kitchenOrders = orders.filter((o) => o.status !== "served");
   const newCount   = kitchenOrders.filter((o) => o.status === "pending" || o.status === "confirmed").length;
   const prepCount  = kitchenOrders.filter((o) => o.status === "preparing").length;
   const readyCount = kitchenOrders.filter((o) => o.status === "ready").length;
@@ -88,11 +86,11 @@ export default function KitchenStatusPanel({ orders, dismissedReady, open, onTog
                 </span>
                 {o.status === "ready" && (
                   <button
-                    onClick={() => onDismiss(o.id)}
-                    title="Hide from this list — the order stays ready until the bill is settled"
+                    onClick={() => onMarkServed(o.id)}
+                    title="Mark as served — clears it from the kitchen board and every waiter's screen"
                     className="flex-shrink-0 text-[11px] font-bold text-green-400 bg-green-500/10 hover:bg-green-500/20 border border-green-500/30 px-2.5 py-1 rounded-lg transition"
                   >
-                    Got it
+                    Served
                   </button>
                 )}
               </div>
