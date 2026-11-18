@@ -61,12 +61,10 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     q = q.or(`code.ilike.%${esc}%,issued_to_email.ilike.%${esc}%,issued_to_name.ilike.%${esc}%`);
   }
 
-  const { data, error, count } = await q;
-  if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
-
   // Aggregate stats for the panel header — scoped to the same status/search
   // filter but NOT paginated, so the header always reflects every matching
-  // card rather than just the current page.
+  // card rather than just the current page. Independent of the page query
+  // above, so run both concurrently instead of one after the other.
   let statsQ = supabaseAdmin.from("gift_cards").select("status, balance");
   if (status && ["inactive", "active", "redeemed", "voided", "expired"].includes(status)) {
     statsQ = statsQ.eq("status", status);
@@ -75,7 +73,9 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     const esc = search.replace(/[%,]/g, "");
     statsQ = statsQ.or(`code.ilike.%${esc}%,issued_to_email.ilike.%${esc}%,issued_to_name.ilike.%${esc}%`);
   }
-  const { data: statsRows, error: statsErr } = await statsQ;
+
+  const [{ data, error, count }, { data: statsRows, error: statsErr }] = await Promise.all([q, statsQ]);
+  if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
   if (statsErr) return NextResponse.json({ ok: false, error: statsErr.message }, { status: 500 });
 
   const matching = statsRows ?? [];

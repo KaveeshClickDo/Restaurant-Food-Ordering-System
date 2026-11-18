@@ -42,7 +42,7 @@ export default function GiftCardsPanel() {
   const [search,   setSearch]   = useState("");
   const [page,     setPage]     = useState(1);
   const [totalCount, setTotalCount] = useState(0);
-  const PAGE_SIZE = 20;
+  const [pageSize, setPageSize] = useState(10);
   const [toasts,   setToasts]   = useState<Toast[]>([]);
   const [createOpen, setCreateOpen] = useState(false);
   const [detailId, setDetailId] = useState<string | null>(null);
@@ -57,7 +57,7 @@ export default function GiftCardsPanel() {
   const fetchCards = useCallback(async () => {
     setLoading(true);
     try {
-      const params = new URLSearchParams({ page: String(page), pageSize: String(PAGE_SIZE) });
+      const params = new URLSearchParams({ page: String(page), pageSize: String(pageSize) });
       if (filter !== "all") params.set("status", filter);
       if (search.trim())    params.set("search", search.trim());
       const res = await fetch(`/api/admin/gift-cards?${params}`);
@@ -74,23 +74,24 @@ export default function GiftCardsPanel() {
     } finally {
       setLoading(false);
     }
-  }, [filter, search, page]);
+  }, [filter, search, page, pageSize]);
 
-  // Reset to page 1 whenever the filter or search narrows/widens the result
-  // set, without firing an extra fetch at the stale page first: when the
-  // filter/search key changes while page !== 1, just reset the page and let
-  // the resulting re-render (with page back to 1) do the single real fetch.
-  const prevFilterSearchKey = useRef(`${filter}|${search}`);
+  // Reset to page 1 whenever the filter, search, or page size
+  // narrows/widens/reshapes the result set, without firing an extra fetch
+  // at the stale page first: when the key changes while page !== 1, just
+  // reset the page and let the resulting re-render (with page back to 1)
+  // do the single real fetch.
+  const prevFilterSearchKey = useRef(`${filter}|${search}|${pageSize}`);
   useEffect(() => {
-    const key = `${filter}|${search}`;
+    const key = `${filter}|${search}|${pageSize}`;
     if (key !== prevFilterSearchKey.current) {
       prevFilterSearchKey.current = key;
       if (page !== 1) { setPage(1); return; }
     }
     void fetchCards();
-  }, [fetchCards, filter, search, page]);
+  }, [fetchCards, filter, search, pageSize, page]);
 
-  const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
+  const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
 
   // Open a print-ready window with the card artwork. Used for inactive cards so
   // they can be printed and displayed in store (the code is worthless until the
@@ -223,6 +224,23 @@ export default function GiftCardsPanel() {
             </button>
           )}
         </div>
+      </div>
+
+      {/* Summary line */}
+      <div className="flex items-center justify-between gap-3 text-sm flex-wrap px-1">
+        <span className="text-gray-500">{totalCount} card{totalCount !== 1 ? "s" : ""}</span>
+        <label className="flex items-center gap-1.5 text-xs text-gray-500">
+          Rows
+          <select
+            value={pageSize}
+            onChange={(e) => setPageSize(Number(e.target.value))}
+            className="border border-gray-200 rounded-lg text-xs font-semibold text-gray-600 pl-2 pr-1 py-1 focus:outline-none focus:ring-2 focus:ring-orange-300"
+          >
+            {[10, 20, 50].map((n) => (
+              <option key={n} value={n}>{n} per page</option>
+            ))}
+          </select>
+        </label>
       </div>
 
       {/* List */}

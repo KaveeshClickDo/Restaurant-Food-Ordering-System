@@ -100,26 +100,18 @@ export async function GET(req: NextRequest) {
     if (from) q = q.gte("date", from);
     if (to)   q = q.lte("date", to);
 
-    const { data, error, count } = await q;
-    if (error) {
-      console.error("admin/orders GET (paginated):", error.message);
-      return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
-    }
-
     // sourceCounts — all 4 tabs, same from/to + search, independent of which
     // one was requested (so every tab badge stays accurate while only one
     // tab's rows are actually loaded).
     const sources: HistorySource[] = ["delivery", "collection", "walk-in", "dine-in"];
-    const sourceCounts = await Promise.all(sources.map(async (s) => {
+    const sourceCountQueries = sources.map((s) => {
       let cq = supabaseAdmin.from("orders").select("id", { count: "exact", head: true });
       cq = applySource(cq, s);
       cq = applySearch(cq);
       if (from) cq = cq.gte("date", from);
       if (to)   cq = cq.lte("date", to);
-      const { count: c, error: cErr } = await cq;
-      if (cErr) console.error(`admin/orders sourceCounts (${s}):`, cErr.message);
-      return [s, c ?? 0] as const;
-    }));
+      return cq;
+    });
 
     // totalForFilter — £ sum for the requested tab, excluding cancelled,
     // same as OrderHistoryPanel's own tabTotal calc. Narrow projection (2
@@ -129,7 +121,28 @@ export async function GET(req: NextRequest) {
     sumQ = applySearch(sumQ);
     if (from) sumQ = sumQ.gte("date", from);
     if (to)   sumQ = sumQ.lte("date", to);
-    const { data: sumRows, error: sumErr } = await sumQ;
+
+    // None of these four queries depend on each other's results, so run them
+    // all concurrently instead of one after another.
+    const [mainResult, sourceCountResults, sumResult] = await Promise.all([
+      q,
+      Promise.all(sourceCountQueries),
+      sumQ,
+    ]);
+
+    const { data, error, count } = mainResult;
+    if (error) {
+      console.error("admin/orders GET (paginated):", error.message);
+      return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+    }
+
+    const sourceCounts = sources.map((s, i) => {
+      const { count: c, error: cErr } = sourceCountResults[i];
+      if (cErr) console.error(`admin/orders sourceCounts (${s}):`, cErr.message);
+      return [s, c ?? 0] as const;
+    });
+
+    const { data: sumRows, error: sumErr } = sumResult;
     if (sumErr) console.error("admin/orders totalForFilter:", sumErr.message);
     const totalForFilter = (sumRows ?? [])
       .filter((r) => r.status !== "cancelled")
