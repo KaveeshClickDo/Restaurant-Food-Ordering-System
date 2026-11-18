@@ -63,7 +63,7 @@ export interface UseDojoTerminal {
   cancelState: DojoCancelState;
   /** A message to show beside a live payment, e.g. why a cancel or signature call failed. */
   notice: string | null;
-  /** The server is on the simulator or a sandbox key: no real money moves. */
+  /** The server is on a sandbox key: no real money moves. */
   test: boolean;
   start: (body: CreateDojoSessionBody) => Promise<void>;
   submitSignature: (accepted: boolean) => Promise<void>;

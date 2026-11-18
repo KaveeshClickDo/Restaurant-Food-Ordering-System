@@ -19,9 +19,9 @@ export async function GET() {
   const mode = dojoMode();
   return NextResponse.json({
     ok: true,
-    envMode: mode,                 // "off" | "mock" | "live"
+    envMode: mode,                 // "off" | "live"
     envAvailable: isDojoEnabled(), // env master is on (mode !== off)
-    sandbox: mode === "live" ? isDojoSandboxKey() : mode === "mock",
+    sandbox: mode === "live" && isDojoSandboxKey(),
     adminEnabled: await getDojoAdminEnabled(),
     effectiveEnabled: await isDojoEffectivelyEnabled(),
     missingSettings: missingDojoSettings(), // e.g. ["DOJO_SOFTWARE_HOUSE_ID"]: card payments will fail

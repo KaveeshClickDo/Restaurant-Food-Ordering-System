@@ -22,7 +22,7 @@ const root = (scope: DojoScope) => `/api/${scope}/dojo`;
 
 export interface DojoClientConfig {
   enabled: boolean;
-  mode: "off" | "mock" | "live";
+  mode: "off" | "live";
   sandbox: boolean;
 }
 
@@ -45,7 +45,7 @@ export interface CreateDojoSessionResult {
   paymentIntentId: string | null;
   terminalSessionId: string | null;
   snapshot: DojoSessionSnapshot;
-  /** Simulator or sandbox key: no real money moves. */
+  /** A sandbox key: no real money moves. */
   test: boolean;
 }
 

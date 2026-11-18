@@ -1,7 +1,7 @@
 /**
- * DojoGateway — the interface both the real HTTP client and the mock implement.
- * SERVER-SIDE ONLY. Route handlers depend on this, never on a concrete impl, so
- * mock ↔ sandbox ↔ live is a config flip (see getDojoGateway in ./index).
+ * DojoGateway — the interface the HTTP client implements. SERVER-SIDE ONLY.
+ * Route handlers depend on this and get it from getDojoGateway in ./index. The
+ * sandbox and production are the same code: the API key picks the environment.
  */
 
 import type {

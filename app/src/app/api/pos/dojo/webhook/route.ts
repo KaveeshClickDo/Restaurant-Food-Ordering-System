@@ -23,8 +23,7 @@ export async function POST(req: NextRequest) {
   const signature = req.headers.get("dojo-signature");
   const cfg = dojoConfig();
 
-  // In live mode a secret must be configured and the signature must match.
-  // (Mock mode emits no webhooks, so this route is effectively live-only.)
+  // A secret must be configured and the signature must match.
   if (cfg.webhookSecret) {
     if (!verifyDojoSignature(raw, signature)) {
       return NextResponse.json({ ok: false, error: "Invalid signature." }, { status: 400 });

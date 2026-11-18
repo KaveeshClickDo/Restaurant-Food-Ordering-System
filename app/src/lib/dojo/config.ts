@@ -1,13 +1,10 @@
 /**
  * Dojo configuration + feature-flag resolution. SERVER-SIDE ONLY (reads secrets).
  *
- * Three modes, chosen by env so the SAME code path serves dev, sandbox and prod:
+ * Two modes, chosen by env so the SAME code path serves the sandbox and prod:
  *
  *   DOJO_MODE = "off"   (default)  → feature disabled; POS behaves exactly as
  *                                    today (cash/card recorded, no terminal).
- *   DOJO_MODE = "mock"             → in-memory simulator; NO Dojo account/key
- *                                    needed. Used to build + test the whole flow
- *                                    (all outcomes) before credentials arrive.
  *   DOJO_MODE = "live"             → real https://api.dojo.tech. Requires
  *                                    DOJO_API_KEY. The key PREFIX decides the
  *                                    Dojo environment: sk_sandbox_ = sandbox,
@@ -16,8 +13,10 @@
  *                                    DOJO_SOFTWARE_HOUSE_ID: without it every
  *                                    call to Dojo is refused (client.ts).
  *
+ * Any other value is off. That includes "mock": its simulator was removed once
+ * we had a sandbox key.
+ *
  * Cutover path (per docs/dojo/README.md §2 + reference §1):
- *   build now:  DOJO_MODE=mock
  *   sandbox:    DOJO_MODE=live  DOJO_API_KEY=sk_sandbox_…  DOJO_SOFTWARE_HOUSE_ID=<ours>
  *   production: DOJO_MODE=live  DOJO_API_KEY=sk_prod_…     DOJO_SOFTWARE_HOUSE_ID=<ours>
  * No code change between them — only env values.
@@ -29,7 +28,7 @@
  * routes; it never sees these values.
  */
 
-export type DojoMode = "off" | "mock" | "live";
+export type DojoMode = "off" | "live";
 
 /** Same for sandbox and production (the key picks the environment). Fixed in
  *  code, not configurable, so a typo can't send the API key to another host. */
@@ -60,22 +59,20 @@ function env(name: string, fallback = ""): string {
 /**
  * Resolve the active mode. "live" requires a key; if DOJO_MODE=live but no key
  * is set we fall back to "off" (fail safe — never pretend to be live without a
- * key). An explicit DOJO_MODE=mock needs no key.
+ * key).
  */
 export function dojoMode(): DojoMode {
   const raw = env("DOJO_MODE", "off").toLowerCase();
-  if (raw === "mock") return "mock";
-  if (raw === "live") return env("DOJO_API_KEY") ? "live" : "off";
-  return "off";
+  return raw === "live" && env("DOJO_API_KEY") ? "live" : "off";
 }
 
-/** The env master switch is on (mock or live). The admin toggle is applied on
- *  top in effectiveFlag.ts. */
+/** The env master switch is on. The admin toggle is applied on top in
+ *  effectiveFlag.ts. */
 export function isDojoEnabled(): boolean {
   return dojoMode() !== "off";
 }
 
-/** True when we're talking to the real Dojo sandbox (vs production or mock). */
+/** True when we're talking to the real Dojo sandbox (vs production). */
 export function isDojoSandboxKey(): boolean {
   return env("DOJO_API_KEY").startsWith("sk_sandbox_");
 }

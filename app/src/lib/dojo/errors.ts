@@ -1,6 +1,6 @@
 /**
  * Dojo errors, and what staff see for them. SERVER-SIDE ONLY, and free of
- * Next/db imports so the dojo:demo and dojo:sandbox scripts can use it too.
+ * Next/db imports so the dojo:checks and dojo:sandbox scripts can use it too.
  *
  * Dojo's go-live checklist expects a specific message for each failure: a
  * wrong API key, an offline or unknown terminal (404), a busy terminal (409),

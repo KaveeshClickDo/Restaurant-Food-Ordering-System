@@ -210,7 +210,7 @@ in the public docs is shared.
 
 Our account has its own nine virtual terminals (`VCMSEEK…`), set up by Dojo. What
 each simulates, and what the sandbox actually returned, is in
-[README.md §6](./README.md#6-test-it-now-no-dojo-account).
+[README.md §6](./README.md#6-test-it).
 
 ---
 

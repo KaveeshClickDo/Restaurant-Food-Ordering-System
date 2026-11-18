@@ -14,7 +14,7 @@ on 2026-11-04 (server 167.233.73.103, service `demo-directdine-tech`, code in
 `/var/www/direct-dine/app`) with `DOJO_MODE=live` and a **sandbox** key,
 `DOJO_API_KEY=sk_sandbox_…`, in its `.env.local`. They're server settings only,
 never in the APK. Demo uses its own database, so the test card payments show in
-its sales. Its settings from before (the simulator) are saved in
+its sales. Its settings from before that are saved in
 `/root/demo.env.backup-2026-11-04`.
 
 - In demo's admin, for the script: a **manager** POS login (can refund), a
@@ -28,7 +28,7 @@ its sales. Its settings from before (the simulator) are saved in
 **Run the checks** the morning of the session (from `app/`):
 
 ```bash
-npm run dojo:demo      # simulator, about 1 minute
+npm run dojo:checks    # no card machine or network, a few seconds
 npm run dojo:sandbox   # the payment logic against the sandbox, about 9 minutes
 npm run dojo:routes    # the routes as the tablet calls them, about 4 minutes
 ```

@@ -19,8 +19,8 @@ export function buildDojoSignature(rawBody: string, secret: string): string {
 }
 
 /**
- * Verify a Dojo webhook. Returns false when no secret is configured (mock mode)
- * or the signature is missing/mismatched. Constant-time comparison.
+ * Verify a Dojo webhook. Returns false when no secret is configured or the
+ * signature is missing/mismatched. Constant-time comparison.
  */
 export function verifyDojoSignature(rawBody: string, signatureHeader: string | null): boolean {
   const secret = dojoConfig().webhookSecret;
