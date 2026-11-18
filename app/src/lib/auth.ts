@@ -284,6 +284,17 @@ export async function getAnyStaffSession(): Promise<SessionPayload | null> {
   return pos ?? waiter ?? kitchen ?? collection ?? driver ?? null;
 }
 
+/**
+ * A session from a surface that takes card payments at the till: the POS or
+ * the collection app. Narrower than getAnyStaffSession on purpose — kitchen,
+ * driver and admin sessions have no reason to drive a card machine, and the
+ * waiter app has its own /api/waiter/* routes.
+ */
+export async function getTillStaffSession(): Promise<SessionPayload | null> {
+  const [pos, collection] = await Promise.all([getPosSession(), getCollectionSession()]);
+  return pos ?? collection ?? null;
+}
+
 // ── Shared responses ──────────────────────────────────────────────────────────
 export const unauthorizedJson = () =>
   NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });

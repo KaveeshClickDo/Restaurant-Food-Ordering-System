@@ -6,6 +6,7 @@ import { restaurantInfo } from "@/data/restaurant";
 import { DEFAULT_COLORS } from "@/data/defaultSettings";
 import { buildColorCss } from "@/lib/colorUtils";
 import type { SeoSettings } from "@/types";
+import { getDbSettings } from "@/lib/dbSettings";
 
 const inter = Inter({
   subsets: ["latin"],
@@ -15,43 +16,11 @@ const inter = Inter({
 
 const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL ?? "https://demo.directdine.tech";
 
-// ── Supabase settings fetch (shared by generateMetadata + layout) ─────────────
-// Uses native fetch() — deliberately avoids importing supabaseAdmin (which pulls
-// in next/server's NextResponse) so the root layout stays free of next/server
-// dependencies that confuse the Turbopack module graph.
-
-async function getDbSettings(): Promise<Record<string, unknown> | null> {
-  // Capacitor build only: skip this fetch. The Capacitor app is a STATIC EXPORT,
-  // so this server fetch would be frozen into the bundle at build time — a stale
-  // settings snapshot that also bakes ONE restaurant's config (printer/branding)
-  // into what should be a shared APK. The app instead loads settings at runtime
-  // (server fetch when online + on-device SQLite cache when offline), so there's
-  // nothing to gain by baking them. Returning null → AppProvider starts from
-  // clean defaults. The website build (CAPACITOR_BUILD unset) keeps the
-  // per-request fetch below for flash-free first paint — unchanged.
-  if (process.env.CAPACITOR_BUILD === "1") return null;
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const serviceKey  = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!supabaseUrl || !serviceKey) return null;
-  try {
-    const res = await fetch(
-      `${supabaseUrl}/rest/v1/app_settings?id=eq.1&select=data`,
-      {
-        headers: {
-          apikey:        serviceKey,
-          Authorization: `Bearer ${serviceKey}`,
-          Accept:        "application/json",
-        },
-        next: { revalidate: 60 },
-      },
-    );
-    if (!res.ok) return null;
-    const rows = (await res.json()) as Array<{ data: Record<string, unknown> }>;
-    return rows[0]?.data ?? null;
-  } catch {
-    return null;
-  }
-}
+// Shown until a tenant uploads their own favicon in SEO settings. Lives as a
+// plain /public asset (not app/favicon.ico) so Next's file-convention icon
+// metadata never auto-injects a second, un-versioned <link rel="icon"> that
+// fights the one driven by seo.faviconUrl below.
+const DEFAULT_FAVICON = "/favicon-default.ico";
 
 // ── Dynamic metadata (reads DB on every request) ─────────────────────────────
 
@@ -80,7 +49,7 @@ export async function generateMetadata(): Promise<Metadata> {
     title,
     description,
     keywords,
-    ...(versionedFavicon && { icons: { icon: versionedFavicon } }),
+    icons: { icon: versionedFavicon || DEFAULT_FAVICON },
     alternates: {
       canonical: siteUrl,
     },
@@ -191,7 +160,7 @@ export default async function RootLayout({
          * that the server already rendered the current favicon. React owns this
          * node — nothing may remove it from the DOM (see SeoHead.tsx).
          */}
-        {faviconUrl && <link id="sg-favicon" rel="icon" href={faviconHref} />}
+        <link id="sg-favicon" rel="icon" href={faviconHref || DEFAULT_FAVICON} />
 
         {/*
          * Primary: server-rendered brand CSS injected directly into the HTML.

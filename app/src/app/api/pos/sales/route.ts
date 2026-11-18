@@ -25,6 +25,7 @@ import { decrementStock, restoreStock, type StockItem } from "@/lib/stockMutatio
 import { lookupActiveGiftCard, clampGiftCardAmount, redeemGiftCardForRow } from "@/lib/giftCardValidation";
 import { rewardLoyaltyPoints } from "@/lib/loyaltyUtils";
 import { rowToSale } from "@/lib/posSaleMap";
+import { attachCardDetails, recordDojoPayment } from "@/lib/dojo";
 
 const POS_CUSTOMER_ID = "pos-walk-in";
 
@@ -63,7 +64,9 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
   }
 
-  return NextResponse.json({ ok: true, sales: (data ?? []).map(rowToSale) });
+  // Card machine sales carry the card for the receipt (VISA ****1234).
+  const sales = await attachCardDetails((data ?? []).map(rowToSale));
+  return NextResponse.json({ ok: true, sales });
 }
 
 // ── POST ─────────────────────────────────────────────────────────────────────
@@ -77,9 +80,10 @@ export async function POST(req: NextRequest) {
 
   const parsed = await parseBody(req, PosSaleCreateSchema);
   if (!parsed.ok) return NextResponse.json({ ok: false, error: parsed.error }, { status: parsed.status });
-  // kitchenNote isn't on POSSale (it's a transient create-only field that
-  // lands in the KDS ticket header but is never persisted on pos_sales).
-  const body = parsed.data as unknown as Partial<POSSale> & { kitchenNote?: string };
+  // kitchenNote / sendToKitchen aren't on POSSale — they're transient
+  // create-only fields that steer the KDS mirror row but are never persisted
+  // on pos_sales.
+  const body = parsed.data as unknown as Partial<POSSale> & { kitchenNote?: string; sendToKitchen?: boolean };
 
   // Offline-sale replay: a Capacitor POS rang this sale while offline (it minted
   // an 'OFF…' receipt number) and the outbox is now replaying it on reconnect.
@@ -160,7 +164,8 @@ export async function POST(req: NextRequest) {
     const { data: existing } = await supabaseAdmin
       .from("pos_sales").select("*").eq("id", body.id).maybeSingle();
     if (existing) {
-      return NextResponse.json({ ok: true, duplicate: true, sale: rowToSale(existing) }, { status: 200 });
+      const [sale] = await attachCardDetails([rowToSale(existing)]);
+      return NextResponse.json({ ok: true, duplicate: true, sale }, { status: 200 });
     }
   }
 
@@ -316,6 +321,12 @@ export async function POST(req: NextRequest) {
     terminal_id:        offlineFields.terminalId       ?? null,
     client_created_at:  offlineFields.clientCreatedAt  ?? null,
   };
+
+  // Dojo card-terminal result (optional) — present only when the card leg was
+  // collected on an integrated Dojo terminal. Recorded in the central
+  // dojo_payments table AFTER the sale row is inserted (below), so it can link
+  // to the sale id. Absent for cash sales and standalone-card sales.
+  const dojo = parsed.data.dojo;
   // Offline clients mint their own receipt_no (per-terminal namespace).
   // Omit the field when no value supplied so the DB default fires for online sales.
   if (offlineFields.receiptNo) row.receipt_no = offlineFields.receiptNo;
@@ -339,7 +350,8 @@ export async function POST(req: NextRequest) {
       const { data: existing } = await supabaseAdmin
         .from("pos_sales").select("*").eq("id", body.id).single();
       if (existing) {
-        return NextResponse.json({ ok: true, duplicate: true, sale: rowToSale(existing) }, { status: 409 });
+        const [sale] = await attachCardDetails([rowToSale(existing)]);
+        return NextResponse.json({ ok: true, duplicate: true, sale }, { status: 409 });
       }
     }
     // Any other error: undo the decrement before bubbling.
@@ -351,6 +363,30 @@ export async function POST(req: NextRequest) {
   }
 
   const sale = rowToSale(inserted);
+
+  // Central record of the Dojo card-terminal payment (idempotent), linked to
+  // this sale. Non-fatal: a failure here logs but never rolls back a paid sale.
+  if (dojo?.paymentIntentId) {
+    // The machine charged the card's part: all of a card sale, or a split's card part.
+    const cardPart = body.paymentMethod === "split"
+      ? Math.round((body.payments ?? []).filter((p) => p.method === "card").reduce((s, p) => s + p.amount, 0) * 100) / 100
+      : netTotal;
+    const recorded = await recordDojoPayment({
+      result: dojo, sourceType: "pos_sale", sourceId: String(sale.id), amount: cardPart, staffId: session.id,
+    });
+    if (recorded) {
+      sale.cardPayment = { scheme: recorded.cardScheme ?? null, last4: recorded.cardLast4 ?? null, authCode: recorded.authCode ?? null };
+    }
+    // A tip the customer added on the card machine, as Dojo recorded it: kept
+    // apart from `total` (the till charged total; the card paid its part + tip).
+    const cardTip = Math.round(Number(recorded?.tipAmount ?? 0) * 100) / 100;
+    if (cardTip > 0) {
+      const { error: tipError } = await supabaseAdmin
+        .from("pos_sales").update({ card_tip_amount: cardTip }).eq("id", sale.id);
+      if (tipError) console.error("POST /api/pos/sales (card tip):", tipError.message);
+      else sale.cardTipAmount = cardTip;
+    }
+  }
 
   // Gift card redemption AS A GATE — before KDS sync / the orders mirror.
   // The sale row carries the gift_card_id + gift_card_used stamp; the helper
@@ -391,17 +427,30 @@ export async function POST(req: NextRequest) {
     await rewardLoyaltyPoints(saleCustomerId, moneyPaid, { posSaleId: String(body.id) });
   }
 
-  // KDS sync — fire-and-await so the client knows whether the kitchen has
-  // the ticket. Failure here doesn't roll back the sale. kitchenNote is
-  // passed separately because it's only on the create body, not persisted
-  // on pos_sales and therefore not on POSSale.
-  const kdsResult = await pushToKDS(sale, typeof body.kitchenNote === "string" ? body.kitchenNote : undefined);
+  // Orders mirror sync — doesn't roll back the sale on failure. kitchenNote is
+  // passed separately since it's create-body-only, not persisted on pos_sales.
+  //
+  // "Send to kitchen" off only skips the KDS ticket and kitchen-printer
+  // auto-print (gated in ReceiptModal). The mirror row is always written —
+  // Delivery board, Reports, and Collection History all read it — just born
+  // "delivered" instead of "pending" so it skips every active view but still
+  // shows wherever completed orders normally do.
+  const sendToKitchen = body.sendToKitchen !== false;
+  const kdsResult = await pushToKDS(
+    sale,
+    typeof body.kitchenNote === "string" ? body.kitchenNote : undefined,
+    { completed: !sendToKitchen },
+  );
 
   return NextResponse.json({ ok: true, sale, kds: kdsResult });
 }
 
-// ── KDS sync helper ──────────────────────────────────────────────────────────
-async function pushToKDS(sale: POSSale, kitchenNote?: string): Promise<{ ok: boolean; error?: string }> {
+// ── Orders-mirror sync helper ──────────────────────────────────────────────
+async function pushToKDS(
+  sale: POSSale,
+  kitchenNote?: string,
+  opts?: { completed?: boolean },
+): Promise<{ ok: boolean; error?: string }> {
   // The kitchen display reads from the orders table. POS sales are recorded
   // there as collection orders with a "[POS]" marker in the note so KDS can
   // distinguish them.
@@ -449,7 +498,8 @@ async function pushToKDS(sale: POSSale, kitchenNote?: string): Promise<{ ok: boo
     id:             sale.id,
     customer_id:    POS_CUSTOMER_ID,
     date:           sale.date,
-    status:         "pending",
+    // "Send to kitchen" off → born already delivered: nothing to prepare
+    status:         opts?.completed ? "delivered" : "pending",
     fulfillment:    "collection",
     total:          sale.total,
     items,

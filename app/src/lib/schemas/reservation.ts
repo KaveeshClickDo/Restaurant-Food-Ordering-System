@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { Email, OptionalPhone, Phone, NonEmptyString, IsoDate, IsoTime } from "./primitives";
+import { DojoResultSchema } from "./dojo";
 
 const PartySize = z.number().int().min(1, "Party size must be at least 1.").max(50, "Party size is too large.");
 
@@ -24,7 +25,7 @@ export const ReservationPublicSchema = z.object({
 // is recorded for the receipt but no charge is taken through Stripe/PayPal.
 const ManualPaymentMethod = z.enum(["cash", "card"]);
 
-// Admin walk-in / phone — email optional, but phone required for "phone" bookings.
+// Admin walk-in / phone — email + phone optional for walk-ins, both required for "phone" bookings.
 export const ReservationAdminSchema = z.object({
   tableId:       NonEmptyString,
   date:          IsoDate,
@@ -43,6 +44,9 @@ export const ReservationAdminSchema = z.object({
 }).refine(
   (data) => data.source !== "phone" || (data.customerPhone && data.customerPhone.length > 0),
   { message: "Phone number is required for phone bookings.", path: ["customerPhone"] },
+).refine(
+  (data) => data.source !== "phone" || (data.customerEmail && data.customerEmail.length > 0),
+  { message: "Email is required for phone bookings.", path: ["customerEmail"] },
 );
 
 // POS — staff already has the table object cached client-side, so the body
@@ -63,9 +67,14 @@ export const ReservationPosSchema = z.object({
   paymentMethod: ManualPaymentMethod.optional(),
   /** Marketing checkbox (default ticked) — asked at the till. */
   marketingOptIn: z.boolean().optional().default(true),
+  /** Present only when the VIP fee was collected on a Dojo terminal. */
+  dojo:          DojoResultSchema.optional(),
 }).refine(
   (data) => data.source !== "phone" || (data.customerPhone && data.customerPhone.length > 0),
   { message: "Phone number is required for phone bookings.", path: ["customerPhone"] },
+).refine(
+  (data) => data.source !== "phone" || (data.customerEmail && data.customerEmail.length > 0),
+  { message: "Email is required for phone bookings.", path: ["customerEmail"] },
 );
 
 // Online VIP booking-fee payment intent. Same fields as the public booking, plus
@@ -92,4 +101,18 @@ export const ReservationFormSchema = z.object({
   customerPhone: Phone,
   partySize:     PartySize,
   note:          z.string().optional(),
+});
+
+// Staff QR check-in (POS / admin). `code` is whatever was scanned or typed:
+// the QR text, a bare check-in code, or the 8-character booking reference.
+// `today` is the staff device's own date, so "is this booking for today?"
+// follows the restaurant's clock rather than the server's time zone.
+export const ReservationCheckInLookupSchema = z.object({
+  code:  z.string().trim().min(1, "Scan a QR code or type a booking reference.").max(200),
+  today: IsoDate,
+});
+
+export const ReservationCheckInSchema = z.object({
+  id:    NonEmptyString,
+  today: IsoDate,
 });

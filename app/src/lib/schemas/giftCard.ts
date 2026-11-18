@@ -6,6 +6,7 @@
 
 import { z } from "zod";
 import { Email, Money } from "./primitives";
+import { DojoResultSchema } from "./dojo";
 
 // Min / max purchase amounts. The settings panel can override these later;
 // for Phase 1 we hard-code a reasonable band so the front-door is sane.
@@ -130,6 +131,8 @@ export const PosGiftCardActivateSchema = z.object({
   /** Marketing checkbox at the till (default ticked; unticked → the contact
    *  is captured unsubscribed). */
   marketingOptIn: z.boolean().optional().default(true),
+  /** Present only when a card-paid sale was collected on a Dojo terminal. */
+  dojo: DojoResultSchema.optional(),
 });
 
 // ── Refund routing into a gift card ──────────────────────────────────────────

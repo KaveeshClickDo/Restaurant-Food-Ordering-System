@@ -12,6 +12,18 @@ export const POS_PERIODS: { id: POSPeriod; label: string }[] = [
   { id: "custom",    label: "Custom" },
 ];
 
+// Default `customStart`/`customEnd` <input type="date"> values — last 30 days.
+// Without this, a freshly-opened Custom picker sits on two empty strings, and 
+// getPOSDateRange's "custom" case falls back to epoch→now, forcing every 
+// reports aggregation to crunch tens of thousands of days.
+export function defaultCustomRange(): [string, string] {
+  const now = new Date();
+  const start = new Date(now);
+  start.setDate(start.getDate() - 29);
+  const toInputValue = (d: Date) => d.toISOString().slice(0, 10);
+  return [toInputValue(start), toInputValue(now)];
+}
+
 export function getPOSDateRange(period: POSPeriod, customStart: string, customEnd: string): [Date, Date] {
   const now   = new Date();
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
@@ -33,13 +45,13 @@ export function getPOSDateRange(period: POSPeriod, customStart: string, customEn
 }
 
 export function posExportCSV(sales: POSSale[], sym: string) {
-  const header = ["Receipt No","Date","Time","Staff","Customer","Items",`Subtotal (${sym})`,`Discount (${sym})`,`VAT (${sym})`,`Tip (${sym})`,`Service Fee (${sym})`,`Total (${sym})`,"Payment","Voided","Void Reason"].join(",");
+  const header = ["Receipt No","Date","Time","Staff","Customer","Items",`Subtotal (${sym})`,`Discount (${sym})`,`VAT (${sym})`,`Tip (${sym})`,`Service Fee (${sym})`,`Total (${sym})`,`Card Machine Tip (${sym})`,"Payment","Voided","Void Reason"].join(",");
   const rows = sales.map((s) => [
     s.receiptNo, fmtDate(s.date), fmtTime(s.date),
     `"${s.staffName}"`, `"${s.customerName ?? ""}"`,
     s.items.length, s.subtotal.toFixed(2), s.discountAmount.toFixed(2),
     s.taxAmount.toFixed(2), s.tipAmount.toFixed(2), s.serviceFeeAmount.toFixed(2), s.total.toFixed(2),
-    s.paymentMethod, s.voided ? "Yes" : "No", `"${s.voidReason ?? ""}"`,
+    (s.cardTipAmount ?? 0).toFixed(2), s.paymentMethod, s.voided ? "Yes" : "No", `"${s.voidReason ?? ""}"`,
   ].join(","));
   const csv  = [header, ...rows].join("\n");
   const blob = new Blob([csv], { type: "text/csv" });

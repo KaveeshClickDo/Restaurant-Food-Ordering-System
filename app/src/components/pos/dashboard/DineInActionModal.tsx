@@ -2,6 +2,7 @@
 
 import { useRef, useState } from "react";
 import { apiBase } from "@/lib/apiBase";
+import { uuid } from "@/lib/uuid";
 import { usePOS } from "@/context/POSContext";
 import { X, AlertTriangle, RotateCcw, Banknote, CreditCard, Loader2 } from "lucide-react";
 import { fmt } from "../_utils";
@@ -26,18 +27,24 @@ export default function DineInActionModal({
   // A gift card is prepaid money, so only the cash/card portion is refundable —
   // and `total` is stored net of the gift card. Cap "full" and the partial input
   // at money collected, net of anything already refunded (server enforces it too).
+  // A tip the customer added on the card machine was paid too, so it can be
+  // given back on top (the server takes a refund from the order first).
+  const cardTipLeft = Math.max(0, Math.round(((action.order.cardTipAmount ?? 0) - (action.order.cardTipRefunded ?? 0)) * 100) / 100);
   const refundable = Math.max(
     0,
-    action.order.total - (action.order.refundedAmount ?? 0),
+    Math.round((action.order.total - (action.order.refundedAmount ?? 0) + cardTipLeft) * 100) / 100,
   );
 
   const [reason,       setReason]       = useState("");
   const [refundType,   setRefundType]   = useState<"full" | "partial">("full");
   const [refundAmtStr, setRefundAmtStr] = useState("");
-  const [refundMethod, setRefundMethod] = useState<"cash" | "card">("cash");
+  const [refundMethod, setRefundMethod] = useState<"cash" | "card">(action.order.paymentMethod === "card" ? "card" : "cash");
   const [loading,      setLoading]      = useState(false);
   const [error,        setError]        = useState<string | null>(null);
   const inFlight = useRef(false);
+  // One id per refund screen, resent on retries: an order paid on the card
+  // machine is refunded through Dojo with it, so a retry can't refund twice.
+  const [requestId] = useState(() => uuid());
 
   async function submitVoid() {
     if (inFlight.current) return;
@@ -73,11 +80,13 @@ export default function DineInActionModal({
       const res = await fetch(apiBase() + "/api/pos/orders/dine-in/refund", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ orderIds: [action.order.id], refundAmount: amt, refundMethod, reason: reason.trim() }),
+        body: JSON.stringify({ orderIds: [action.order.id], refundAmount: amt, refundMethod, reason: reason.trim(), refundRequestId: requestId }),
       });
       const d = await res.json().catch(() => ({})) as { ok?: boolean; error?: string };
       if (d.ok) { onComplete(); onClose(); }
       else setError(d.error ?? "Failed to process refund.");
+    } catch {
+      setError("Couldn't reach the server. Check the connection and try again.");
     } finally {
       inFlight.current = false;
       setLoading(false);
@@ -124,6 +133,11 @@ export default function DineInActionModal({
                     placeholder={`Max ${sym}${refundable.toFixed(2)}`}
                     className="w-full bg-slate-700 border border-slate-600 text-white placeholder-slate-500 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-amber-500" />
                 )}
+                {cardTipLeft > 0 && (
+                  <p className="text-[11px] text-slate-400 mt-2">
+                    The full refund includes the {sym}{cardTipLeft.toFixed(2)} tip added on the card machine.
+                  </p>
+                )}
                 {/* {(action.order.giftCardUsed ?? 0) > 0 && (
                   <p className="text-[11px] text-slate-400 mt-2">
                     {sym}{(action.order.giftCardUsed ?? 0).toFixed(2)} of this bill was paid by gift card and is non-refundable.
@@ -140,6 +154,12 @@ export default function DineInActionModal({
                     </button>
                   ))}
                 </div>
+                {refundMethod === "card" && (
+                  <p className="text-[11px] text-slate-400 mt-2 leading-relaxed">
+                    Paid on the card machine? The money goes straight back to the card through Dojo.
+                    If Dojo refuses, nothing is refunded.
+                  </p>
+                )}
               </div>
             </>
           )}

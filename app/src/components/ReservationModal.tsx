@@ -10,6 +10,7 @@ import { ReservationFormSchema } from "@/lib/schemas/reservation";
 import { cleanPhone, formErrorMessage } from "@/lib/inputUtils";
 import ReservationPaymentStep from "@/components/ReservationPaymentStep";
 import MultiFloorTableMap from "@/components/reservation/MultiFloorTableMap";
+import CheckInQr from "@/components/reservation/CheckInQr";
 import { type MapTable } from "@/components/reservation/TableMap";
 import { resolveFloorPlans, hasImage } from "@/lib/floorPlans";
 import { LayoutGrid, Map as MapIcon } from "lucide-react";
@@ -152,6 +153,8 @@ export default function ReservationModal({ onClose }: { onClose: () => void }) {
   const [submitting,     setSubmitting]     = useState(false);
   const [submitError,    setSubmitError]    = useState("");
   const [reservationId,  setReservationId]  = useState("");
+  // The guest's check-in code, shown as a QR on the confirmed screen.
+  const [checkInCode,    setCheckInCode]    = useState("");
   // True once a VIP booking fee has been paid. The reservation row is then
   // created asynchronously by the payment webhook, so the confirmed screen
   // shows a "details emailed" message instead of an in-hand booking reference.
@@ -228,9 +231,10 @@ export default function ReservationModal({ onClose }: { onClose: () => void }) {
           marketingOptIn,
         }),
       });
-      const json = await res.json() as { ok: boolean; reservationId?: string; error?: string };
+      const json = await res.json() as { ok: boolean; reservationId?: string; checkInCode?: string; error?: string };
       if (json.ok && json.reservationId) {
         setReservationId(json.reservationId);
+        setCheckInCode(json.checkInCode ?? "");
         setStep("confirmed");
       } else {
         setSubmitError(json.error ?? "Failed to create reservation.");
@@ -672,6 +676,8 @@ export default function ReservationModal({ onClose }: { onClose: () => void }) {
                 <p className="text-xs text-gray-400">
                   Your booking fee is paid. A confirmation with your booking reference has been emailed to <span className="font-semibold text-gray-600 dark:text-zinc-300">{email}</span>.
                 </p>
+              ) : checkInCode ? (
+                <CheckInQr code={checkInCode} reference={reservationId.slice(0, 8).toUpperCase()} />
               ) : (
                 <p className="text-xs text-gray-400">
                   Booking reference: <span className="font-mono font-semibold text-gray-600 dark:text-zinc-300">{reservationId.slice(0, 8).toUpperCase()}</span>

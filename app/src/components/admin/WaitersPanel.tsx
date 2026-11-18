@@ -405,8 +405,7 @@ export default function WaitersPanel() {
       {/* Info box */}
       <div className="bg-blue-950/60 border border-blue-700/60 rounded-xl p-4 text-blue-100 text-xs leading-relaxed">
         <strong className="block mb-1 text-white">Password Security</strong>
-        passwords are stored in admin settings and validated server-side at <code>/api/waiter/auth</code>.
-        They are never exposed to the waiter app&apos;s network tab. Use unique passwords for each staff member.
+        Use a different password for each staff member.
       </div>
     </div>
   );

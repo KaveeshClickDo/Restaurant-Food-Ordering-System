@@ -1,0 +1,114 @@
+/**
+ * Dojo configuration + feature-flag resolution. SERVER-SIDE ONLY (reads secrets).
+ *
+ * Three modes, chosen by env so the SAME code path serves dev, sandbox and prod:
+ *
+ *   DOJO_MODE = "off"   (default)  → feature disabled; POS behaves exactly as
+ *                                    today (cash/card recorded, no terminal).
+ *   DOJO_MODE = "mock"             → in-memory simulator; NO Dojo account/key
+ *                                    needed. Used to build + test the whole flow
+ *                                    (all outcomes) before credentials arrive.
+ *   DOJO_MODE = "live"             → real https://api.dojo.tech. Requires
+ *                                    DOJO_API_KEY. The key PREFIX decides the
+ *                                    Dojo environment: sk_sandbox_ = sandbox,
+ *                                    sk_prod_ = production. (Base URL is the same
+ *                                    for both — Dojo routes by key.) Also needs
+ *                                    DOJO_SOFTWARE_HOUSE_ID: without it every
+ *                                    call to Dojo is refused (client.ts).
+ *
+ * Cutover path (per docs/dojo/README.md §2 + reference §1):
+ *   build now:  DOJO_MODE=mock
+ *   sandbox:    DOJO_MODE=live  DOJO_API_KEY=sk_sandbox_…  DOJO_SOFTWARE_HOUSE_ID=<ours>
+ *   production: DOJO_MODE=live  DOJO_API_KEY=sk_prod_…     DOJO_SOFTWARE_HOUSE_ID=<ours>
+ * No code change between them — only env values.
+ *
+ * SECURITY: DOJO_API_KEY / DOJO_WEBHOOK_SECRET are secrets. They live in the
+ * server env (.env.local / production env) ONLY. They must NEVER be prefixed
+ * NEXT_PUBLIC_ and must NEVER go in .env.capacitor (that would bake the secret
+ * into the shipped APK). The POS bundle only ever calls our /api/pos/dojo/*
+ * routes; it never sees these values.
+ */
+
+export type DojoMode = "off" | "mock" | "live";
+
+/** Same for sandbox and production (the key picks the environment). Fixed in
+ *  code, not configurable, so a typo can't send the API key to another host. */
+export const DOJO_API_BASE_URL = "https://api.dojo.tech";
+
+export interface DojoConfig {
+  mode: DojoMode;
+  baseUrl: string;
+  apiKey: string;
+  version: string;
+  softwareHouseId: string;
+  resellerId: string;
+  webhookSecret: string;
+  /** Optional pinned terminal: a Dojo id (tm_…) or the machine's TID (e.g.
+   *  VCMSEEKSIP0). When empty we auto-discover an Available one. */
+  terminalId: string;
+  /** Currency for terminal charges (ISO 4217). */
+  currencyCode: string;
+  /** DOJO_LOG_REQUESTS=1: print each call to Dojo in the server log (client.ts). */
+  logRequests: boolean;
+}
+
+function env(name: string, fallback = ""): string {
+  const v = process.env[name];
+  return typeof v === "string" && v.length > 0 ? v : fallback;
+}
+
+/**
+ * Resolve the active mode. "live" requires a key; if DOJO_MODE=live but no key
+ * is set we fall back to "off" (fail safe — never pretend to be live without a
+ * key). An explicit DOJO_MODE=mock needs no key.
+ */
+export function dojoMode(): DojoMode {
+  const raw = env("DOJO_MODE", "off").toLowerCase();
+  if (raw === "mock") return "mock";
+  if (raw === "live") return env("DOJO_API_KEY") ? "live" : "off";
+  return "off";
+}
+
+/** The env master switch is on (mock or live). The admin toggle is applied on
+ *  top in effectiveFlag.ts. */
+export function isDojoEnabled(): boolean {
+  return dojoMode() !== "off";
+}
+
+/** True when we're talking to the real Dojo sandbox (vs production or mock). */
+export function isDojoSandboxKey(): boolean {
+  return env("DOJO_API_KEY").startsWith("sk_sandbox_");
+}
+
+/**
+ * Settings live mode needs that aren't set, by name (never values). Empty when
+ * nothing is missing or the mode isn't live. A missing DOJO_API_KEY isn't
+ * listed: without it the mode is "off".
+ */
+export function missingDojoSettings(): string[] {
+  if (dojoMode() !== "live") return [];
+  return env("DOJO_SOFTWARE_HOUSE_ID") ? [] : ["DOJO_SOFTWARE_HOUSE_ID"];
+}
+
+export function dojoConfig(): DojoConfig {
+  // Dojo assigns the software-house-id to us as the EPOS company, the same for
+  // every restaurant. No built-in fallback: client.ts refuses to call Dojo
+  // without it.
+  const softwareHouseId = env("DOJO_SOFTWARE_HOUSE_ID");
+  return {
+    mode: dojoMode(),
+    baseUrl: DOJO_API_BASE_URL,
+    apiKey: env("DOJO_API_KEY"),
+    version: env("DOJO_API_VERSION", "2026-02-27"),
+    softwareHouseId,
+    // reseller-id names whoever resells the EPOS to the merchant. We sell our
+    // own software, so Dojo's guidance (partner enablement, 2026-08-12) is to
+    // send our own software-house-id here rather than a separate value.
+    // Set DOJO_RESELLER_ID explicitly only if a reseller is genuinely involved.
+    resellerId: env("DOJO_RESELLER_ID", softwareHouseId),
+    webhookSecret: env("DOJO_WEBHOOK_SECRET"),
+    terminalId: env("DOJO_TERMINAL_ID"),
+    currencyCode: env("DOJO_CURRENCY_CODE", "GBP"),
+    logRequests: env("DOJO_LOG_REQUESTS") === "1",
+  };
+}

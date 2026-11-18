@@ -6,17 +6,28 @@
  * view/print (the receipt itself is shared page state).
  */
 
-import { CheckCircle2, Eye, Printer } from "lucide-react";
+import { useState } from "react";
+import { CheckCircle2, Eye } from "lucide-react";
+import { useApp } from "@/context/AppContext";
+import { resolveActivePrinter } from "@/lib/escpos";
 import type { WaiterReceipt } from "./_types";
+import { printWaiterReceiptToKitchen } from "./_thermalPrint";
 import ReceiptModal from "./ReceiptModal";
 
-export default function SuccessView({ tableLabel, receipt, setReceipt, onAddMore, onNewTable }: {
+export default function SuccessView({ tableLabel, receipt, onAddMore, onNewTable }: {
   tableLabel: string | undefined;
   receipt: WaiterReceipt | null;
-  setReceipt: (r: WaiterReceipt | null) => void;
   onAddMore: () => void;
   onNewTable: () => void;
 }) {
+  const { settings: appSettings } = useApp();
+  // Separate from the shared `receipt` state, so closing the modal doesn't also hide "View Receipt".
+  const [showReceipt, setShowReceipt] = useState(true);
+  const kitchenPrinter = resolveActivePrinter(appSettings, "kitchen");
+  // Auto-print off: nothing was attempted, not a failure. No printer: modal shows this itself.
+  const kitchenAutoPrintOff = !!kitchenPrinter && !kitchenPrinter.autoPrint;
+  const noKitchenPrinter = !kitchenPrinter;
+
   return (
     <>
       <div className="min-h-screen bg-slate-950 flex items-center justify-center p-6">
@@ -43,25 +54,14 @@ export default function SuccessView({ tableLabel, receipt, setReceipt, onAddMore
             </button>
           </div>
 
-          {/* Receipt actions */}
+          {/* Receipt actions — Print and PDF live inside the modal itself. */}
           {receipt && (
             <div className="flex gap-3 justify-center flex-wrap pt-2">
               <button
-                onClick={() => setReceipt({ ...receipt })}
+                onClick={() => setShowReceipt(true)}
                 className="flex items-center gap-2 px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-sm font-medium transition"
               >
                 <Eye size={15} /> View Receipt
-              </button>
-              <button
-                onClick={() => {
-                  const win = window.open("", "_blank", "width=400,height=600");
-                  if (!win) return;
-                  win.document.write(`<script>window.onload=()=>{window.print();window.onafterprint=()=>window.close()}<\/script>`);
-                  win.document.close();
-                }}
-                className="flex items-center gap-2 px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-sm font-medium transition"
-              >
-                <Printer size={15} /> Print
               </button>
             </div>
           )}
@@ -69,8 +69,18 @@ export default function SuccessView({ tableLabel, receipt, setReceipt, onAddMore
       </div>
 
       {/* Receipt modal */}
-      {receipt && (
-        <ReceiptModal receipt={receipt} onClose={() => setReceipt(null)} />
+      {receipt && showReceipt && (
+        <ReceiptModal
+          receipt={receipt}
+          onClose={() => setShowReceipt(false)}
+          thermalPrint={() => printWaiterReceiptToKitchen(receipt, appSettings)}
+          noPrinterHint="An admin can set one up in Admin → Integrations."
+          printerLabel="Kitchen"
+          autoPrintError={receipt.kitchenPrintError}
+          autoPrintOff={kitchenAutoPrintOff}
+          noPrinterConfigured={noKitchenPrinter}
+          autoPrinting={receipt.kitchenPrintPending}
+        />
       )}
     </>
   );

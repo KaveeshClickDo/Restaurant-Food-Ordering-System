@@ -14,6 +14,7 @@ import { parseBody }                  from "@/lib/apiValidation";
 import { ReservationPublicSchema }    from "@/lib/schemas/reservation";
 import { getOrderOccupiedTableIds }   from "@/lib/tableOccupancy";
 import { upsertMarketingContact }     from "@/lib/marketingContacts";
+import { newCheckInCode }             from "@/lib/reservationCheckIn";
 
 function toMins(time: string): number {
   const [h, m] = time.split(":").map(Number);
@@ -119,6 +120,8 @@ export async function POST(req: NextRequest) {
 
   const id           = crypto.randomUUID();
   const cancel_token = crypto.randomUUID();
+  // Secret code the guest shows as a QR on arrival (lib/reservationCheckIn.ts).
+  const check_in_code = newCheckInCode();
   const row = {
     id,
     table_id:       table.id,
@@ -135,17 +138,18 @@ export async function POST(req: NextRequest) {
     note:           note?.trim() ?? null,
     source:         source ?? "online",
     cancel_token,
+    check_in_code,
     created_at:     new Date().toISOString(),
   };
 
   let insertedWithToken = true;
   let { error } = await supabaseAdmin.from("reservations").insert(row);
 
-  // If cancel_token or source columns don't exist yet (migration not run), retry without them
-  if (error && (error.message?.includes("cancel_token") || error.message?.includes("source"))) {
+  // If cancel_token, check_in_code or source columns don't exist yet (migration not run), retry without them
+  if (error && (error.message?.includes("cancel_token") || error.message?.includes("check_in_code") || error.message?.includes("source"))) {
     insertedWithToken = false;
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    const { cancel_token: _ct, source: _src, ...baseRow } = row;
+    const { cancel_token: _ct, check_in_code: _cic, source: _src, ...baseRow } = row;
     const { error: retryError } = await supabaseAdmin.from("reservations").insert(baseRow);
     error = retryError ?? null;
   }
@@ -184,6 +188,7 @@ export async function POST(req: NextRequest) {
     section:        row.section,
     // Only include cancel_token in email if we successfully stored it
     cancel_token:   insertedWithToken ? cancel_token : undefined,
+    check_in_code:  insertedWithToken ? check_in_code : undefined,
   }, settingsRow?.data ?? {}, origin).catch(console.error);
 
   // Staff alert — no-op unless admin enabled it in Integrations → Admin Emails.
@@ -200,5 +205,5 @@ export async function POST(req: NextRequest) {
     note:           row.note,
   }).catch(console.error);
 
-  return NextResponse.json({ ok: true, reservationId: id });
+  return NextResponse.json({ ok: true, reservationId: id, ...(insertedWithToken ? { checkInCode: check_in_code } : {}) });
 }

@@ -1,5 +1,6 @@
 import { POSSale, POSSettings } from "@/types/pos";
 import type { ReceiptSettings } from "@/types";
+import { cardChargedTotal, cardDetailLine } from "@/lib/posCardPayment";
 
 export interface DineInOrder {
   id: string;
@@ -24,6 +25,11 @@ export interface DineInOrder {
   refundedAmount?: number;
   /** Amount of the bill paid by gift card (gross total − this = money in). */
   giftCardUsed?: number;
+  /** A tip the customer added on the card machine (Dojo's figure). Not part
+   *  of `total`: the card paid total + this. On the bill's anchor order. */
+  cardTipAmount?: number;
+  /** The part of cardTipAmount given back with a refund. */
+  cardTipRefunded?: number;
 }
 
 /**
@@ -67,10 +73,17 @@ export function buildReceiptHtml(sale: POSSale, settings: POSSettings, receipt: 
     paymentHtml += `<tr><td style="font-size:11px;color:#6b7280">Gift Card${codeStr}</td><td style="font-size:11px;color:#6b7280;text-align:right">${sym}${gcAmount.toFixed(2)}</td></tr>`;
   }
 
+  // The card used on the card machine, under the card line.
+  const cardDetail = cardDetailLine(sale.cardPayment);
+  const cardDetailRow = cardDetail
+    ? `<tr><td colspan="2" style="font-size:10px;color:#9ca3af">${cardDetail}</td></tr>`
+    : "";
+
   // 2. Show the remaining amount paid by Cash/Card/Split
   if (sale.paymentMethod === "split") {
     paymentHtml += sale.payments.map((p) =>
       `<tr><td style="font-size:11px;color:#6b7280;text-transform:capitalize">${p.method}</td><td style="font-size:11px;color:#6b7280;text-align:right">${sym}${p.amount.toFixed(2)}</td></tr>`
+      + (p.method === "card" ? cardDetailRow : "")
     ).join("");
   } else if (sale.paymentMethod === "cash") {
     const cashPaid = sale.cashTendered ?? sale.total;
@@ -84,6 +97,16 @@ export function buildReceiptHtml(sale: POSSale, settings: POSSettings, receipt: 
     // Card or other payment methods — total is already net = the amount charged.
     const charged = sale.total;
     paymentHtml += `<tr><td style="font-size:11px;color:#6b7280;text-transform:capitalize">${sale.paymentMethod}</td><td style="font-size:11px;color:#6b7280;text-align:right">${sym}${charged.toFixed(2)}</td></tr>`;
+    paymentHtml += cardDetailRow;
+  }
+
+  // 3. A tip the customer added on the card machine, apart from the total. The
+  //    card paid its part (all of it, or a split's card part) plus the tip.
+  const cardTip = sale.cardTipAmount ?? 0;
+  if (cardTip > 0) {
+    const cardTotal = cardChargedTotal(sale);
+    paymentHtml += `<tr><td style="font-size:11px;color:#6b7280">Tip on card machine</td><td style="font-size:11px;color:#6b7280;text-align:right">${sym}${cardTip.toFixed(2)}</td></tr>`;
+    paymentHtml += row("Card total", `${sym}${cardTotal.toFixed(2)}`, true);
   }
 
   return `<!DOCTYPE html><html><head><meta charset="utf-8"></head><body style="margin:0;background:#f9fafb;font-family:monospace">
@@ -100,6 +123,7 @@ export function buildReceiptHtml(sale: POSSale, settings: POSSettings, receipt: 
     ${sale.receiptNo?.startsWith("OFF") ? `<div style="font-size:11px;font-weight:700;color:#b45309;margin-top:2px;letter-spacing:0.5px">OFFLINE SALE</div>` : ""}
     ${sale.staffName ? `<div style="font-size:11px;color:#6b7280">Served by: ${sale.staffName}</div>` : ""}
     ${sale.customerName ? `<div style="font-size:11px;color:#6b7280">Customer: ${sale.customerName}</div>` : ""}
+    ${receipt.companyNumber ? `<div style="font-size:10px;color:#9ca3af">Company No: ${receipt.companyNumber}</div>` : ""}
     ${receipt.vatNumber ? `<div style="font-size:10px;color:#9ca3af">VAT No: ${receipt.vatNumber}</div>` : ""}
   </div>
   <hr style="border:none;border-top:1px dashed #d1d5db;margin:12px 0">
@@ -154,6 +178,7 @@ export function buildDineInReceiptHtml(order: DineInOrder, settings: POSSettings
   return `<!DOCTYPE html><html><head><meta charset="utf-8"></head><body style="margin:0;background:#f9fafb;font-family:monospace">
 <div style="max-width:320px;margin:24px auto;background:#fff;border-radius:12px;padding:24px">
   <div style="text-align:center;margin-bottom:16px">
+    ${receipt.showLogo && receipt.logoUrl?.trim() ? `<div style="margin-bottom:12px;display:block;"><img src="${receipt.logoUrl.trim()}" alt="Logo" style="max-height:40px;width:auto;display:inline-block;vertical-align:middle;" /></div>` : ""}
     <div style="font-weight:700;font-size:16px;letter-spacing:1px">${name}</div>
     ${receipt.address?.trim() ? `<div style="font-size:11px;color:#6b7280;white-space:pre-line">${receipt.address.trim()}</div>` : ""}
     ${receipt.phone ? `<div style="font-size:11px;color:#6b7280">${receipt.phone}</div>` : ""}
@@ -161,6 +186,7 @@ export function buildDineInReceiptHtml(order: DineInOrder, settings: POSSettings
     <div style="font-size:11px;color:#6b7280">Table: ${order.tableLabel}</div>
     <div style="font-size:11px;color:#6b7280">Served by: ${order.staffName}</div>
     ${order.covers > 0 ? `<div style="font-size:11px;color:#6b7280">${order.covers} cover${order.covers !== 1 ? "s" : ""}</div>` : ""}
+    ${receipt.companyNumber ? `<div style="font-size:10px;color:#9ca3af">Company No: ${receipt.companyNumber}</div>` : ""}
     ${receipt.vatNumber ? `<div style="font-size:10px;color:#9ca3af">VAT No: ${receipt.vatNumber}</div>` : ""}
   </div>
   <hr style="border:none;border-top:1px dashed #d1d5db;margin:12px 0">
@@ -171,9 +197,12 @@ export function buildDineInReceiptHtml(order: DineInOrder, settings: POSSettings
     <tr><td style="font-size:13px;font-weight:700">TOTAL</td><td style="font-size:13px;font-weight:700;text-align:right">${sym}${grossTotal.toFixed(2)}</td></tr>
     ${giftCardUsed > 0 ? `<tr><td style="font-size:11px;color:#7c3aed">Gift card</td><td style="font-size:11px;color:#7c3aed;text-align:right">−${sym}${giftCardUsed.toFixed(2)}</td></tr>
     <tr><td style="font-size:12px;font-weight:700">PAID (${payLabel})</td><td style="font-size:12px;font-weight:700;text-align:right">${sym}${amountPaid.toFixed(2)}</td></tr>` : `<tr><td style="font-size:11px;color:#6b7280">Payment</td><td style="font-size:11px;color:#6b7280;text-align:right">${payLabel}</td></tr>`}
+    ${(order.cardTipAmount ?? 0) > 0 ? `<tr><td style="font-size:11px;color:#6b7280">Tip on card machine</td><td style="font-size:11px;color:#6b7280;text-align:right">${sym}${(order.cardTipAmount ?? 0).toFixed(2)}</td></tr>
+    <tr><td style="font-size:12px;font-weight:700">Card total</td><td style="font-size:12px;font-weight:700;text-align:right">${sym}${(Math.round((amountPaid + (order.cardTipAmount ?? 0)) * 100) / 100).toFixed(2)}</td></tr>` : ""}
   </table>
   <hr style="border:none;border-top:1px dashed #d1d5db;margin:12px 0">
   ${receipt.thankYouMessage ? `<div style="text-align:center;font-weight:600;font-size:12px">${receipt.thankYouMessage}</div>` : ""}
+  ${receipt.customMessage ? `<div style="text-align:center;color:#6b7280;font-size:11px">${receipt.customMessage}</div>` : ""}
 </div></body></html>`;
 }
 

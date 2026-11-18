@@ -13,6 +13,7 @@ import { getPosSession, unauthorizedJson } from "@/lib/auth";
 import { parseBody }                  from "@/lib/apiValidation";
 import { ReservationPosSchema }       from "@/lib/schemas/reservation";
 import { createReservation }          from "@/lib/reservations";
+import { recordDojoPayment, isDojoPaymentRecorded } from "@/lib/dojo";
 
 export async function GET(req: NextRequest) {
   const pos = await getPosSession();
@@ -52,8 +53,14 @@ export async function POST(req: NextRequest) {
   const {
     tableId, tableLabel, tableSeats, section,
     date, time, partySize, customerName, customerEmail, customerPhone,
-    note, source, paymentMethod, marketingOptIn,
+    note, source, paymentMethod, marketingOptIn, dojo,
   } = parsed.data;
+
+  // A retried save after a card payment: already done if the payment is
+  // recorded, so the booking isn't made twice.
+  if (dojo?.paymentIntentId && await isDojoPaymentRecorded(dojo.paymentIntentId, "reservation")) {
+    return NextResponse.json({ ok: true, duplicate: true });
+  }
 
   // Load settings (slot duration + email templates) and the table itself — we
   // read VIP price from the live row, never trusting a client-supplied amount.
@@ -110,5 +117,13 @@ export async function POST(req: NextRequest) {
     console.error("pos/reservations POST:", result.error);
     return NextResponse.json({ ok: false, error: result.error }, { status: result.status ?? 500 });
   }
-  return NextResponse.json({ ok: true, reservationId: result.reservationId });
+
+  // Central record of the Dojo card-terminal payment for the VIP fee, if used.
+  if (dojo?.paymentIntentId) {
+    await recordDojoPayment({
+      result: dojo, sourceType: "reservation", sourceId: result.reservationId, amount: vipFee, staffId: pos.id,
+    });
+  }
+
+  return NextResponse.json({ ok: true, reservationId: result.reservationId, checkInCode: result.checkInCode });
 }

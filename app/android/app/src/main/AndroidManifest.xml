@@ -20,6 +20,12 @@
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
 
+    <!-- ── Camera: scan a guest's booking QR at check-in ──────────────── -->
+    <!-- Asked for only when staff press Camera. required=false keeps the app
+         installable on devices without a camera (plug-in scanners still work). -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
+
     <application
         android:allowBackup="false"
         android:dataExtractionRules="@xml/data_extraction_rules"

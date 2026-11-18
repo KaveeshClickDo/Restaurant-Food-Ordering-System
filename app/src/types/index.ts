@@ -304,6 +304,7 @@ export type EmailTemplateEvent =
   | "order_ready"
   | "order_delivered"
   | "order_cancelled"
+  | "order_refunded"
   | "reservation_confirmation"
   | "reservation_update"
   | "reservation_cancellation"
@@ -362,7 +363,15 @@ export interface CustomPage {
   updatedAt: string;    // ISO
 }
 
+/** "pos" = "Receipt / POS" in the UI — counter/receipt printing.
+ *  "online" = "Admin Receipts" in the UI — printed manually from several admin
+ *  screens (Online Orders, POS Orders, Dine-in Orders, Order History,
+ *  Customers, POS Reports) and from /collection. */
+export type PrinterCategory = "kitchen" | "pos" | "online";
+
 export interface PrinterSettings {
+  id: string;
+  category: PrinterCategory;
   enabled: boolean;
   name: string;              // display label, e.g. "Kitchen Printer"
   connection: "network" | "usb" | "bluetooth" | "browser";
@@ -372,13 +381,6 @@ export interface PrinterSettings {
   bluetoothName: string;     // BT device display name
   autoPrint: boolean;        // send receipt automatically on new order
   paperWidth: number;        // chars per line: 48 = 80 mm, 32 = 58 mm
-  /**
-   * Optional allowlist of IPs the /api/print server proxy is permitted to
-   * forward bytes to. When empty, /api/print falls back to allowing only
-   * the primary `ip` field. Set this to add extra printers (e.g. kitchen
-   * bar printer + counter receipt printer) without weakening the proxy.
-   */
-  allowedIps?: string[];
 }
 
 export interface FooterLogo {
@@ -432,6 +434,7 @@ export interface ReceiptSettings {
   phone: string;
   website: string;
   email: string;
+  companyNumber: string;      // e.g. company registration number
   vatNumber: string;          // e.g. "GB 123 4567 89"
   thankYouMessage: string;    // bottom of receipt
   customMessage: string;      // optional extra line at bottom
@@ -469,6 +472,7 @@ export interface Reservation {
   paymentStatus?: "none" | "paid";  // "paid" once the VIP booking fee is collected
   paymentMethod?: string; // "stripe" | "paypal" (online) | "cash" | "card" (POS/admin)
   paymentRef?: string;    // gateway id or till receipt reference
+  checkInCode?: string;   // secret code the guest shows as a QR (lib/reservationCheckIn.ts)
 }
 
 /** Where a marketing contact's email entered the system (see
@@ -595,6 +599,14 @@ export interface DiningTable {
   floorId?: string | null;
 }
 
+/** How the menu is shown on the customer website. Admin and POS screens are
+ *  not affected: staff always see the photos. */
+export interface MenuDisplaySettings {
+  /** True: customers see item names, descriptions and prices only; every menu
+   *  photo (menu list, item pop-up, home page, favourites, suggestions) is left out. */
+  hideImagesOnWebsite: boolean;
+}
+
 export interface AdminSettings {
   coupons: Coupon[];
   taxSettings: TaxSettings;
@@ -615,13 +627,25 @@ export interface AdminSettings {
   deliveryZones: DeliveryZone[];
   seo: SeoSettings;
   customHeadCode: string;   // raw HTML injected into <head> (analytics, verification tags, etc.)
-  printer: PrinterSettings;
+  printers: PrinterSettings[];
+  /** Active printer per category — global (not per-device). Must reference
+   *  an enabled printer, or null if none is set. */
+  activePrinterIdByCategory: Record<PrinterCategory, string | null>;
   emailTemplates: EmailTemplate[];
   /** Internal alert emails sent to the restaurant (Admin → Integrations →
    *  Admin Emails). Optional: server-side readers pull the raw app_settings
    *  blob with no DEFAULT_SETTINGS merge, so on installs that predate this
    *  feature the key really is undefined — treat missing as "disabled". */
   adminNotifications?: AdminNotificationSettings;
+  /** Dojo card-terminal integration (Admin → Integrations → Card Terminal).
+   *  Secondary switch over the DOJO_MODE env master: can turn the terminal
+   *  payment option off, or back on, but is ignored when env has it off.
+   *  Optional — missing means "not explicitly set" (treated as on when env is
+   *  on). See lib/dojo/effectiveFlag.ts. */
+  dojoTerminal?: { enabled: boolean };
+  /** How the menu is shown on the customer website (Admin → Menu → gear).
+   *  Optional: older settings blobs simply don't have the key. */
+  menuDisplay?: MenuDisplaySettings;
   /** Admin-saved broadcast templates (Admin → Marketing → compose step 2).
    *  Optional: older settings blobs simply don't have the key. */
   broadcastTemplates?: BroadcastTemplate[];
@@ -687,6 +711,11 @@ export interface Refund {
   stripeRefundId?: string | null;
   /** PayPal refund id when the refund was processed through PayPal. */
   paypalRefundId?: string | null;
+  /** Dojo refund id when the refund went back to the card through the card machine's Dojo account. */
+  dojoRefundId?: string | null;
+  viaDojo?: boolean;
+  /** The part of a tip added on the card machine given back with this refund. */
+  cardTip?: number;
 }
 
 export interface Driver {
@@ -774,6 +803,14 @@ export interface Order {
   discountAmount?: number;  // discount applied at the POS terminal
   discountNote?: string;    // free-text note for the discount
   tipAmount?: number;      // tip collected at the POS terminal
+  /** A tip the customer added on the Dojo card machine, from Dojo's record.
+   *  Not part of `total`: the card paid total + this. */
+  cardTipAmount?: number;
+  /** The part of cardTipAmount already given back with a refund. */
+  cardTipRefunded?: number;
+  /** Set when the order was paid on the Dojo card machine: a refund to the
+   *  original payment goes back to that card through Dojo. */
+  dojoPaymentIntentId?: string;
   changeGiven?: number;    // cash change given back to the customer
 }
 

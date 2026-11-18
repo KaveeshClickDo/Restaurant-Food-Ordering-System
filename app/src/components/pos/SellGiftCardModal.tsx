@@ -14,10 +14,12 @@
  * the gift_cards table (not pos_sales) so it is never double-counted.
  */
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { apiBase } from "@/lib/apiBase";
 import { Gift, X, Banknote, CreditCard, CheckCircle, Loader2 } from "lucide-react";
 import { fmt } from "./_utils";
+import DojoChargePanel from "./DojoChargePanel";
+import type { DojoSaleResult } from "@/lib/dojo/types";
 
 export interface SellableGiftCard {
   id: string;
@@ -26,14 +28,18 @@ export interface SellableGiftCard {
   createdAt: string;
 }
 
-export default function SellGiftCardModal({ card, currencySymbol, onClose, onSold }: {
+export default function SellGiftCardModal({ card, currencySymbol, onClose, onSold, dojoEnabled = false }: {
   card: SellableGiftCard;
   currencySymbol: string;
   onClose: () => void;
   /** Called after a successful activation so the caller can refresh the rack. */
   onSold: () => void;
+  /** When true, a card-paid sale offers the Dojo terminal vs manual choice. */
+  dojoEnabled?: boolean;
 }) {
   const [paymentMethod, setPaymentMethod] = useState<"cash" | "card">("cash");
+  /** This card's Dojo payment intent, kept across Back so a retry reuses it. */
+  const dojoIntent = useRef<string | null>(null);
   const [email, setEmail] = useState("");
   const [name, setName] = useState("");
   const [sendEmail, setSendEmail] = useState(true);
@@ -41,11 +47,28 @@ export default function SellGiftCardModal({ card, currencySymbol, onClose, onSol
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [sold, setSold] = useState(false);
+  // Dojo card flow: "choose" shows terminal-vs-manual; "dojo" drives the terminal.
+  const [cardFlow, setCardFlow] = useState<"none" | "choose" | "dojo">("none");
+  // True while a terminal payment is live; the X is hidden so the POS keeps watching it.
+  const [dojoActive, setDojoActive] = useState(false);
 
-  async function handleSell() {
+  /** Activate clicked: validate, then branch to the Dojo choice for card+enabled. */
+  function onActivateClick() {
+    if (!email.trim()) { setError("Customer email is required to sell the card."); return; }
+    if (paymentMethod === "card" && dojoEnabled) { setError(null); setCardFlow("choose"); return; }
+    void handleSell();
+  }
+
+  /** Activate the card. Returns null when sold, else the reason (also shown in
+   *  the modal), so a card machine payment's screen can retry the save. */
+  async function handleSell(dojo?: DojoSaleResult): Promise<string | null> {
     // Email is required — every till sale captures a marketing contact (with
     // the consent tick), same policy as the admin counter sale.
-    if (!email.trim()) { setError("Customer email is required to sell the card."); return; }
+    if (!email.trim()) {
+      const message = "Customer email is required to sell the card.";
+      setError(message);
+      return message;
+    }
     setBusy(true);
     setError(null);
     try {
@@ -58,17 +81,22 @@ export default function SellGiftCardModal({ card, currencySymbol, onClose, onSol
           recipientName:  name.trim() || undefined,
           sendEmail,
           marketingOptIn,
+          ...(dojo ? { dojo } : {}),
         }),
       });
-      const json = await res.json() as { ok: boolean; error?: string };
+      const json = await res.json().catch(() => ({ ok: false })) as { ok: boolean; error?: string };
       if (!res.ok || !json.ok) {
-        setError(json.error ?? "Couldn't activate the card. Try again.");
-        return;
+        const message = json.error ?? "Couldn't activate the card. Try again.";
+        setError(message);
+        return message;
       }
       setSold(true);
       onSold();
+      return null;
     } catch {
-      setError("Connection error — the card was NOT sold. Check the network and retry.");
+      const message = "Connection error — the card was NOT sold. Check the network and retry.";
+      setError(message);
+      return message;
     } finally {
       setBusy(false);
     }
@@ -81,7 +109,9 @@ export default function SellGiftCardModal({ card, currencySymbol, onClose, onSol
           <h3 className="text-white font-bold flex items-center gap-2">
             <Gift size={16} className="text-amber-400" /> {sold ? "Gift card sold" : "Sell Gift Card"}
           </h3>
-          <button onClick={onClose} className="text-slate-400 hover:text-white"><X size={18} /></button>
+          {!dojoActive && (
+            <button onClick={onClose} className="text-slate-400 hover:text-white"><X size={18} /></button>
+          )}
         </div>
 
         {sold ? (
@@ -99,6 +129,43 @@ export default function SellGiftCardModal({ card, currencySymbol, onClose, onSol
             <button onClick={onClose} className="w-full py-3 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-900 font-bold text-sm transition-colors">
               Done
             </button>
+          </div>
+        ) : cardFlow === "dojo" ? (
+          <div className="px-2 py-2">
+            <DojoChargePanel
+              amount={card.initialAmount}
+              // Never the whole code: it can be spent like cash, and the
+              // reference is kept in Dojo's records.
+              reference={`Gift card ending ${card.code.slice(-4)}`}
+              currencySymbol={currencySymbol}
+              busy={busy}
+              // Stays on the card machine screen until the card is activated,
+              // so a failed save can be retried without charging again.
+              onApproved={async (r) => {
+                const message = await handleSell(r);
+                if (!message) setCardFlow("none");
+                return message ?? true;
+              }}
+              onManualFallback={() => { setCardFlow("none"); void handleSell(); }}
+              onBack={() => setCardFlow("none")}
+              onActiveChange={setDojoActive}
+              intentMemory={dojoIntent}
+            />
+          </div>
+        ) : cardFlow === "choose" ? (
+          <div className="px-5 py-5 space-y-3">
+            <p className="text-slate-400 text-xs font-semibold uppercase tracking-wide text-center">Take {fmt(card.initialAmount, currencySymbol)} by card</p>
+            <button onClick={() => setCardFlow("dojo")}
+              className="w-full flex items-center gap-3 p-4 bg-slate-900 hover:bg-slate-700 border border-slate-600 hover:border-blue-500/50 rounded-xl transition">
+              <CreditCard size={20} className="text-blue-400 flex-shrink-0" />
+              <div className="text-left flex-1 min-w-0"><p className="text-white font-semibold text-sm">Card machine</p><p className="text-slate-400 text-xs">Send to the Dojo terminal</p></div>
+            </button>
+            <button onClick={() => { setCardFlow("none"); void handleSell(); }}
+              className="w-full flex items-center gap-3 p-4 bg-slate-900 hover:bg-slate-700 border border-slate-600 hover:border-slate-400/50 rounded-xl transition">
+              <CreditCard size={20} className="text-slate-300 flex-shrink-0" />
+              <div className="text-left flex-1 min-w-0"><p className="text-white font-semibold text-sm">Other</p><p className="text-slate-400 text-xs">Record manually — use your own machine</p></div>
+            </button>
+            <button onClick={() => setCardFlow("none")} className="w-full text-slate-500 hover:text-slate-300 text-sm font-medium pt-1">Cancel</button>
           </div>
         ) : (
           <div className="px-5 py-5 space-y-4">
@@ -165,12 +232,12 @@ export default function SellGiftCardModal({ card, currencySymbol, onClose, onSol
             )}
 
             <button
-              onClick={() => void handleSell()}
+              onClick={onActivateClick}
               disabled={busy}
               className="w-full py-3.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-900 font-bold text-sm transition-colors disabled:opacity-60 flex items-center justify-center gap-2"
             >
               {busy ? <Loader2 size={16} className="animate-spin" /> : <Gift size={16} />}
-              {busy ? "Activating…" : `Take ${fmt(card.initialAmount, currencySymbol)} · Activate`}
+              {busy ? "Activating…" : paymentMethod === "card" && dojoEnabled ? `Take ${fmt(card.initialAmount, currencySymbol)} by card` : `Take ${fmt(card.initialAmount, currencySymbol)} · Activate`}
             </button>
           </div>
         )}

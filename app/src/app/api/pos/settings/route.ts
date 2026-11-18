@@ -21,6 +21,7 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { requirePosPermission } from "@/lib/posPermissions";
 import { parseBody } from "@/lib/apiValidation";
 import { PosSettingsPatchSchema } from "@/lib/schemas/pos";
+import { resolvePrinters, resolveActivePrinterIdByCategory, createDefaultPrinter } from "@/lib/printerRecords";
 
 export async function PATCH(req: NextRequest) {
   // POS admin / manager (canAccessSettings) OR any admin session.
@@ -50,8 +51,68 @@ export async function PATCH(req: NextRequest) {
   if (patch.taxSettings) {
     next.taxSettings = { ...((data.taxSettings as object) ?? {}), ...patch.taxSettings };
   }
-  if (patch.printer) {
-    next.printer = { ...((data.printer as object) ?? {}), ...patch.printer };
+  // POS may add, edit and remove "pos"-category printers, never "kitchen" —
+  // checked here since only a DB read can confirm category membership.
+  // resolvePrinters also covers an un-migrated row.
+  if (patch.printer || patch.activePrinterId || patch.addPrinter || patch.removePrinterId) {
+    let printers = [...resolvePrinters(data)];
+    let activePrinterIdByCategory = resolveActivePrinterIdByCategory(data, printers);
+
+    if (patch.addPrinter) {
+      if (printers.some((p) => p.id === patch.addPrinter!.id)) {
+        return NextResponse.json({ ok: false, error: "A printer with this id already exists." }, { status: 403 });
+      }
+      printers.push(createDefaultPrinter("pos", patch.addPrinter.id));
+    }
+
+    if (patch.printer) {
+      const idx = printers.findIndex((p) => p.id === patch.printer!.id);
+      if (idx === -1 || printers[idx].category !== "pos") {
+        return NextResponse.json(
+          { ok: false, error: "Printer not found or not in the pos category." },
+          { status: 403 },
+        );
+      }
+      printers[idx] = { ...printers[idx], ...patch.printer, category: "pos" };
+      // Disabling the active printer clears the pointer, as the admin panel does —
+      // otherwise it stays "Active" after the next sync and re-enabling it would
+      // silently make it active again.
+      if (patch.printer.enabled === false && activePrinterIdByCategory.pos === patch.printer.id) {
+        activePrinterIdByCategory = { ...activePrinterIdByCategory, pos: null };
+      }
+    }
+
+    if (patch.removePrinterId) {
+      const removeId = patch.removePrinterId;
+      const target = printers.find((p) => p.id === removeId);
+      if (!target || target.category !== "pos") {
+        return NextResponse.json(
+          { ok: false, error: "Printer not found or not in the pos category." },
+          { status: 403 },
+        );
+      }
+      printers = printers.filter((p) => p.id !== removeId);
+      if (activePrinterIdByCategory.pos === removeId) {
+        activePrinterIdByCategory = { ...activePrinterIdByCategory, pos: null };
+      }
+    }
+
+    if (patch.activePrinterId) {
+      const { id } = patch.activePrinterId;
+      if (id !== null) {
+        const target = printers.find((p) => p.id === id);
+        if (!target || target.category !== "pos" || !target.enabled) {
+          return NextResponse.json(
+            { ok: false, error: "Printer must exist, be enabled, and be in the pos category to be made active." },
+            { status: 403 },
+          );
+        }
+      }
+      activePrinterIdByCategory = { ...activePrinterIdByCategory, pos: id };
+    }
+
+    next.printers = printers;
+    next.activePrinterIdByCategory = activePrinterIdByCategory;
   }
   if (patch.receiptSettings) {
     // Shared with Admin → Receipt: sub-object merge preserves sibling fields the

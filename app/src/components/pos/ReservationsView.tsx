@@ -4,12 +4,18 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { apiBase } from "@/lib/apiBase";
 import ConfirmDialog from "@/components/ConfirmDialog";
 import { useApp } from "@/context/AppContext";
+import { usePOS } from "@/context/POSContext";
+import DojoChargePanel from "./DojoChargePanel";
+import type { DojoSaleResult } from "@/lib/dojo/types";
 import {
   AlertTriangle, Calendar, CalendarDays, CheckCircle2, Clock, Loader2,
-  LogIn, LogOut, RefreshCw, Search, UserPlus, Users, UtensilsCrossed, X, Crown,
+  LogIn, LogOut, RefreshCw, Search, UserPlus, Users, UtensilsCrossed, X, Crown, CreditCard, Phone, Receipt,
 } from "lucide-react";
 import { type ResRow, fmt12Pos, fmtTsPos } from "./_reservations";
 import { cleanPhone } from "@/lib/inputUtils";
+import ReservationReceiptModal from "./ReservationReceiptModal";
+import CheckInLookup from "@/components/reservation/CheckInLookup";
+import type { ReservationReceiptData } from "./_reservationReceipt";
 
 // ─── Reservations View (POS) ──────────────────────────────────────────────────
 
@@ -72,6 +78,7 @@ interface AvailTablePos { id: string; label: string; seats: number; section: str
 
 export default function ReservationsView() {
   const { settings: appSettings } = useApp();
+  const { dojoEnabled, currentStaff } = usePOS();
   const rs = appSettings.reservationSystem ?? {};
   const currencySymbol = appSettings.currency?.symbol ?? "£";
   const maxParty = rs.maxPartySize ?? 10;
@@ -116,6 +123,17 @@ export default function ReservationsView() {
   const [addPayMethod,   setAddPayMethod]   = useState<"cash" | "card">("cash");
   const [addSaving,      setAddSaving]      = useState(false);
   const [addError,       setAddError]       = useState("");
+  // Shown after a successful walk-in/phone booking (autoPrint: true), or on
+  // demand from any existing row's Receipt button (autoPrint: false) —
+  // Close/PDF/Print + manual email, same shape as the POS sale receipt.
+  const [receiptModal,   setReceiptModal]   = useState<{ data: ReservationReceiptData; autoPrint: boolean } | null>(null);
+  // VIP-fee card flow: "choose" = terminal-vs-manual choice; "dojo" = driving the
+  // terminal; "keyed" = the same, with the card details typed in (phone
+  // bookings: the guest isn't there). "none" = no overlay.
+  const [cardStage,      setCardStage]      = useState<"none" | "choose" | "dojo" | "keyed">("none");
+  /** This booking's VIP fee Dojo intent, kept across Back so a retry reuses
+   *  it. Cleared for each new booking: the reference ("VIP <table>") repeats. */
+  const vipIntent = useRef<string | null>(null);
 
   // Fetch available tables for the add modal. Both walk-in and phone bookings
   // use the same availability check so staff can't accidentally double-book a
@@ -197,6 +215,7 @@ export default function ReservationsView() {
     setAddParty(2); setAddTableId(""); setAddTableMeta(null); setAddAvailTables([]); setAddUpcoming({});
     setAddName(""); setAddEmail(""); setAddPhone(""); setAddNote(""); setAddMarketing(true);
     setAddError(""); setAddSaving(false); setShowAdd(true);
+    vipIntent.current = null;
   }
 
   async function handleAddBooking() {
@@ -205,6 +224,13 @@ export default function ReservationsView() {
     // guest if the table runs late, the booking needs confirmation, etc.
     if (addSource === "phone" && !addPhone.trim()) {
       setAddError("Phone number is required for phone bookings.");
+      return;
+    }
+    // Phone bookings also need an email — it's how the confirmation/cancel
+    // link reaches the guest, same as an online booking would. Walk-ins skip
+    // this: they're already at the table.
+    if (addSource === "phone" && !addEmail.trim()) {
+      setAddError("Email is required for phone bookings.");
       return;
     }
     // Soft-warn: seating a walk-in on a table that's booked again soon. Allowed,
@@ -225,7 +251,20 @@ export default function ReservationsView() {
       );
       if (!ok) return;
     }
+    // VIP fee paid by card, with Dojo on → charge the terminal first, then book
+    // with the transaction attached. Otherwise book straight away.
+    const isVipCard = Boolean(addTableMeta.isVip && (addTableMeta.vipPrice ?? 0) > 0 && addPayMethod === "card");
+    if (isVipCard && dojoEnabled) { setAddError(""); setCardStage("choose"); return; }
+    void submitBooking();
+  }
+
+  /** Book the table. Returns null when booked, else the reason. After a card
+   *  machine payment a failed save stays on its screen (the reason, and a retry
+   *  that doesn't charge again); otherwise the reason shows on the form. */
+  async function submitBooking(dojo?: DojoSaleResult): Promise<string | null> {
+    if (!addTableMeta) return "Choose a table first.";
     setAddSaving(true); setAddError("");
+    let message: string | null = null;
     try {
       const res  = await fetch(apiBase() + "/api/pos/reservations", {
         method: "POST", headers: { "Content-Type": "application/json" },
@@ -238,13 +277,56 @@ export default function ReservationsView() {
           marketingOptIn: addMarketing,
           // Sent only for VIP tables; ignored by the server otherwise.
           ...(addTableMeta.isVip ? { paymentMethod: addPayMethod } : {}),
+          ...(dojo ? { dojo } : {}),
         }),
       });
-      const json = await res.json() as { ok: boolean; error?: string };
-      if (json.ok) { setShowAdd(false); fetchRows(false); }
-      else setAddError(json.error ?? "Failed to create booking.");
-    } catch { setAddError("Network error — please try again."); }
+      const json = await res.json().catch(() => ({ ok: false })) as { ok: boolean; error?: string; reservationId?: string; checkInCode?: string };
+      if (json.ok) {
+        vipIntent.current = null; setShowAdd(false); fetchRows(false);
+        if (json.reservationId) {
+          setReceiptModal({
+            autoPrint: true,
+            data: {
+              id: json.reservationId,
+              customerName: addName.trim(), customerEmail: addEmail.trim(), customerPhone: addPhone.trim(),
+              date: addDate, time: addTime, partySize: addParty,
+              tableLabel: addTableMeta.label, section: addTableMeta.section,
+              source: addSource, note: addNote.trim(), staffName: currentStaff?.name ?? "",
+              vipFee: addTableMeta.isVip ? (addTableMeta.vipPrice ?? 0) : 0,
+              paymentMethod: addTableMeta.isVip ? addPayMethod : undefined,
+              // A phone booking is still to come, so its receipt carries the
+              // check-in QR; a walk-in is already seated.
+              checkInCode: addSource === "phone" ? json.checkInCode : undefined,
+            },
+          });
+        }
+      }
+      else message = json.error ?? "Failed to create booking.";
+    } catch { message = "Network error — please try again."; }
     finally { setAddSaving(false); }
+    if (message && dojo) return message;
+    if (message) setAddError(message);
+    setCardStage("none");
+    return message;
+  }
+
+  /** Reopen the receipt for an existing reservation row (any source, any
+   *  status) — view/print/email on demand. Staff attribution isn't stored on
+   *  the row, so staffName is left blank here (only known right at creation). */
+  function openReceiptFor(r: ResRowEx) {
+    setReceiptModal({
+      autoPrint: false,
+      data: {
+        id: r.id,
+        customerName: r.customer_name, customerEmail: r.customer_email, customerPhone: r.customer_phone,
+        date: r.date, time: r.time, partySize: r.party_size,
+        tableLabel: r.table_label, section: r.section,
+        source: r.source ?? "online", note: r.note ?? "", staffName: "",
+        vipFee: r.vip_fee ?? 0,
+        paymentMethod: r.payment_method,
+        checkInCode: r.status === "pending" || r.status === "confirmed" ? r.check_in_code : undefined,
+      },
+    });
   }
 
   // ── Main list ──────────────────────────────────────────────────────────────
@@ -331,9 +413,13 @@ export default function ReservationsView() {
   const filtered = rows.filter((r) => {
     if (!search) return true;
     const q = search.toLowerCase();
+    // Phone and reference ignore spaces (and a leading "#"), as people read them out.
+    const compact = q.replace(/[\s#]/g, "");
     return r.customer_name.toLowerCase().includes(q) ||
            r.customer_email.toLowerCase().includes(q) ||
-           r.table_label.toLowerCase().includes(q);
+           r.table_label.toLowerCase().includes(q) ||
+           (!!compact && (r.customer_phone ?? "").replace(/\s/g, "").includes(compact)) ||
+           (compact.length >= 4 && r.id.toLowerCase().startsWith(compact));
   });
 
   const stats = {
@@ -378,6 +464,24 @@ export default function ReservationsView() {
           </button>
         </div>
       </div>
+
+      {/* Check in a guest: plug-in scanner, typed reference or camera */}
+      <CheckInLookup
+        surface="pos"
+        theme="dark"
+        currencySymbol={currencySymbol}
+        onCheckedIn={() => { void fetchRows(false); }}
+        onViewReceipt={(res) => openReceiptFor({
+          ...res,
+          note:           res.note ?? undefined,
+          source:         res.source ?? undefined,
+          checked_in_at:  res.checked_in_at ?? undefined,
+          checked_out_at: res.checked_out_at ?? undefined,
+          payment_status: res.payment_status ?? undefined,
+          payment_method: res.payment_method ?? undefined,
+          check_in_code:  res.check_in_code ?? undefined,
+        })}
+      />
 
       {/* Stats */}
       <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
@@ -435,7 +539,7 @@ export default function ReservationsView() {
           <Search size={13} className="text-slate-500 flex-shrink-0" />
           <input
             type="text"
-            placeholder="Name, email, table…"
+            placeholder="Name, phone, email, table, reference…"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="w-full bg-transparent text-slate-200 text-sm focus:outline-none placeholder-slate-500"
@@ -536,6 +640,12 @@ export default function ReservationsView() {
                       <Loader2 size={16} className="animate-spin text-slate-400 mx-auto" />
                     ) : (
                       <>
+                        <button
+                          onClick={() => openReceiptFor(r)}
+                          className="flex items-center gap-1.5 bg-slate-700 hover:bg-slate-600 border border-slate-600 active:scale-95 text-slate-300 text-xs font-semibold px-3 py-2 rounded-xl transition-all"
+                        >
+                          <Receipt size={13} /> Receipt
+                        </button>
                         {r.status === "pending" && (
                           <button
                             onClick={() => doStatus(r.id, "confirmed")}
@@ -741,7 +851,7 @@ export default function ReservationsView() {
                 <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Guest details</p>
                 <input type="text" placeholder="Full name *" value={addName} onChange={(e) => setAddName(e.target.value)}
                   className="w-full bg-slate-800 border border-slate-600 rounded-xl px-4 py-2.5 text-slate-200 text-sm placeholder-slate-500 focus:outline-none focus:border-orange-500 transition" />
-                <input type="email" autoComplete="off" placeholder="Email (optional)" value={addEmail} onChange={(e) => setAddEmail(e.target.value)}
+                <input type="email" autoComplete="off" placeholder={addSource === "phone" ? "Email *" : "Email (optional)"} value={addEmail} onChange={(e) => setAddEmail(e.target.value)}
                   className="w-full bg-slate-800 border border-slate-600 rounded-xl px-4 py-2.5 text-slate-200 text-sm placeholder-slate-500 focus:outline-none focus:border-orange-500 transition" />
                 <input type="tel" inputMode="tel" autoComplete="off" placeholder={addSource === "phone" ? "Phone *" : "Phone (optional)"}
                   value={addPhone} onChange={(e) => setAddPhone(cleanPhone(e.target.value))}
@@ -797,7 +907,7 @@ export default function ReservationsView() {
               <button onClick={() => setShowAdd(false)} className="text-slate-400 hover:text-slate-200 text-sm font-semibold transition">Cancel</button>
               <button
                 onClick={handleAddBooking}
-                disabled={addSaving || !addName.trim() || !addTableMeta || (addSource !== "walk-in" && isSlotPastRes(addTime, addDate)) || (addSource === "phone" && !addPhone.trim())}
+                disabled={addSaving || !addName.trim() || !addTableMeta || (addSource !== "walk-in" && isSlotPastRes(addTime, addDate)) || (addSource === "phone" && !addPhone.trim()) || (addSource === "phone" && !addEmail.trim())}
                 className="flex items-center gap-1.5 bg-orange-500 hover:bg-orange-400 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-semibold px-5 py-2.5 rounded-xl transition-all"
               >
                 {addSaving ? <><Loader2 size={14} className="animate-spin" />Saving…</> :
@@ -806,6 +916,57 @@ export default function ReservationsView() {
                    : addSource === "walk-in" ? <><LogIn size={14} />Check In Now</> : <><CheckCircle2 size={14} />Create Booking</>}
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* VIP booking fee — choose Dojo terminal vs manual, then charge. */}
+      {cardStage !== "none" && addTableMeta && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+          <div className="bg-slate-800 border border-slate-700 rounded-2xl w-full max-w-sm overflow-hidden shadow-2xl">
+            <div className="px-5 py-4 border-b border-slate-700">
+              <p className="text-white font-bold text-sm">VIP booking fee · {currencySymbol}{(addTableMeta.vipPrice ?? 0).toFixed(2)}</p>
+              <p className="text-slate-400 text-xs">Table {addTableMeta.label}</p>
+            </div>
+
+            {cardStage === "choose" ? (
+              <div className="p-5 space-y-3">
+                <p className="text-slate-400 text-sm">Take {currencySymbol}{(addTableMeta.vipPrice ?? 0).toFixed(2)} by card</p>
+                {addSource === "phone" && (
+                  <button onClick={() => setCardStage("keyed")}
+                    className="w-full flex items-center gap-3 p-4 bg-slate-900 hover:bg-slate-700 border border-slate-600 hover:border-blue-500/50 rounded-xl transition">
+                    <Phone size={20} className="text-blue-400 flex-shrink-0" />
+                    <div className="text-left flex-1 min-w-0"><p className="text-white font-semibold text-sm">Key in card</p><p className="text-slate-400 text-xs">Guest on the phone: type their card details into the Dojo terminal</p></div>
+                  </button>
+                )}
+                <button onClick={() => setCardStage("dojo")}
+                  className="w-full flex items-center gap-3 p-4 bg-slate-900 hover:bg-slate-700 border border-slate-600 hover:border-blue-500/50 rounded-xl transition">
+                  <CreditCard size={20} className="text-blue-400 flex-shrink-0" />
+                  <div className="text-left flex-1 min-w-0"><p className="text-white font-semibold text-sm">Card machine</p><p className="text-slate-400 text-xs">{addSource === "phone" ? "Guest here with their card: send to the Dojo terminal" : "Send to the Dojo terminal"}</p></div>
+                </button>
+                <button onClick={() => { setCardStage("none"); void submitBooking(); }}
+                  className="w-full flex items-center gap-3 p-4 bg-slate-900 hover:bg-slate-700 border border-slate-600 hover:border-slate-400/50 rounded-xl transition">
+                  <CreditCard size={20} className="text-slate-300 flex-shrink-0" />
+                  <div className="text-left flex-1 min-w-0"><p className="text-white font-semibold text-sm">Other</p><p className="text-slate-400 text-xs">Record manually — use your own machine</p></div>
+                </button>
+                <button onClick={() => setCardStage("none")} className="w-full pt-1 text-slate-500 hover:text-slate-300 text-sm font-medium transition">Cancel</button>
+              </div>
+            ) : (
+              <DojoChargePanel
+                key={cardStage}
+                keyed={cardStage === "keyed"}
+                amount={addTableMeta.vipPrice ?? 0}
+                reference={`VIP ${addTableMeta.label}`}
+                currencySymbol={currencySymbol}
+                busy={addSaving}
+                // Stays on the card machine screen until the booking is saved,
+                // so a failed save can be retried without charging again.
+                onApproved={async (r) => (await submitBooking(r)) ?? true}
+                onManualFallback={() => { setCardStage("none"); void submitBooking(); }}
+                onBack={() => setCardStage("choose")}
+                intentMemory={vipIntent}
+              />
+            )}
           </div>
         </div>
       )}
@@ -827,6 +988,14 @@ export default function ReservationsView() {
         }}
         onCancel={() => setCancelConfirm(null)}
       />
+
+      {receiptModal && (
+        <ReservationReceiptModal
+          data={receiptModal.data}
+          autoPrint={receiptModal.autoPrint}
+          onClose={() => setReceiptModal(null)}
+        />
+      )}
     </div>
   );
 }

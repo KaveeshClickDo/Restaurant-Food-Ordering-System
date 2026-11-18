@@ -35,6 +35,9 @@ const nextConfig: NextConfig = {
         source: "/.well-known/apple-developer-merchantid-domain-association",
         destination: "/api/apple-pay-domain-verification",
       },
+      // /favicon.ico serves the favicon uploaded in Admin → SEO (or the default),
+      // for browsers and search engines that ask for it without reading the page.
+      { source: "/favicon.ico", destination: "/api/favicon" },
     ];
   },
   async headers() {

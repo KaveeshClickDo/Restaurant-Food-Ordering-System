@@ -19,7 +19,7 @@
 
 import type {
   AdminSettings, ColorSettings, CurrencySettings, DeliveryZone, PaymentMethod,
-  PrinterSettings, ReceiptSettings, SeoSettings, TaxSettings,
+  PrinterCategory, PrinterSettings, ReceiptSettings, SeoSettings, TaxSettings,
 } from "@/types";
 import { restaurantInfo, defaultSchedule } from "@/data/restaurant";
 import { DEFAULT_FOOTER_PAGES }              from "@/data/footerPages";
@@ -45,7 +45,7 @@ const NO_RESTRICTION = { restricted: false, minKm: 0, maxKm: 50 };
 export const DEFAULT_PAYMENT_METHODS: PaymentMethod[] = [
   { id: "stripe", name: "Card (Stripe)",  description: "Visa, Mastercard, Amex via Stripe", adminNote: "",              enabled: true, builtIn: true, order: 0, deliveryRange: NO_RESTRICTION },
   { id: "paypal", name: "PayPal",         description: "Fast, secure PayPal checkout",       adminNote: "",              enabled: true, builtIn: true, order: 1, deliveryRange: NO_RESTRICTION },
-  { id: "cash",   name: "Cash",           description: "Pay in store or on delivery",         adminNote: "Pay on delivery", enabled: true, builtIn: true, order: 2, deliveryRange: { restricted: true, minKm: 0, maxKm: 3 } },
+  { id: "cash",   name: "Cash",           description: "Pay in store or on delivery",         adminNote: "Pay on delivery or in store", enabled: true, builtIn: true, order: 2, deliveryRange: { restricted: true, minKm: 0, maxKm: 3 } },
 ];
 
 export const DEFAULT_DELIVERY_ZONES: DeliveryZone[] = [
@@ -62,7 +62,7 @@ export const DEFAULT_CURRENCY: CurrencySettings = { code: "GBP", symbol: "£" };
 
 export const DEFAULT_RECEIPT: ReceiptSettings = {
   showLogo: false, logoUrl: "", logoDither: false, restaurantName: restaurantInfo.name, address: "",
-  phone: restaurantInfo.phone, website: "", email: "", vatNumber: "",
+  phone: restaurantInfo.phone, website: "", email: "", companyNumber: "", vatNumber: "",
   thankYouMessage: "Thank you for your order!", customMessage: "",
 };
 
@@ -75,10 +75,12 @@ export const DEFAULT_SEO: SeoSettings = {
   faviconUrl: "",
 };
 
-export const DEFAULT_PRINTER: PrinterSettings = {
-  enabled: false, name: "Kitchen Printer", connection: "network",
-  ip: "", port: 9100, bluetoothAddress: "", bluetoothName: "",
-  autoPrint: true, paperWidth: 48, allowedIps: [],
+export const DEFAULT_PRINTERS: PrinterSettings[] = [];
+
+export const DEFAULT_ACTIVE_PRINTER_BY_CATEGORY: Record<PrinterCategory, string | null> = {
+  kitchen: null,
+  pos: null,
+  online: null,
 };
 
 export const DEFAULT_SETTINGS: AdminSettings = {
@@ -91,7 +93,8 @@ export const DEFAULT_SETTINGS: AdminSettings = {
   deliveryZones: DEFAULT_DELIVERY_ZONES,
   seo: DEFAULT_SEO,
   customHeadCode: "",
-  printer: DEFAULT_PRINTER,
+  printers: DEFAULT_PRINTERS,
+  activePrinterIdByCategory: DEFAULT_ACTIVE_PRINTER_BY_CATEGORY,
   emailTemplates: DEFAULT_EMAIL_TEMPLATES,
   // Internal alerts to the restaurant. Ships disabled with no recipients so
   // upgrading an existing install never starts emailing on its own — the admin
@@ -143,6 +146,7 @@ export const DEFAULT_SETTINGS: AdminSettings = {
     maxAmount: 500,
     expiryMonths: 12,
   },
+  menuDisplay: { hideImagesOnWebsite: false },
   loyaltyPointsPerPound: 1,
   loyaltyPointsExpiryMonths: 1
 };

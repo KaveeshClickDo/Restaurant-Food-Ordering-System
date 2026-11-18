@@ -40,6 +40,7 @@ function mapRow(row: Record<string, unknown>): Reservation {
     paymentStatus: row.payment_status as Reservation["paymentStatus"],
     paymentMethod: row.payment_method as string | undefined,
     paymentRef:    row.payment_ref    as string | undefined,
+    checkInCode:   row.check_in_code  as string | undefined,
   };
 }
 
@@ -163,5 +164,5 @@ export async function POST(req: NextRequest) {
     console.error("admin/reservations POST:", result.error);
     return NextResponse.json({ ok: false, error: result.error }, { status: result.status ?? 500 });
   }
-  return NextResponse.json({ ok: true, reservationId: result.reservationId });
+  return NextResponse.json({ ok: true, reservationId: result.reservationId, checkInCode: result.checkInCode });
 }

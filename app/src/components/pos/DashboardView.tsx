@@ -14,8 +14,10 @@ import {
 import { fmt, fmtPct, fmtDate, fmtTime, relTime } from "./_utils";
 import { buildDineInReceiptHtml, dineInRefundState, type DineInOrder } from "./_receipts";
 import { parseTableLabelFromNote } from "@/lib/tableLabel";
+import { printDineInBill } from "@/lib/posPrint";
+import { matchesShortSaleId } from "@/lib/posSaleRef";
 import {
-  type POSPeriod, POS_PERIODS, getPOSDateRange, posExportCSV,
+  type POSPeriod, POS_PERIODS, getPOSDateRange, posExportCSV, defaultCustomRange,
 } from "./dashboard/_helpers";
 import VoidSaleModal from "./dashboard/VoidSaleModal";
 import DineInActionModal, { type DineInAction } from "./dashboard/DineInActionModal";
@@ -40,6 +42,11 @@ function tenderLabel(method: string | undefined, giftCardUsed = 0): string {
     return `${base} · Gift Card`;
   }
   return base;
+}
+
+/** A tip added on the card machine, less any part given back with a refund. */
+function keptCardTip(x: { cardTipAmount?: number; cardTipRefunded?: number }): number {
+  return Math.max(0, (x.cardTipAmount ?? 0) - (x.cardTipRefunded ?? 0));
 }
 
 export default function DashboardView() {
@@ -93,6 +100,8 @@ export default function DashboardView() {
       vatAmount: o.vat_amount != null ? Number(o.vat_amount) : undefined,
       vatInclusive: o.vat_inclusive != null ? Boolean(o.vat_inclusive) : undefined,
       tipAmount: o.tip_amount != null ? Number(o.tip_amount) : undefined,
+      cardTipAmount: o.card_tip_amount != null ? Number(o.card_tip_amount) : undefined,
+      cardTipRefunded: o.card_tip_refunded != null ? Number(o.card_tip_refunded) : undefined,
       serviceFeeAmount: o.service_fee != null ? Number(o.service_fee) : undefined,
       total: Number(o.total),
       status: o.status as string,
@@ -220,12 +229,23 @@ export default function DashboardView() {
     const effectiveName = appSettings.restaurant?.name || appSettings.receiptSettings.restaurantName?.trim() || settings.businessName || "Restaurant";
     const html = buildDineInReceiptHtml(order, settings, appSettings.receiptSettings, effectiveName);
     const win = window.open("", "_blank", "width=420,height=650");
-    if (!win) return;
+    if (!win) {
+      alert("Pop-up was blocked. Allow pop-ups for this site and try again.");
+      return;
+    }
     win.document.write(html);
     win.document.close();
     win.focus();
     win.print();
     win.onafterprint = () => win.close();
+  }
+
+  // Settled bills go to the Receipt / POS thermal printer, via the DineInReceiptModal's
+  // own Print button (opened from the Settled Today "Receipt" button below). Open-table
+  // "Print" stays on the browser dialog (printDineInReceipt).
+  function printDineInToPosPrinter(order: DineInOrder) {
+    const effectiveName = appSettings.restaurant?.name || appSettings.receiptSettings.restaurantName?.trim() || settings.businessName || "Restaurant";
+    return printDineInBill(order, settings, appSettings, effectiveName, appSettings.receiptSettings);
   }
 
   function openVoidModal(saleId: string) {
@@ -274,6 +294,14 @@ export default function DashboardView() {
   const diServiceFeesToday = todayDineInActive.reduce((sum, o) => sum + (o.serviceFeeAmount ?? 0), 0);
   // POS + dine-in combined.
   const totalTips = todaySalesActive.reduce((sum, s) => sum + s.tipAmount, 0) + diTipsToday;
+  // Tips added on the card machine: never part of a sale's total (so never in
+  // revenue), shown in the Tips card on top of the tips above.
+  const cardTipsToday = todaySalesActive.reduce((sum, s) => sum + keptCardTip(s), 0)
+    + todayDineInActive.reduce((sum, o) => sum + keptCardTip(o), 0);
+  const tipsTodaySub = [
+    diTipsToday > 0 ? `${fmt(diTipsToday, sym)} dine-in` : null,
+    cardTipsToday > 0 ? `${fmt(cardTipsToday, sym)} on card machine` : null,
+  ].filter(Boolean).join(" · ");
   const totalServiceFees = todaySalesActive.reduce((sum, s) => sum + s.serviceFeeAmount, 0) + diServiceFeesToday;
 
   // "Kept" = never-voided + voided-with-no-refund (money fully retained).
@@ -347,8 +375,15 @@ export default function DashboardView() {
 
   // ── Reports state ───────────────────────────────────────────────────────────
   const [period, setPeriod] = useState<POSPeriod>("today");
-  const [customStart, setCustomStart] = useState("");
-  const [customEnd, setCustomEnd] = useState("");
+  // Pre-filled to the last 30 days so switching to "Custom" never lands on two
+  // empty inputs — getPOSDateRange's "custom" case treats an empty date as
+  // epoch/now, which made that one click crunch the entire sales history.
+  const [customStart, setCustomStart] = useState(() => defaultCustomRange()[0]);
+  const [customEnd, setCustomEnd] = useState(() => defaultCustomRange()[1]);
+  // Local drafts so typing a year (2 → 0002 → 0020 → ...) doesn't commit each
+  // intermediate value and recompute reports mid-type; committed on blur/Enter.
+  const [draftStart, setDraftStart] = useState(customStart);
+  const [draftEnd, setDraftEnd] = useState(customEnd);
   type ReportTab = "overview" | "items" | "staff" | "transactions";
   const [reportTab, setReportTab] = useState<ReportTab>("overview");
   const [txSearch, setTxSearch] = useState("");
@@ -530,6 +565,9 @@ export default function DashboardView() {
   const combinedAvgOrder    = combinedTxns > 0 ? combinedRevenue / combinedTxns : 0;
   const combinedVat         = rTax + diVat;
   const combinedTips        = rTips + diTips;
+  // Tips added on the card machine (not in revenue), for the Tips card.
+  const combinedCardTips    = rFiltered.reduce((s, x) => s + keptCardTip(x), 0)
+    + diSettled.reduce((s, o) => s + keptCardTip(o), 0);
   const combinedDiscounts   = rDiscounts + diDiscounts;
   const combinedServiceFees = rServiceFees + diServiceFees;
   // Gift cards redeemed across settled POS + dine-in — money taken off bills by
@@ -605,7 +643,9 @@ export default function DashboardView() {
   const txFiltered = txSource.filter((s) => {
     if (!txSearch.trim()) return true;
     const q = txSearch.toLowerCase();
-    return s.receiptNo.includes(q) || s.staffName.toLowerCase().includes(q) || (s.customerName ?? "").toLowerCase().includes(q);
+    return s.receiptNo.toLowerCase().includes(q) || s.staffName.toLowerCase().includes(q)
+      || (s.customerName ?? "").toLowerCase().includes(q)
+      || matchesShortSaleId(s.id, txSearch); // "POS sale 3F9A2C1B" in Dojo
   });
   const txSorted = [...txFiltered].sort((a, b) => {
     const dir = sortDir === "desc" ? -1 : 1;
@@ -710,7 +750,7 @@ export default function DashboardView() {
                 { label: "Today's Revenue", value: fmt(totalRevenue, sym), sub: diRevToday > 0 ? `incl. ${fmt(diRevToday, sym)} dine-in` : undefined, icon: TrendingUp, color: "text-green-400", bg: "bg-green-500/10" },
                 { label: "Transactions", value: `${totalTransactions}`, sub: todayDineInSettled.length > 0 ? `${todaySales.length} POS · ${todayDineInSettled.length} dine-in` : undefined, icon: Receipt, color: "text-blue-400", bg: "bg-blue-500/10" },
                 { label: "Average Order", value: fmt(todayAvgOrder, sym), sub: "POS + dine-in", icon: BarChart3, color: "text-purple-400", bg: "bg-purple-500/10" },
-                { label: "Tips Collected", value: fmt(totalTips, sym), sub: diTipsToday > 0 ? `incl. ${fmt(diTipsToday, sym)} dine-in` : undefined, icon: BadgeDollarSign, color: "text-amber-400", bg: "bg-amber-500/10" },
+                { label: "Tips Collected", value: fmt(totalTips + cardTipsToday, sym), sub: tipsTodaySub ? `incl. ${tipsTodaySub}` : undefined, icon: BadgeDollarSign, color: "text-amber-400", bg: "bg-amber-500/10" },
                 { label: "Service Fees", value: fmt(totalServiceFees, sym), sub: diServiceFeesToday > 0 ? `incl. ${fmt(diServiceFeesToday, sym)} dine-in` : undefined, icon: DollarSign, color: "text-blue-400", bg: "bg-blue-500/10" },
               ].map((card) => (
                 <div key={card.label} className="bg-slate-800 border border-slate-700 rounded-2xl p-3 sm:p-5">
@@ -905,6 +945,9 @@ export default function DashboardView() {
                                     <Gift size={9} className="flex-shrink-0" /> −{fmt(sale.giftCardUsed ?? 0, sym)}
                                   </p>
                                 )}
+                                {(sale.cardTipAmount ?? 0) > 0 && (
+                                  <p className="text-[10px] text-amber-300">+{fmt(sale.cardTipAmount ?? 0, sym)} tip on card</p>
+                                )}
                               </div>
                               <button onClick={() => setViewingPosReceipt(sale)} className="text-slate-500 hover:text-orange-400 transition-colors flex-shrink-0" title="View receipt">
                                 <Receipt size={14} />
@@ -1024,12 +1067,18 @@ export default function DashboardView() {
                 <div className="flex flex-wrap gap-3 mt-4 pt-4 border-t border-slate-700">
                   <div>
                     <label className="text-xs text-slate-400 mb-1 block">From</label>
-                    <input type="date" value={customStart} onChange={(e) => setCustomStart(e.target.value)}
+                    <input type="date" value={draftStart}
+                      onChange={(e) => setDraftStart(e.target.value)}
+                      onBlur={() => setCustomStart(draftStart)}
+                      onKeyDown={(e) => { if (e.key === "Enter") setCustomStart(draftStart); }}
                       className="bg-slate-900 border border-slate-600 rounded-xl px-3 py-2 text-sm text-white outline-none focus:border-orange-500" />
                   </div>
                   <div>
                     <label className="text-xs text-slate-400 mb-1 block">To</label>
-                    <input type="date" value={customEnd} onChange={(e) => setCustomEnd(e.target.value)}
+                    <input type="date" value={draftEnd}
+                      onChange={(e) => setDraftEnd(e.target.value)}
+                      onBlur={() => setCustomEnd(draftEnd)}
+                      onKeyDown={(e) => { if (e.key === "Enter") setCustomEnd(draftEnd); }}
                       className="bg-slate-900 border border-slate-600 rounded-xl px-3 py-2 text-sm text-white outline-none focus:border-orange-500" />
                   </div>
                 </div>
@@ -1066,7 +1115,7 @@ export default function DashboardView() {
                       { label: "Avg Order", value: fmt(combinedAvgOrder, sym), sub: "per order", icon: Receipt, color: "text-blue-400", bg: "bg-blue-500/10" },
                       { label: "Gross Profit", value: fmt(grossProfit, sym), sub: `${fmtPct(marginPct)} margin · POS`, icon: BarChart3, color: "text-purple-400", bg: "bg-purple-500/10" },
                       { label: "VAT Collected", value: fmt(combinedVat, sym), sub: "excl. refunded", icon: Percent, color: "text-amber-400", bg: "bg-amber-500/10" },
-                      { label: "Tips", value: fmt(combinedTips, sym), sub: "POS + dine-in", icon: BadgeDollarSign, color: "text-pink-400", bg: "bg-pink-500/10" },
+                      { label: "Tips", value: fmt(combinedTips + combinedCardTips, sym), sub: combinedCardTips > 0 ? `POS + dine-in · incl. ${fmt(combinedCardTips, sym)} on card machine` : "POS + dine-in", icon: BadgeDollarSign, color: "text-pink-400", bg: "bg-pink-500/10" },
                       { label: "Discounts", value: fmt(combinedDiscounts, sym), sub: "reductions applied", icon: Tag, color: "text-red-400", bg: "bg-red-500/10" },
                       { label: "Service Fees", value: fmt(combinedServiceFees, sym), sub: "POS + dine-in", icon: DollarSign, color: "text-blue-400", bg: "bg-blue-500/10" },
                       { label: "Gift Cards Redeemed", value: fmt(giftCardRedeemed, sym), sub: "settled · not revenue", icon: Gift, color: "text-purple-300", bg: "bg-purple-500/10" },
@@ -1481,7 +1530,7 @@ export default function DashboardView() {
                         <div className="flex-1 min-w-48 relative">
                           <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
                           <input value={txSearch} onChange={(e) => setTxSearch(e.target.value)}
-                            placeholder="Search receipt, staff, customer…"
+                            placeholder="Search receipt, sale ID, staff, customer…"
                             className="w-full bg-slate-900 border border-slate-600 rounded-xl pl-9 pr-4 py-2 text-sm text-white outline-none focus:border-orange-500 placeholder-slate-500" />
                         </div>
                         <label className="flex items-center gap-2 text-xs text-slate-400 cursor-pointer select-none">
@@ -1560,6 +1609,9 @@ export default function DashboardView() {
                                     <div className="text-[10px] text-purple-300 mt-0.5 flex items-center gap-0.5 justify-end">
                                       <Gift size={9} className="flex-shrink-0" /> −{fmt(sale.giftCardUsed ?? 0, sym)}
                                     </div>
+                                  )}
+                                  {(sale.cardTipAmount ?? 0) > 0 && (
+                                    <div className="text-[10px] text-amber-300 mt-0.5">+{fmt(sale.cardTipAmount ?? 0, sym)} tip on card</div>
                                   )}
                                   {sale.voided && net > 0 && (
                                     <div className="text-[10px] text-amber-400 mt-0.5">{fmt(net, sym)} kept</div>
@@ -1760,7 +1812,7 @@ export default function DashboardView() {
                                 ))}
                               </div>
                             </div>
-                            <div className="flex flex-col sm:flex-row gap-2 mt-4">
+                            <div className="flex flex-col sm:flex-row sm:items-start gap-2 mt-4">
                               <button
                                 onClick={() => printDineInReceipt(order)}
                                 className="flex items-center justify-center sm:justify-start gap-2 px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white text-sm font-medium rounded-xl transition-colors"
@@ -1859,13 +1911,13 @@ export default function DashboardView() {
                                 ))}
                               </div>
                             </div>
-                            <div className="flex flex-col sm:flex-row gap-2">
+                            <div className="flex flex-col sm:flex-row sm:items-start gap-2">
                               <button
-                                onClick={() => printDineInReceipt(order)}
+                                onClick={() => setViewingDineInReceipt(order)}
                                 className="flex items-center justify-center sm:justify-start gap-2 px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white text-sm font-medium rounded-xl transition-colors"
                               >
-                                <Printer size={14} />
-                                Reprint
+                                <Receipt size={14} />
+                                Receipt
                               </button>
                               <div className="flex-1 flex flex-col gap-1.5">
                                 <div className="flex flex-col sm:flex-row gap-2">
@@ -1992,12 +2044,14 @@ export default function DashboardView() {
             vatAmount: viewingDineInReceipt.vatAmount,
             vatInclusive: viewingDineInReceipt.vatInclusive,
             tipAmount: viewingDineInReceipt.tipAmount,
+            cardTipAmount: viewingDineInReceipt.cardTipAmount,
             serviceFeeAmount: viewingDineInReceipt.serviceFeeAmount,
             giftCardUsed: viewingDineInReceipt.giftCardUsed,
             total: viewingDineInReceipt.total,
             orderIds: [viewingDineInReceipt.id],
             paymentMethod: viewingDineInReceipt.paymentMethod as "cash" | "card" | "gift_card" | "pending",
           }}
+          thermalPrint={() => printDineInToPosPrinter(viewingDineInReceipt)}
           onClose={() => setViewingDineInReceipt(null)}
         />
       )}

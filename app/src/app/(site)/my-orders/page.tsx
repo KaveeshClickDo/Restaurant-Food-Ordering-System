@@ -26,7 +26,6 @@ import {
     Package,
     Truck,
     Ban,
-    UtensilsCrossed,
     Sun,
     Moon,
 } from "lucide-react";
@@ -37,6 +36,7 @@ import Link from "next/link";
 import Cart from "@/components/Cart";
 import MobileBottomNav from "@/components/MobileBottomNav";
 import { effectiveMenuPrice, getOfferUnitPrice, isOnChannel } from "@/lib/menuOfferUtils";
+import { showMenuImages } from "@/lib/menuDisplay";
 import { resolveStock } from "@/lib/stockUtils";
 import { useSiteTheme } from "@/context/SiteThemeContext";
 
@@ -253,7 +253,7 @@ function ReorderToast({ result, onClose }: { result: ReorderResult; onClose: () 
 function buildPrintHtml(
     order: Order,
     customer: Customer,
-    rs: { showLogo: boolean; logoUrl: string; restaurantName: string; address: string; phone: string; website: string; email: string; vatNumber: string; thankYouMessage: string; customMessage: string },
+    rs: { showLogo: boolean; logoUrl: string; restaurantName: string; address: string; phone: string; website: string; email: string; companyNumber: string; vatNumber: string; thankYouMessage: string; customMessage: string },
     restaurantAddress: string,
     sym: string,
     showVat: boolean,
@@ -285,7 +285,7 @@ function buildPrintHtml(
     .logo{max-height:60px;max-width:160px;object-fit:contain;margin:0 auto 6px;display:block}
   </style>
 </head>
-<body onload="window.print();window.close();">
+<body>
 <div class="r">
   ${rs.showLogo && rs.logoUrl ? `<img src="${rs.logoUrl}" class="logo" alt="Logo"/>` : ""}
   <div class="c b" style="font-size:15px">${rs.restaurantName}</div>
@@ -293,6 +293,7 @@ function buildPrintHtml(
   ${rs.phone ? `<div class="c sm">${rs.phone}</div>` : ""}
   ${rs.website ? `<div class="c sm">${rs.website}</div>` : ""}
   ${rs.email ? `<div class="c sm">${rs.email}</div>` : ""}
+  ${rs.companyNumber ? `<div class="c sm">Company No: ${rs.companyNumber}</div>` : ""}
   ${rs.vatNumber ? `<div class="c sm">VAT: ${rs.vatNumber}</div>` : ""}
   <div class="d"></div>
   <div class="c b">RECEIPT</div>
@@ -323,6 +324,10 @@ function buildPrintHtml(
   ${rs.customMessage ? `<div class="c sm" style="margin-bottom:3px;white-space:pre-wrap">${rs.customMessage}</div>` : ""}
   <div class="c sm">${rs.restaurantName}</div>
 </div>
+<script>
+  window.onafterprint = function () { window.close(); };
+  window.onload = function () { window.focus(); window.print(); };
+</script>
 </body>
 </html>`;
 }
@@ -375,7 +380,10 @@ function ReceiptModal({
     function handlePrint() {
         const html = buildPrintHtml(order, customer, rs, restaurantAddress, sym, showVat );
         const win = window.open("", "_blank", "width=420,height=720");
-        if (!win) return;
+        if (!win) {
+            alert("Pop-up was blocked. Allow pop-ups for this site and try again.");
+            return;
+        }
         win.document.write(html);
         win.document.close();
     }
@@ -417,6 +425,7 @@ function ReceiptModal({
                         {rs.phone && <p className="text-gray-500 dark:text-zinc-400">{rs.phone}</p>}
                         {rs.website && <p className="text-gray-500 dark:text-zinc-400">{rs.website}</p>}
                         {rs.email && <p className="text-gray-500 dark:text-zinc-400">{rs.email}</p>}
+                        {rs.companyNumber && <p className="text-gray-500 dark:text-zinc-400">Company No: {rs.companyNumber}</p>}
                         {rs.vatNumber && <p className="text-gray-500 dark:text-zinc-400">VAT: {rs.vatNumber}</p>}
                     </div>
 
@@ -575,6 +584,8 @@ function ReceiptModal({
 // ── Main Page ───────────────────────────────────────────────────────────────
 export default function MyOrdersPage() {
     const { currentUser, addToCart, settings, menuItems, refreshCurrentUser, logout } = useApp();
+    // Admin → Menu → gear can hide every photo on the website.
+    const showImages = showMenuImages(settings);
     const { theme, toggleTheme } = useSiteTheme();
     const sym = settings.currency?.symbol ?? "£";
     const router = useRouter();
@@ -809,14 +820,12 @@ export default function MyOrdersPage() {
                                                 onClick={() => openSuggestion(item)}
                                                 className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-zinc-50 dark:hover:bg-white/5 active:bg-zinc-100 dark:active:bg-white/10 transition-colors text-left"
                                             >
-                                                <div className="w-11 h-11 rounded-lg bg-orange-50 overflow-hidden flex-shrink-0 flex items-center justify-center">
-                                                    {item.image ? (
-                                                        /* eslint-disable-next-line @next/next/no-img-element */
+                                                {showImages && item.image && (
+                                                    <div className="w-11 h-11 rounded-lg bg-orange-50 overflow-hidden flex-shrink-0">
+                                                        {/* eslint-disable-next-line @next/next/no-img-element */}
                                                         <img src={item.image} alt={item.name} className="w-full h-full object-cover" />
-                                                    ) : (
-                                                        <UtensilsCrossed className="w-5 h-5 text-zinc-300 dark:text-zinc-700" strokeWidth={1.4} />
-                                                    )}
-                                                </div>
+                                                    </div>
+                                                )}
                                                 <div className="flex-1 min-w-0">
                                                     <div className="text-[13.5px] font-medium text-zinc-900 dark:text-[var(--brand-text-dark)] truncate">{item.name}</div>
                                                     {item.description && (

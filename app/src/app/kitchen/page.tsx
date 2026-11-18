@@ -11,7 +11,7 @@ import { parseTableLabelFromNote } from "@/lib/tableLabel";
 import {
   ChefHat, Clock, Truck, ShoppingBag, CheckCircle2,
   LayoutDashboard, Maximize2, Minimize2, UtensilsCrossed,
-  AlertTriangle, CalendarClock, LogOut,
+  AlertTriangle, CalendarClock, LogOut, X,
 } from "lucide-react";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -244,22 +244,200 @@ function ElapsedBadge({ date }: { date: string }) {
   );
 }
 
+// ─── Baked-in modifier parsing (waiter / POS walk-in tickets) ─────────────────
+// Online orders carry variations/add-ons as structured selectedVariations /
+// selectedAddOns, so item.name stays clean. Waiter (ItemModal.tsx's buildName)
+// and POS walk-in (api/pos/sales/route.ts) tickets instead bake the chosen
+// labels straight into item.name — e.g. "Spider Roll (Regular (6 pcs)) +
+// Extra cheese [no onions]" — because that's what their own receipts read
+// directly. Split it back apart here so every KDS ticket renders the same
+// way: bold item name, modifiers on their own line below, note in amber.
+
+function parseBakedItemName(rawName: string): { name: string; mods: string[]; note?: string } {
+  let name = rawName;
+  let note: string | undefined;
+
+  // POS walk-in: "... — Note: <text>" tacked on the end.
+  const posNoteIdx = name.indexOf(" — Note: ");
+  if (posNoteIdx !== -1) {
+    note = name.slice(posNoteIdx + " — Note: ".length).trim() || undefined;
+    name = name.slice(0, posNoteIdx);
+  }
+
+  // Waiter: "... [note]" tacked on the end.
+  const waiterNoteMatch = name.match(/^(.*)\s\[([^[\]]+)\]$/);
+  if (waiterNoteMatch) {
+    note = waiterNoteMatch[2].trim() || note;
+    name = waiterNoteMatch[1];
+  }
+
+  const mods: string[] = [];
+
+  // Waiter add-ons: "... + addon1, addon2" appended after the variation group.
+  // Only treat it as add-ons when the parens inside it balance — otherwise a
+  // variation label that happens to contain " + " would get cut in half.
+  const addOnIdx = name.lastIndexOf(" + ");
+  if (addOnIdx !== -1) {
+    const addOnPart = name.slice(addOnIdx + 3);
+    const opens  = (addOnPart.match(/\(/g) ?? []).length;
+    const closes = (addOnPart.match(/\)/g) ?? []).length;
+    if (opens === closes) {
+      mods.push(...addOnPart.split(",").map((s) => s.trim()).filter(Boolean));
+      name = name.slice(0, addOnIdx);
+    }
+  }
+
+  // Trailing "(...)" variation group — matched by paren depth from the end so
+  // a nested label like "(Regular (6 pcs))" still resolves to the outer pair.
+  if (name.endsWith(")")) {
+    let depth = 0;
+    for (let i = name.length - 1; i >= 0; i--) {
+      if (name[i] === ")") depth++;
+      else if (name[i] === "(") {
+        depth--;
+        if (depth === 0) {
+          if (i > 0 && name[i - 1] === " ") {
+            const inner = name.slice(i + 1, name.length - 1);
+            mods.unshift(...inner.split(",").map((s) => s.trim()).filter(Boolean));
+            name = name.slice(0, i - 1);
+          }
+          break;
+        }
+      }
+    }
+  }
+
+  return { name, mods, note };
+}
+
+/** One item line — qty prefix at the same size/weight as the item name,
+ *  modifiers and any note below. Shared by the card's item list and the
+ *  "view all" modal so both render identically. */
+function ItemLine({
+  item,
+  textClass,
+  bakedFormat,
+}: {
+  item: KDSItem;
+  textClass: string;
+  bakedFormat: boolean;
+}) {
+  const structuredVariations = (item.selectedVariations?.length
+    ? item.selectedVariations
+    : item.selectedVariation ? [item.selectedVariation] : []
+  ).map((v) => v.label).filter(Boolean);
+  const structuredAddOns = (item.selectedAddOns ?? []).map((a) => a.name).filter(Boolean);
+
+  let name = item.name;
+  let mods = [...structuredVariations, ...structuredAddOns];
+  let note = item.specialInstructions;
+
+  if (bakedFormat && mods.length === 0) {
+    const parsed = parseBakedItemName(item.name);
+    name = parsed.name;
+    mods = parsed.mods;
+    note = note ?? parsed.note;
+  }
+
+  return (
+    <div className="flex items-start gap-2">
+      <div className="min-w-[2.1rem]">
+        <span className={`${textClass} font-extrabold text-sm lg:text-base leading-snug flex-shrink-0`}>
+          {item.qty}{" "}×
+        </span>
+      </div>
+      <div className="min-w-0">
+        <span className="text-white font-semibold text-sm lg:text-base leading-snug">{name}</span>
+        {mods.length > 0 && (
+          <p className="text-gray-300 text-xs lg:text-sm leading-snug mt-0.5">{mods.join(" · ")}</p>
+        )}
+        {note && (
+          <p className="text-amber-300 text-xs leading-snug mt-0.5 italic">📝 {note}</p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** Full item list for a ticket, opened from the card's "View all" button once
+ *  an order has more items than fit comfortably on the board. */
+function ViewAllItemsModal({
+  order,
+  orderLabel,
+  textClass,
+  bakedFormat,
+  onClose,
+}: {
+  order: KDSOrder;
+  orderLabel: string;
+  textClass: string;
+  bakedFormat: boolean;
+  onClose: () => void;
+}) {
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4"
+      onClick={onClose}
+    >
+      <div
+        className="bg-gray-800 rounded-2xl w-full max-w-md max-h-[85vh] flex flex-col shadow-2xl overflow-hidden"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="px-5 py-4 border-b border-gray-700 flex items-start justify-between gap-3 flex-shrink-0">
+          <div className="min-w-0">
+            <p title={orderLabel} className="text-[10px] text-gray-500 font-mono uppercase tracking-widest truncate">
+              {orderLabel}
+            </p>
+            <p className="text-white font-bold text-lg leading-tight truncate mt-0.5">{order.displayName}</p>
+          </div>
+          <button onClick={onClose} className="text-gray-400 hover:text-white transition-colors flex-shrink-0">
+            <X size={20} />
+          </button>
+        </div>
+        <div className="px-5 py-4 flex-1 overflow-y-auto space-y-3">
+          {order.items.map((item, i) => (
+            <ItemLine key={i} item={item} textClass={textClass} bakedFormat={bakedFormat} />
+          ))}
+        </div>
+        {order.kitchenNote && (
+          <div className="mx-5 mb-4 bg-amber-500/10 border border-amber-500/30 rounded-xl px-3 py-2 flex-shrink-0">
+            <p className="text-amber-400 text-[10px] font-bold uppercase tracking-widest mb-1 flex items-center gap-1">
+              <AlertTriangle size={10} /> Special Note
+            </p>
+            <p className="text-amber-200 text-sm leading-snug">{order.kitchenNote}</p>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ─── Order card ───────────────────────────────────────────────────────────────
+
+const VISIBLE_ITEMS = 3;
 
 function OrderCard({
   order,
   col,
   onAdvance,
+  onServe,
 }: {
   order: KDSOrder;
   col: ColumnConfig;
   onAdvance?: () => void;
+  onServe?: () => void;
 }) {
   const isDelivery = order.fulfillment === "delivery";
   const isDineIn   = order.fulfillment === "dine-in";
   // POS walk-in tickets still complete on the KDS; real online collection
   // orders are settled on the POS Collection screen, so their card is display-only.
   const isPosWalkin = order.isPosWalkin;
+  // Only dine-in (waiter) and POS walk-in tickets bake variation/add-on labels
+  // into item.name — see parseBakedItemName for why.
+  const bakedFormat = isDineIn || isPosWalkin;
+  const [showAllItems, setShowAllItems] = useState(false);
+  const visibleItems = order.items.slice(0, VISIBLE_ITEMS);
+  const hiddenCount = order.items.length - visibleItems.length;
 
   // POS sales show their real till receipt number ("R1024"); every other type
   // shows the full order number.
@@ -306,10 +484,31 @@ function OrderCard({
   }
   useEffect(() => () => { if (confirmTimer.current) clearTimeout(confirmTimer.current); }, []);
 
+  // Same two-step confirm as "Mark as Collected" above, for the dine-in
+  // equivalent action — this clears the ticket for every waiter too, so it's
+  // worth a confirm tap rather than a single accidental click.
+  const [confirmingServe, setConfirmingServe] = useState(false);
+  const serveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  function handleServeClick() {
+    setConfirmingServe(true);
+    serveTimer.current = setTimeout(() => setConfirmingServe(false), 4000);
+  }
+  function handleConfirmServe() {
+    if (serveTimer.current) clearTimeout(serveTimer.current);
+    setConfirmingServe(false);
+    onServe?.();
+  }
+  function handleCancelServe() {
+    if (serveTimer.current) clearTimeout(serveTimer.current);
+    setConfirmingServe(false);
+  }
+  useEffect(() => () => { if (serveTimer.current) clearTimeout(serveTimer.current); }, []);
+
   const u = mins !== null ? urgencyClass(mins) : { ring: "", pulse: false };
 
   return (
-    <div className={`bg-gray-800 rounded-2xl border-l-[5px] ${col.borderClass} ${u.ring} flex flex-col overflow-hidden transition-shadow hover:shadow-xl`}>
+    <div className={`bg-gray-800 group rounded-2xl border-l-[5px] ${col.borderClass} ${u.ring} flex flex-col overflow-hidden transition-shadow hover:shadow-xl`}>
       {/* Card header */}
       <div className="px-4 pt-3.5 pb-2 flex items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
@@ -355,38 +554,28 @@ function OrderCard({
 
       {/* Items */}
       <div className="px-4 py-3 flex-1 space-y-2.5">
-        {order.items.map((item, i) => {
-          // Prefer the array form; fall back to the legacy singular variation.
-          const variations = (item.selectedVariations?.length
-            ? item.selectedVariations
-            : item.selectedVariation ? [item.selectedVariation] : []
-          ).map((v) => v.label).filter(Boolean);
-          const addOns = (item.selectedAddOns ?? []).map((a) => a.name).filter(Boolean);
-          const mods = [...variations, ...addOns];
-          return (
-            <div key={i} className="flex items-start gap-3">
-              <span className={`${col.textClass} font-extrabold text-xl lg:text-2xl leading-none tabular-nums min-w-[3rem] text-center flex-shrink-0`}>
-                {item.qty}
-              </span>
-              <div className="flex-1 min-w-0">
-                <span className="text-white font-semibold text-sm lg:text-base leading-snug">
-                  {item.name}
-                </span>
-                {mods.length > 0 && (
-                  <p className="text-gray-300 text-xs lg:text-sm leading-snug mt-0.5">
-                    {mods.join(" · ")}
-                  </p>
-                )}
-                {item.specialInstructions && (
-                  <p className="text-amber-300 text-xs lg:text-sm leading-snug mt-0.5 italic">
-                    📝 {item.specialInstructions}
-                  </p>
-                )}
-              </div>
-            </div>
-          );
-        })}
+        {visibleItems.map((item, i) => (
+          <ItemLine key={i} item={item} textClass={col.textClass} bakedFormat={bakedFormat} />
+        ))}
+        {hiddenCount > 0 && (
+          <button
+            onClick={() => setShowAllItems(true)}
+            className="w-full text-center text-xs font-semibold text-gray-400 group-hover:text-white border border-dashed border-gray-600 group-hover:border-gray-500 rounded-lg py-2 transition-colors"
+          >
+            +{hiddenCount} more item{hiddenCount !== 1 ? "s" : ""} · View all {order.items.length}
+          </button>
+        )}
       </div>
+
+      {showAllItems && (
+        <ViewAllItemsModal
+          order={order}
+          orderLabel={orderLabel}
+          textClass={col.textClass}
+          bakedFormat={bakedFormat}
+          onClose={() => setShowAllItems(false)}
+        />
+      )}
 
       {/* Kitchen note — only for waiter kitchen instructions and online customer notes */}
       {order.kitchenNote && (
@@ -462,6 +651,28 @@ function OrderCard({
               </button>
             )
           )}
+          {/* Dine-in: kitchen/food-runner staff can mark a ready ticket served
+              themselves, same action the waiter floor's "Served" button does —
+              clears it from every screen, table stays occupied until settled. */}
+          {isDineIn && (
+            confirmingServe ? (
+              <div className="flex gap-2">
+                <button onClick={handleConfirmServe}
+                  className="flex-1 bg-emerald-500 hover:bg-emerald-400 active:scale-[0.97] text-white font-black text-xs py-2.5 rounded-xl transition-all">
+                  ✓ Confirm Served
+                </button>
+                <button onClick={handleCancelServe}
+                  className="flex-1 bg-gray-700 hover:bg-gray-600 active:scale-[0.97] text-gray-300 font-semibold text-xs py-2.5 rounded-xl transition-all">
+                  Cancel
+                </button>
+              </div>
+            ) : (
+              <button onClick={handleServeClick}
+                className="w-full flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-xs font-semibold text-emerald-500 border border-emerald-800 hover:bg-emerald-900/30 active:scale-[0.97] transition-all">
+                <CheckCircle2 size={12} /> Mark as Served
+              </button>
+            )
+          )}
         </div>
       )}
     </div>
@@ -474,10 +685,12 @@ function KanbanColumn({
   col,
   orders,
   onAdvance,
+  onServe,
 }: {
   col: ColumnConfig;
   orders: KDSOrder[];
   onAdvance: (order: KDSOrder) => void;
+  onServe: (order: KDSOrder) => void;
 }) {
   return (
     <div className={`flex flex-col rounded-2xl ${col.colBg} border border-gray-700/40 md:overflow-hidden`}>
@@ -501,6 +714,7 @@ function KanbanColumn({
               order={order}
               col={col}
               onAdvance={col.nextStatus ? () => onAdvance(order) : undefined}
+              onServe={!col.nextStatus ? () => onServe(order) : undefined}
             />
           ))
         )}
@@ -574,6 +788,8 @@ export default function KitchenPage() {
   // server view catches up or when the TTL expires. Mirrors AppContext's
   // pendingOrderStatusRef guard used by the admin Online Orders board.
   const pendingStatusRef = useRef<Map<string, { status: KDSStatus; until: number }>>(new Map());
+  // Same idea, for "served" — it removes the row instead of changing a status.
+  const pendingServedRef = useRef<Map<string, number>>(new Map());
 
   // ── Fetch via authenticated server endpoint + poll every 4 s ──────────────
   // Replaces the prior direct supabase.from("orders") read + realtime channel.
@@ -596,19 +812,29 @@ export default function KitchenPage() {
         // is still stale. Without this, the card briefly jumps back to its old
         // column before the next poll arrives with the committed status.
         const pending = pendingStatusRef.current;
+        const pendingServed = pendingServedRef.current;
         const now = Date.now();
-        setOrders(json.orders.map((row) => {
-          const o = mapRow(row);
-          const p = pending.get(o.id);
-          if (!p) return o;
-          if (p.until < now || o.status === p.status) {
-            // TTL elapsed, or server caught up — drop the guard and trust server.
-            pending.delete(o.id);
-            return o;
-          }
-          // Server is still serving pre-mutation data — keep optimistic status.
-          return { ...o, status: p.status };
-        }));
+        setOrders(
+          json.orders
+            .filter((row) => {
+              const until = pendingServed.get(String(row.id));
+              if (until === undefined) return true;
+              if (until < now) { pendingServed.delete(String(row.id)); return true; }
+              return false;
+            })
+            .map((row) => {
+              const o = mapRow(row);
+              const p = pending.get(o.id);
+              if (!p) return o;
+              if (p.until < now || o.status === p.status) {
+                // TTL elapsed, or server caught up — drop the guard and trust server.
+                pending.delete(o.id);
+                return o;
+              }
+              // Server is still serving pre-mutation data — keep optimistic status.
+              return { ...o, status: p.status };
+            }),
+        );
       } catch {
         // Network error — keep last-known orders, try again next tick.
       } finally {
@@ -662,6 +888,31 @@ export default function KitchenPage() {
       );
     } finally {
       advanceInFlight.current.delete(order.id);
+    }
+  }
+
+  // ── Kitchen staff mark a ready dine-in ticket served themselves ───────────
+  const serveInFlight = useRef<Set<string>>(new Set());
+
+  async function markServed(order: KDSOrder) {
+    if (serveInFlight.current.has(order.id)) return;
+    serveInFlight.current.add(order.id);
+    setOrders((prev) => prev.filter((o) => o.id !== order.id));
+    pendingServedRef.current.set(order.id, Date.now() + 10_000);
+
+    try {
+      const res = await fetch(`/api/kds/orders/${order.id}/serve`, { method: "PUT" });
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({})) as { error?: string };
+        console.error("KDS serve failed:", j.error);
+        pendingServedRef.current.delete(order.id);
+        setOrders((prev) => (prev.some((o) => o.id === order.id) ? prev : [...prev, order]));
+      }
+    } catch {
+      pendingServedRef.current.delete(order.id);
+      setOrders((prev) => (prev.some((o) => o.id === order.id) ? prev : [...prev, order]));
+    } finally {
+      serveInFlight.current.delete(order.id);
     }
   }
 
@@ -773,6 +1024,7 @@ export default function KitchenPage() {
               col={col}
               orders={orders.filter((o) => col.statuses.includes(o.status))}
               onAdvance={(order) => col.nextStatus && advanceOrder(order, col.nextStatus)}
+              onServe={(order) => markServed(order)}
             />
           ))}
         </div>

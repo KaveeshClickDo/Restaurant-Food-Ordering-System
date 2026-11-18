@@ -1784,7 +1784,6 @@ function ComposeWizard({ contacts, allTags, brandColor, restaurantName, editingI
                   <button onClick={schedule} disabled={!scheduleAt || !canSend} className="w-full bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold px-4 py-2 rounded-lg transition disabled:opacity-50">
                     Schedule broadcast
                   </button>
-                  <p className="text-[11px] text-blue-500">Needs the campaign cron set up on the server (docs/marketing/SCHEDULING.md).</p>
                 </div>
               )}
             </div>

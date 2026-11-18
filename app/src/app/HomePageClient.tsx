@@ -5,7 +5,7 @@ import { Category, MenuItem } from "@/types";
 import { useApp } from "@/context/AppContext";
 import { useRouter } from "next/navigation";
 import {
-  Search, ShoppingBag, UtensilsCrossed,
+  Search, ShoppingBag,
   Plus, Clock, Bike,
   Star, CalendarDays, LogOut, LayoutDashboard, Heart,
   AlertCircle, Sun, Moon,
@@ -19,6 +19,7 @@ import SiteFooter from "@/components/SiteFooter";
 import MealPeriodSection from "@/components/MealPeriodSection";
 import { isMealPeriodActive } from "@/lib/scheduleUtils";
 import { resolveStock } from "@/lib/stockUtils";
+import { showMenuImages } from "@/lib/menuDisplay";
 import { isOfferActive, getOfferUnitPrice, offerBadgeLabel, effectiveMenuPrice, isOnChannel } from "@/lib/menuOfferUtils";
 import { getNextOpenTime, formatNextOpen } from "@/lib/scheduleUtils";
 import MobileBottomNav from "@/components/MobileBottomNav";
@@ -35,6 +36,9 @@ const DIET_SHORT: Record<string, string> = {
 function FoodCard({ item, onOpen }: { item: MenuItem; onOpen: () => void }) {
   const { isOpen, scheduledTime, currentUser, isFavourite, toggleFavourite, settings } = useApp();
   const sym = settings.currency?.symbol ?? "£";
+  // Admin → Menu → gear can hide every photo on the website. With no photo to
+  // show (hidden, or the item has none) the card is text only — see below.
+  const photo = showMenuImages(settings) ? item.image : undefined;
   const stockStatus = resolveStock(item);
   const outOfStock = stockStatus === "out_of_stock";
   const lowStock = stockStatus === "low_stock";
@@ -49,6 +53,91 @@ function FoodCard({ item, onOpen }: { item: MenuItem; onOpen: () => void }) {
   const discountedBase = getOfferUnitPrice(item);
   const offerLabel = offerBadgeLabel(item);
 
+  // Text-only card, after the reference design: a tag row (badges, dietary
+  // chips, heart at the far right), name, description, then a divider with
+  // the price on the left and an always-visible Add button on the right. No
+  // photo band, no placeholder.
+  if (!photo) {
+    return (
+      <div
+        onClick={() => canAdd && onOpen()}
+        className={`bg-white dark:bg-[var(--brand-surface-dark)] rounded-2xl border border-zinc-200/70 dark:border-[var(--brand-border-dark)] shadow-[0_1px_3px_rgba(0,0,0,0.04),0_4px_12px_rgba(0,0,0,0.04)] group relative flex flex-col p-4 sm:p-5 transition-transform duration-200 ${canAdd ? "cursor-pointer hover:-translate-y-0.5" : "opacity-60 cursor-not-allowed"
+          }`}
+      >
+        {/* Tag row */}
+        <div className="flex items-center gap-1.5 flex-wrap mb-3 min-h-[20px]">
+          {!outOfStock && item.popular && (
+            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wider bg-orange-500 text-white">
+              Popular
+            </span>
+          )}
+          {!outOfStock && offerOn && offerLabel && (
+            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wider bg-orange-500 text-white">
+              {offerLabel}
+            </span>
+          )}
+          {outOfStock && (
+            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wider bg-zinc-100 dark:bg-zinc-800 text-zinc-500 dark:text-zinc-400">
+              Unavailable
+            </span>
+          )}
+          {lowStock && !outOfStock && (
+            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wider bg-amber-500 text-white">
+              {typeof item.stockQty === "number" ? `Only ${item.stockQty} left` : "Low stock"}
+            </span>
+          )}
+          {item.dietary.slice(0, 3).map((d) => (
+            <span key={d} className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium uppercase tracking-wider bg-zinc-100 dark:bg-white/10 text-zinc-700 dark:text-zinc-300">
+              {DIET_SHORT[d] ?? d}
+            </span>
+          ))}
+          {currentUser && (
+            <button
+              onClick={(e) => { e.stopPropagation(); toggleFavourite(item.id); }}
+              aria-label={faved ? "Remove from favourites" : "Save to favourites"}
+              className={`ml-auto w-7 h-7 -my-1 -mr-1 rounded-full flex items-center justify-center transition-colors ${faved ? "text-red-500" : "text-zinc-300 dark:text-zinc-600 hover:text-red-500"}`}
+            >
+              <Heart className="w-4 h-4" strokeWidth={2} fill={faved ? "currentColor" : "none"} />
+            </button>
+          )}
+        </div>
+
+        <h3 className="text-[17px] font-semibold tracking-tight leading-snug text-zinc-900 dark:text-[var(--brand-text-dark)] mb-1.5">{item.name}</h3>
+        {item.description && (
+          <p className="text-[13px] text-zinc-500 dark:text-zinc-400 leading-relaxed line-clamp-2 mb-4">{item.description}</p>
+        )}
+
+        {/* Price + Add */}
+        <div className="mt-auto pt-4 border-t border-zinc-200/70 dark:border-[var(--brand-border-dark)] flex items-center justify-between gap-3">
+          <div className="flex items-baseline gap-2 min-w-0 tabular-nums">
+            {discountedBase !== null ? (
+              <>
+                <span className="text-[20px] font-semibold tracking-tight text-orange-600">{sym}{discountedBase.toFixed(2)}</span>
+                <span className="text-[12px] text-zinc-400 dark:text-zinc-500 line-through">{sym}{effectiveMenuPrice(item).toFixed(2)}</span>
+              </>
+            ) : (
+              <span className={`text-[20px] font-semibold tracking-tight ${outOfStock ? "text-zinc-400 dark:text-zinc-500" : "text-zinc-900 dark:text-[var(--brand-text-dark)]"}`}>
+                {sym}{effectiveMenuPrice(item).toFixed(2)}
+              </span>
+            )}
+          </div>
+          <button
+            type="button"
+            disabled={!canAdd}
+            onClick={(e) => { e.stopPropagation(); if (canAdd) onOpen(); }}
+            aria-label={`Add ${item.name}`}
+            className={`h-9 px-3.5 rounded-xl text-[12.5px] font-semibold flex items-center gap-1.5 flex-shrink-0 transition-colors ${canAdd
+              ? "bg-orange-500 hover:bg-orange-600 text-white active:scale-[0.98]"
+              : "bg-zinc-100 dark:bg-white/10 text-zinc-400 dark:text-zinc-500 cursor-not-allowed"
+              }`}
+          >
+            <Plus className="w-3.5 h-3.5" strokeWidth={2.5} /> Add
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div
       onClick={() => canAdd && onOpen()}
@@ -57,18 +146,12 @@ function FoodCard({ item, onOpen }: { item: MenuItem; onOpen: () => void }) {
     >
       {/* Image */}
       <div className="relative h-[180px] bg-orange-50 overflow-hidden">
-        {item.image ? (
-          // eslint-disable-next-line @next/next/no-img-element -- admin-uploaded URLs from arbitrary hosts; next/image can't pre-register remotePatterns
-          <img
-            src={item.image}
-            alt={item.name}
-            className={`absolute inset-0 w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.04] ${outOfStock ? "grayscale opacity-50" : ""}`}
-          />
-        ) : (
-          <div className="w-full h-full flex items-center justify-center">
-            <UtensilsCrossed className="w-10 h-10 text-zinc-300 dark:text-zinc-700" strokeWidth={1.2} />
-          </div>
-        )}
+        {/* eslint-disable-next-line @next/next/no-img-element -- admin-uploaded URLs from arbitrary hosts; next/image can't pre-register remotePatterns */}
+        <img
+          src={photo}
+          alt={item.name}
+          className={`absolute inset-0 w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.04] ${outOfStock ? "grayscale opacity-50" : ""}`}
+        />
         {/* Popular + offer badges sit side by side in a flex row so an item
             that is both popular and on offer shows both, without overlapping. */}
         {!outOfStock && (item.popular || (offerOn && offerLabel)) && (
@@ -150,6 +233,25 @@ function FoodCard({ item, onOpen }: { item: MenuItem; onOpen: () => void }) {
             {sym}{effectiveMenuPrice(item).toFixed(2)}
           </span>
         )}
+      </div>
+    </div>
+  );
+}
+
+// ── Grid placeholder while the initial menu fetch is in flight ─────────────
+// Shown instead of FoodCard so the first paint never reads as "no items in
+// this category" before the menu has even loaded (see menuItemsLoaded).
+function FoodCardSkeleton() {
+  const { settings } = useApp();
+  return (
+    <div className="bg-white dark:bg-[var(--brand-surface-dark)] rounded-2xl border border-zinc-200/70 dark:border-[var(--brand-border-dark)] overflow-hidden animate-pulse">
+      {/* No band when photos are hidden: the real cards are text only then. */}
+      {showMenuImages(settings) && <div className="h-[180px] bg-zinc-200/70 dark:bg-white/5" />}
+      <div className="p-4 space-y-2.5">
+        <div className="h-4 bg-zinc-200/90 dark:bg-white/10 rounded w-3/4" />
+        <div className="h-3 bg-zinc-200/90 dark:bg-white/10 rounded w-full" />
+        <div className="h-3 bg-zinc-200/90 dark:bg-white/10 rounded w-5/6" />
+        <div className="h-5 bg-zinc-200/90 dark:bg-white/10 rounded w-1/3 mt-1" />
       </div>
     </div>
   );
@@ -342,7 +444,7 @@ function effectiveCatIds(activeCat: string, cats: Category[]): string[] | null {
 // ── Main page ────────────────────────────────────────────────────────────────
 export default function HomePageClient() {
   const {
-    categories, menuItems: allMenuItems, mealPeriods, settings,
+    categories, categoriesLoaded, menuItems: allMenuItems, menuItemsLoaded, mealPeriods, settings,
     isOpen, currentUser, logout, cart
   } = useApp();
   const cartHasItems = cart.length > 0;
@@ -367,6 +469,8 @@ export default function HomePageClient() {
   const [showReservation, setShowReservation] = useState(false);
   const [searchFocused, setSearchFocused] = useState(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const contentScrollRef = useRef<HTMLDivElement>(null);
+  const sentinelRef = useRef<HTMLDivElement>(null);
 
   // Open a dish from a search suggestion. Blur the input first so the mobile
   // keyboard dismisses before the customization modal slides up.
@@ -542,6 +646,47 @@ export default function HomePageClient() {
     return sections;
   }, [activeCat, activeCategory, categories, items, search]);
 
+  // ── Infinite-scroll pagination (flat grid only) ────────────────────────────
+  // Mounts 9 cards at a time instead of the whole filtered list, so the
+  // browser only requests that many images at once. Grouped parent-category
+  // sections and meal-period sections stay fully rendered.
+  const ITEMS_PER_PAGE = 9;
+  const [visibleCount, setVisibleCount] = useState(ITEMS_PER_PAGE);
+
+  // Reset to the first page and scroll back to top whenever the category or
+  // search query changes — otherwise a deeply-scrolled count would carry
+  // into the new filter and reveal a burst of items/images at once.
+  useEffect(() => {
+    setVisibleCount(ITEMS_PER_PAGE);
+    contentScrollRef.current?.scrollTo({ top: 0 });
+  }, [activeCat, search]);
+
+  // Grow the visible count as the sentinel (rendered after the flat grid)
+  // scrolls into view. rootMargin starts loading the next batch before the
+  // user hits the true bottom, so it feels seamless rather than a popcorn
+  // "load more" jump. The sentinel always renders in the flat-grid branch —
+  // the guard below just no-ops once everything is already visible.
+  useEffect(() => {
+    const sentinel = sentinelRef.current;
+    const root = contentScrollRef.current;
+    if (!sentinel || !root || groupedCategorySections) return;
+    // No IntersectionObserver support (very old/unusual browser) — show
+    // everything rather than leaving the page stuck on the first batch.
+    if (typeof IntersectionObserver === "undefined") {
+      setVisibleCount(items.length);
+      return;
+    }
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (!entry.isIntersecting) return;
+        setVisibleCount((prev) => Math.min(prev + ITEMS_PER_PAGE, items.length));
+      },
+      { root, rootMargin: "600px" },
+    );
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [items.length, groupedCategorySections]);
+
   // Search-bar autocomplete: dish suggestions shown in a dropdown as the
   // customer types. Searches every orderable online dish by name/description
   // (independent of the active category) and surfaces name matches first.
@@ -630,14 +775,12 @@ export default function HomePageClient() {
                         onClick={() => openSuggestion(item)}
                         className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-zinc-50 dark:hover:bg-white/5 active:bg-zinc-100 dark:active:bg-white/10 transition-colors text-left"
                       >
-                        <div className="w-11 h-11 rounded-lg bg-orange-50 overflow-hidden flex-shrink-0 flex items-center justify-center">
-                          {item.image ? (
-                            // eslint-disable-next-line @next/next/no-img-element -- admin-uploaded URLs from arbitrary hosts
+                        {showMenuImages(settings) && item.image && (
+                          <div className="w-11 h-11 rounded-lg bg-orange-50 overflow-hidden flex-shrink-0">
+                            {/* eslint-disable-next-line @next/next/no-img-element -- admin-uploaded URLs from arbitrary hosts */}
                             <img src={item.image} alt={item.name} className="w-full h-full object-cover" />
-                          ) : (
-                            <UtensilsCrossed className="w-5 h-5 text-zinc-300 dark:text-zinc-700" strokeWidth={1.4} />
-                          )}
-                        </div>
+                          </div>
+                        )}
                         <div className="flex-1 min-w-0">
                           <div className="text-[13.5px] font-medium text-zinc-900 dark:text-[var(--brand-text-dark)] truncate">{item.name}</div>
                           {item.description && (
@@ -719,7 +862,11 @@ export default function HomePageClient() {
               <span>Everything</span>
             </button>
 
-            {parentCategories.map((cat) => {
+            {!categoriesLoaded ? (
+              Array.from({ length: 6 }).map((_, i) => (
+                <div key={i} className="flex-shrink-0 w-24 h-8 rounded-full bg-zinc-200/60 dark:bg-white/10 animate-pulse" />
+              ))
+            ) : parentCategories.map((cat) => {
               const active = isParentPillActive(cat.id);
               return (
                 <button
@@ -758,7 +905,7 @@ export default function HomePageClient() {
         </div>
 
         {/* Scrollable content */}
-        <div className="flex-1 flex flex-col overflow-y-auto pb-15 lg:pb-0 h-full">
+        <div ref={contentScrollRef} className="flex-1 flex flex-col overflow-y-auto pb-15 lg:pb-0 h-full">
           <div className="flex-1">
 
             <Hero isOpen={isOpen} onReserve={() => setShowReservation(true)} />
@@ -782,13 +929,21 @@ export default function HomePageClient() {
             <div className="px-6 mb-5 flex items-center justify-between">
               <h2 className="font-semibold tracking-tight text-[20px] text-zinc-900 dark:text-[var(--brand-text-dark)]">
                 {activeCat === "all" ? "Everything" : (activeCategory?.name ?? "Menu")}
-                <span className="ml-2 text-[13px] font-normal text-zinc-400 tabular-nums">· {visibleTotal}</span>
+                {menuItemsLoaded && (
+                  <span className="ml-2 text-[13px] font-normal text-zinc-400 tabular-nums">· {visibleTotal}</span>
+                )}
               </h2>
             </div>
 
             {/* Grid */}
             <div className="px-6 pb-6">
-              {items.length === 0 ? (
+              {!menuItemsLoaded ? (
+                <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 xl:grid-cols-3">
+                  {Array.from({ length: ITEMS_PER_PAGE }).map((_, i) => (
+                    <FoodCardSkeleton key={i} />
+                  ))}
+                </div>
+              ) : items.length === 0 ? (
                 <div className="col-span-full text-center py-20 text-zinc-400">
                   {search
                     ? <><p className="text-[15px] font-medium">No dishes found for &ldquo;{search}&rdquo;</p><p className="text-[13px] mt-1">Try a different search term</p></>
@@ -819,11 +974,16 @@ export default function HomePageClient() {
                   ))}
                 </div>
               ) : (
-                <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 xl:grid-cols-3">
-                  {items.map((item) => (
-                    <FoodCard key={item.id} item={item} onOpen={() => setOpenItem(item)} />
-                  ))}
-                </div>
+                <>
+                  <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 xl:grid-cols-3">
+                    {items.slice(0, visibleCount).map((item) => (
+                      <FoodCard key={item.id} item={item} onOpen={() => setOpenItem(item)} />
+                    ))}
+                  </div>
+                  {/* Infinite-scroll trigger — invisible, grows visibleCount as it
+                      comes into view. See the pagination effects above. */}
+                  <div ref={sentinelRef} aria-hidden className="h-px" />
+                </>
               )}
             </div>
           </div>

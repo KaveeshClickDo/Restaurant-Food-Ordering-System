@@ -6,8 +6,11 @@ import { POSProduct, POSSale, getOfferPrice, isOfferActive } from "@/types/pos";
 import { ChevronRight, Gift, Search, X, Users, Star, Package, ShoppingCart } from "lucide-react";
 import { fmt, getInitials } from "./_utils";
 import { apiBase } from "@/lib/apiBase";
+import { uuid } from "@/lib/uuid";
+import { posSaleReference } from "@/lib/posSaleRef";
 import ModifierModal from "./ModifierModal";
 import PaymentModal from "./PaymentModal";
+import type { DojoSaleResult } from "@/lib/dojo/types";
 import ReceiptModal from "./ReceiptModal";
 import OrderPanel from "./OrderPanel";
 import SellGiftCardModal, { type SellableGiftCard } from "./SellGiftCardModal";
@@ -22,14 +25,21 @@ export default function SaleView({ isOffline = false }: { isOffline?: boolean })
   const [activeCategory, setActiveCategory] = useState<string>("all");
   const [search, setSearch] = useState("");
   const [modifierProduct, setModifierProduct] = useState<POSProduct | null>(null);
-  const [showPayment, setShowPayment] = useState(false);
+  // The payment screen is open for the sale with this id (null = closed). Made
+  // fresh each time it opens, so the card machine payment can name the sale
+  // ("POS sale 3F9A2C1B") and one id never serves two sales. The screen saves
+  // at most once (its buttons lock), and a failed save means reopening it.
+  const [paymentSaleId, setPaymentSaleId] = useState<string | null>(null);
   const [showCustomer, setShowCustomer] = useState(false);
   const [showMobileCart, setShowMobileCart] = useState(false);
   const [completedSale, setCompletedSale] = useState<POSSale | null>(null);
+  // Captured at charge time — by the time the receipt opens, POSContext's own
+  // sendToKitchen has already reset to true for the next sale (clearCart()).
+  const [completedSaleSendToKitchen, setCompletedSaleSendToKitchen] = useState(true);
   const [showDiscount, setShowDiscount] = useState(false);
   const [showTip, setShowTip] = useState(false);
   const [showServiceFee, setShowServiceFee] = useState(false);
-  const { completeSale, afterTaxTotal, grandTotal, discount, setDiscount, tipAmount, setTipAmount, serviceFeePct, setServiceFeePct, settings: s, customers, assignedCustomer, setAssignedCustomer } = usePOS();
+  const { completeSale, afterTaxTotal, grandTotal, discount, setDiscount, tipAmount, setTipAmount, serviceFeePct, setServiceFeePct, settings: s, customers, assignedCustomer, setAssignedCustomer, dojoEnabled } = usePOS();
   const [discountInput, setDiscountInput] = useState(discount.pct.toString());
   const [discountNote, setDiscountNote] = useState(discount.note);
   const [tipCustom, setTipCustom] = useState("");
@@ -129,19 +139,25 @@ export default function SaleView({ isOffline = false }: { isOffline?: boolean })
     payments: { method: "cash" | "card"; amount: number }[],
     cashTendered?: number,
     giftCard?: { code: string; amount: number },
+    dojo?: DojoSaleResult,
   ) {
-    const { sale, error } = await completeSale(method, payments, cashTendered, giftCard);
+    const { sale, error, sendToKitchen } = await completeSale(method, payments, cashTendered, giftCard, dojo, paymentSaleId ?? undefined);
     if (!sale) {
       // Surface the server's actual reason (e.g. "'Burger' is no longer
       // available on the menu", "Insufficient stock") instead of a generic
       // network message. Falls back to the network copy when the request
       // never reached the server.
-      alert(error ?? "Couldn't save the sale to the server. Check your network and try again.");
-      return;
+      const message = error ?? "Couldn't save the sale to the server. Check your network and try again.";
+      // After a card machine payment the payment screen shows it and retries
+      // the save under the same sale id; otherwise alert as before.
+      if (!dojo) alert(message);
+      return message;
     }
-    setShowPayment(false);
+    setPaymentSaleId(null);
     setShowMobileCart(false);
+    setCompletedSaleSendToKitchen(sendToKitchen);
     setCompletedSale(sale);
+    return true;
   }
 
   const filteredCustomers = customers.filter((c) =>
@@ -165,28 +181,36 @@ export default function SaleView({ isOffline = false }: { isOffline?: boolean })
           card disappears immediately (and the pill hides when stock hits 0). */}
       {sellTarget && (
         <SellGiftCardModal
+          // One instance per card: its card machine payment belongs to this card.
+          key={sellTarget.id}
           card={sellTarget}
           currencySymbol={settings.currencySymbol}
+          dojoEnabled={dojoEnabled}
           onClose={() => setSellTarget(null)}
           onSold={() => { void refreshGiftCards(); }}
         />
       )}
 
       {/* Payment modal */}
-      {showPayment && (
+      {paymentSaleId && (
         <PaymentModal
+          // One instance per sale: its card machine payment belongs to this sale.
+          key={paymentSaleId}
           total={grandTotal}
           currencySymbol={settings.currencySymbol}
-          onClose={() => setShowPayment(false)}
+          onClose={() => setPaymentSaleId(null)}
           onComplete={handlePaymentComplete}
           isOffline={isOffline}
+          dojoEnabled={dojoEnabled}
+          saleReference={posSaleReference(paymentSaleId)}
+          splitOnCardMachine
         />
       )}
 
       {/* Receipt modal — autoPrint: fires the configured thermal printer once,
           straight after the sale (only on this post-sale instance). */}
       {completedSale && (
-        <ReceiptModal sale={completedSale} onClose={() => setCompletedSale(null)} autoPrint />
+        <ReceiptModal sale={completedSale} onClose={() => setCompletedSale(null)} autoPrint sendToKitchen={completedSaleSendToKitchen} />
       )}
 
       {/* Discount modal */}
@@ -608,11 +632,13 @@ export default function SaleView({ isOffline = false }: { isOffline?: boolean })
         </div>
       )}
 
-      {/* Right: Order panel */}
-      <div className={`
-        ${showMobileCart ? 'fixed inset-0 z-50 flex flex-col bg-slate-950' : 'hidden md:flex md:flex-col'}
-        md:w-75 xl:w-96 flex-shrink-0 md:static md:block
-      `}>
+      {/* Right: Order panel. Hidden entirely once the cart is empty 
+       and reappears as soon as an item is added. */}
+      <div className={
+        showMobileCart
+          ? "fixed inset-0 z-50 flex flex-col bg-slate-950 md:static md:w-75 xl:w-96"
+          : `hidden md:flex md:flex-col md:static md:flex-shrink-0 md:overflow-hidden md:transition-[width] md:duration-500 md:ease-in-out ${cart.length > 0 ? "md:w-75 xl:w-96" : "md:w-0"}`
+      }>
         {showMobileCart && (
           <div className="md:hidden bg-slate-900 border-b border-slate-800 p-4 flex items-center flex-shrink-0 pt-safe-top">
             <button onClick={() => setShowMobileCart(false)} className="flex items-center gap-2 text-slate-300 hover:text-white font-semibold transition-colors">
@@ -621,9 +647,9 @@ export default function SaleView({ isOffline = false }: { isOffline?: boolean })
             </button>
           </div>
         )}
-        <div className="flex-1 overflow-hidden md:h-full">
+        <div className="w-full md:w-75 xl:w-96 flex-shrink-0 flex-1 overflow-hidden md:h-full">
           <OrderPanel
-            onCharge={() => { setShowPayment(true); }}
+            onCharge={() => { setPaymentSaleId(uuid()); }}
             onSelectCustomer={() => { setShowCustomer(true); }}
             onOpenDiscount={() => { setShowDiscount(true); }}
             onOpenTip={() => { setShowTip(true); }}

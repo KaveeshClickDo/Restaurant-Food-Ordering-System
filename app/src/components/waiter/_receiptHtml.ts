@@ -4,9 +4,23 @@
  * view's print preview so all three render the identical document.
  */
 
+import type { ReceiptSettings } from "@/types";
 import type { WaiterReceipt } from "./_types";
 
-export function buildReceiptHtml(receipt: WaiterReceipt, restaurantName: string, address: string, receiptPhone: string, receiptWebsite: string, vatNumber: string, thankYou: string, sym: string): string {
+export function buildReceiptHtml(
+  receipt: WaiterReceipt,
+  restaurantName: string,
+  rs: Partial<ReceiptSettings> | undefined | null,
+  sym: string,
+): string {
+  const address       = rs?.address?.trim() ?? "";
+  const receiptPhone   = rs?.phone ?? "";
+  const receiptWebsite = rs?.website ?? "";
+  const companyNumber  = rs?.companyNumber ?? "";
+  const vatNumber      = rs?.vatNumber ?? "";
+  const thankYou       = rs?.thankYouMessage ?? "Thank you for dining with us!";
+  const customMessage  = rs?.customMessage ?? "";
+
   const itemsHtml = receipt.items.map((it) =>
     `<tr>
       <td style="padding:2px 0;font-size:12px">${it.name} ×${it.qty}</td>
@@ -20,6 +34,12 @@ export function buildReceiptHtml(receipt: WaiterReceipt, restaurantName: string,
   // Re-add the card for the gross goods TOTAL line.
   const amountPaid = receipt.total;
   const grossTotal = Math.round((receipt.total + giftUsed) * 100) / 100;
+  // A tip the customer added on the card machine, apart from the total.
+  const cardTip = receipt.cardTipAmount ?? 0;
+  const cardTipHtml = cardTip > 0
+    ? `<tr><td style="font-size:11px;color:#6b7280">Tip on card machine</td><td style="font-size:11px;color:#6b7280;text-align:right">${sym}${cardTip.toFixed(2)}</td></tr>
+    <tr><td style="font-size:12px;font-weight:700">Card total</td><td style="font-size:12px;font-weight:700;text-align:right">${sym}${(Math.round((amountPaid + cardTip) * 100) / 100).toFixed(2)}</td></tr>`
+    : "";
   const rcptDiscount = receipt.discountAmount ?? 0;
   const rcptTip = receipt.tipAmount ?? 0;
   const rcptServiceFee = receipt.serviceFeeAmount ?? 0;
@@ -41,13 +61,15 @@ export function buildReceiptHtml(receipt: WaiterReceipt, restaurantName: string,
 <body style="margin:0;background:#f9fafb;font-family:monospace">
 <div style="max-width:320px;margin:24px auto;background:#fff;border-radius:12px;padding:24px">
   <div style="text-align:center;margin-bottom:16px">
+    ${rs?.showLogo && rs?.logoUrl?.trim() ? `<div style="margin-bottom:12px"><img src="${rs.logoUrl.trim()}" alt="Logo" style="max-height:40px;width:auto;display:inline-block;vertical-align:middle;" /></div>` : ""}
     <div style="font-weight:700;font-size:16px;letter-spacing:1px">${restaurantName.toUpperCase()}</div>
-    ${address?.trim() ? `<div style="font-size:11px;color:#6b7280;white-space:pre-line">${address.trim()}</div>` : ""}
+    ${address ? `<div style="font-size:11px;color:#6b7280;white-space:pre-line">${address}</div>` : ""}
     ${receiptPhone ? `<div style="font-size:11px;color:#6b7280">${receiptPhone}</div>` : ""}
     ${receiptWebsite ? `<div style="font-size:11px;color:#6b7280">${receiptWebsite}</div>` : ""}
     <div style="font-size:11px;color:#6b7280">${new Date(receipt.date).toLocaleString("en-GB")}</div>
     <div style="font-size:11px;color:#6b7280">Table: ${receipt.tableLabel}</div>
     <div style="font-size:11px;color:#6b7280">Served by: ${receipt.waiterName}</div>
+    ${companyNumber ? `<div style="font-size:10px;color:#9ca3af">Company No: ${companyNumber}</div>` : ""}
     ${vatNumber ? `<div style="font-size:10px;color:#9ca3af">VAT No: ${vatNumber}</div>` : ""}
   </div>
   <hr style="border:none;border-top:1px dashed #d1d5db;margin:12px 0">
@@ -58,8 +80,10 @@ export function buildReceiptHtml(receipt: WaiterReceipt, restaurantName: string,
     <tr><td style="font-size:13px;font-weight:700">TOTAL</td><td style="font-size:13px;font-weight:700;text-align:right">${sym}${grossTotal.toFixed(2)}</td></tr>
     ${giftUsed > 0 ? `<tr><td style="font-size:11px;color:#7c3aed">Gift card</td><td style="font-size:11px;color:#7c3aed;text-align:right">−${sym}${giftUsed.toFixed(2)}</td></tr>
     <tr><td style="font-size:12px;font-weight:700">PAID (${payLabel})</td><td style="font-size:12px;font-weight:700;text-align:right">${sym}${amountPaid.toFixed(2)}</td></tr>` : `<tr><td style="font-size:11px;color:#6b7280">Payment</td><td style="font-size:11px;color:#6b7280;text-align:right">${payLabel}</td></tr>`}
+    ${cardTipHtml}
   </table>
   <hr style="border:none;border-top:1px dashed #d1d5db;margin:12px 0">
   ${thankYou ? `<div style="text-align:center;font-weight:600;color:#374151;font-size:12px">${thankYou}</div>` : ""}
+  ${customMessage ? `<div style="text-align:center;color:#6b7280;font-size:11px;white-space:pre-wrap;margin-top:3px">${customMessage}</div>` : ""}
 </div></body></html>`;
 }

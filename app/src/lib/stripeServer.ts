@@ -27,9 +27,9 @@ export function getStripe(): Stripe {
   if (!_stripe) {
     const key = process.env.STRIPE_SECRET_KEY;
     if (!key) {
-      throw new Error(
-        "STRIPE_SECRET_KEY is not set. Add it to .env.local (sk_test_… for development).",
-      );
+      // The detail goes to the server log; the message can reach the screen, so keep it plain.
+      console.error("STRIPE_SECRET_KEY is not set. Add it to .env.local (sk_test_… for development).");
+      throw new Error("Card payments are not set up yet. Please contact support.");
     }
     _stripe = new Stripe(key, {
       // Pin the API version so Stripe library upgrades don't silently change

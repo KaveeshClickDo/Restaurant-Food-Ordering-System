@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { NonEmptyString, PositiveMoney, Money } from "./primitives";
+import { DojoResultSchema } from "./dojo";
 
 const NonEmptyIdArray = z.array(NonEmptyString).min(1, "At least one orderId is required.");
 
@@ -9,6 +10,9 @@ export const WaiterRefundSchema = z.object({
   refundMethod: z.enum(["cash", "card"]).optional(),
   reason:       NonEmptyString,
   refundedBy:   z.string().optional(),
+  /** For a card machine bill's card refund: one id per refund screen, resent
+   *  on retries, so Dojo can't refund twice. */
+  refundRequestId: z.string().min(8).max(64).optional(),
 });
 
 export const WaiterSettleSchema = z.object({
@@ -36,6 +40,8 @@ export const WaiterSettleSchema = z.object({
   // Finance Reports' VAT breakdown includes dine-in.
   vatAmount:     Money.optional(),
   vatInclusive:  z.boolean().optional(),
+  // Present only when the card leg was collected on an integrated Dojo terminal.
+  dojo:          DojoResultSchema.optional(),
 });
 
 export const WaiterVoidSchema = z.object({
@@ -59,6 +65,12 @@ const RefundEntry = z.object({
   processedBy:  NonEmptyString,
   stripeRefundId: z.string().nullable().optional(),
   paypalRefundId: z.string().nullable().optional(),
+  // Card machine (Dojo) refunds: the refund id, and the part of the tip added
+  // on the machine that went back with it. Listed so a later refund, which
+  // re-sends the whole history, keeps them.
+  dojoRefundId:   z.string().nullable().optional(),
+  viaDojo:        z.boolean().optional(),
+  cardTip:        Money.optional(),
 });
 
 export const AdminRefundSchema = z.object({

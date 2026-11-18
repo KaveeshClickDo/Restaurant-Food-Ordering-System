@@ -19,6 +19,7 @@ import {
 import { rateLimit } from "@/lib/rateLimit";
 import { parseBody } from "@/lib/apiValidation";
 import { StaffPasswordLoginSchema } from "@/lib/schemas/auth";
+import { isDojoEffectivelyEnabled } from "@/lib/dojo";
 
 const COLLECTION_SESSION_HOURS = 8; // typical shift length
 const PUBLIC_COLUMNS = "id, name, email, active, avatar_color, created_at";
@@ -120,7 +121,7 @@ export async function GET() {
       .maybeSingle();
 
     if (!member) return NextResponse.json({ ok: false }, { status: 401 });
-    return NextResponse.json({ ok: true, staff: mapStaff(member) });
+    return NextResponse.json({ ok: true, staff: mapStaff(member), dojoEnabled: await isDojoEffectivelyEnabled() });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unexpected error";
     console.error("[collection/auth GET]", message);

@@ -7,6 +7,7 @@
  *  - Calling the /api/email API route to actually send
  */
 
+import { CHECK_IN_QR_CID } from "@/lib/reservationCheckIn";
 import type { AdminSettings, Customer, EmailTemplate, EmailTemplateEvent, Order } from "@/types";
 import { fullOrderNumber } from "@/lib/orderNumber";
 
@@ -33,6 +34,10 @@ export const TEMPLATE_VARS: VarDef[] = [
   { name: "delivery_address", label: "Delivery address", group: "Order", preview: "42 Example St, London" },
   { name: "payment_method", label: "Payment method", group: "Order", preview: "Cash on Delivery" },
   { name: "estimated_time", label: "Estimated time (min)", group: "Order", preview: "30–45" },
+  { name: "refund_amount", label: "Refund amount", group: "Order", preview: "£8.50" },
+  { name: "refund_type", label: "Refund type (refund emails only)", group: "Order", preview: "Partial refund" },
+  { name: "refund_method", label: "Refund method (refund emails only)", group: "Order", preview: "Card (Stripe)" },
+  { name: "refund_reason", label: "Refund reason (refund emails only)", group: "Order", preview: "<i>(styled reason line — only when a reason was given)</i>" },
   { name: "delivery_code", label: "Delivery confirmation code (delivery only)", group: "Order", preview: "<i>(styled PIN block — only for delivery orders)</i>" },
   // Restaurant
   { name: "restaurant_name", label: "Restaurant name", group: "Restaurant", preview: "Your Restaurant" },
@@ -49,6 +54,7 @@ export const TEMPLATE_VARS: VarDef[] = [
   { name: "reservation_status", label: "Reservation status", group: "Reservation", preview: "confirmed" },
   { name: "reservation_note", label: "Special note", group: "Reservation", preview: "Window seat preferred" },
   { name: "cancel_link", label: "Cancel booking link", group: "Reservation", preview: "https://yourdomain.com/reservation/token" },
+  { name: "checkin_qr", label: "Check-in QR code (confirmation emails; added automatically if missing)", group: "Reservation", preview: "<i>(QR code the guest shows on arrival)</i>" },
   { name: "review_url", label: "Review link (Google/TripAdvisor)", group: "Reservation", preview: "https://g.page/r/yourplaceid/review" },
   // Gift card (only for gift_card_delivered event)
   { name: "gift_code", label: "Gift card code", group: "Gift Card", preview: "GC-7K9X-LM3P-WT2Q" },
@@ -80,6 +86,7 @@ export const EVENT_CONFIGS: EventConfig[] = [
   { event: "order_ready", name: "Order Ready", description: "Sent when the order is ready", color: "bg-green-100", textColor: "text-green-700", emoji: "🥡" },
   { event: "order_delivered", name: "Order Delivered", description: "Sent when the order has been delivered", color: "bg-emerald-100", textColor: "text-emerald-700", emoji: "🚀" },
   { event: "order_cancelled", name: "Order Cancelled", description: "Sent when an order is cancelled", color: "bg-red-100", textColor: "text-red-700", emoji: "❌" },
+  { event: "order_refunded", name: "Order Refunded", description: "Sent when a refund is issued (full or partial)", color: "bg-teal-100", textColor: "text-teal-700", emoji: "💷" },
   { event: "reservation_confirmation", name: "Reservation Confirmed", description: "Sent when a customer books a table", color: "bg-teal-100", textColor: "text-teal-700", emoji: "📅" },
   { event: "reservation_update", name: "Reservation Update", description: "Sent when admin confirms or changes the status", color: "bg-blue-100", textColor: "text-blue-700", emoji: "🔄" },
   { event: "reservation_cancellation", name: "Reservation Cancelled", description: "Sent when a reservation is cancelled", color: "bg-rose-100", textColor: "text-rose-700", emoji: "🚫" },
@@ -180,6 +187,21 @@ export const DEFAULT_EMAIL_TEMPLATES: EmailTemplate[] = [
     enabled: true,
     lastModified: new Date(0).toISOString(),
   },
+  {
+    event: "order_refunded",
+    name: "Order Refunded",
+    subject: "Your refund has been processed — {{order_id}}",
+    body: `<h2 style="color:#0d9488;margin:0 0 16px 0">Refund Processed 💷</h2>
+<p>Hi <strong>{{customer_name}}</strong>,</p>
+<p>We've processed a <strong>{{refund_type}}</strong> of <strong>{{refund_amount}}</strong> for your order <strong>{{order_id}}</strong>.</p>
+<p><strong>Refunded to:</strong> {{refund_method}}</p>
+{{refund_reason}}
+<p style="color:#6b7280;font-size:14px">This usually appears within 5–10 business days, depending on your bank or card provider.</p>
+<p>If you have any questions, please contact us at <strong>{{restaurant_phone}}</strong>.</p>
+<p style="color:#6b7280;font-size:14px">— The team at <strong>{{restaurant_name}}</strong></p>`,
+    enabled: true,
+    lastModified: new Date(0).toISOString(),
+  },
   // ── Reservation templates ──────────────────────────────────────────────────
   {
     event: "reservation_confirmation",
@@ -197,6 +219,7 @@ export const DEFAULT_EMAIL_TEMPLATES: EmailTemplate[] = [
   <strong>Party size:</strong> {{party_size}} guests
 </p>
 {{booking_fee_receipt}}
+{{checkin_qr}}
 <hr style="border:none;border-top:1px solid #e5e7eb;margin:20px 0">
 <p style="color:#6b7280;font-size:14px">Please arrive on time. If your plans change, contact us at <strong>{{restaurant_phone}}</strong>.</p>
 <p style="color:#6b7280;font-size:13px">Need to cancel? <a href="{{cancel_link}}" style="color:{{brand_color}}">Click here to cancel your booking</a>.</p>
@@ -219,6 +242,7 @@ export const DEFAULT_EMAIL_TEMPLATES: EmailTemplate[] = [
   <strong>Table:</strong> {{table_label}}<br>
   <strong>Status:</strong> {{reservation_status}}
 </p>
+{{checkin_qr}}
 <hr style="border:none;border-top:1px solid #e5e7eb;margin:20px 0">
 <p style="color:#6b7280;font-size:14px">Questions? Contact us at <strong>{{restaurant_phone}}</strong>.</p>
 <p>— The team at <strong>{{restaurant_name}}</strong></p>`,
@@ -317,7 +341,7 @@ export const DEFAULT_EMAIL_TEMPLATES: EmailTemplate[] = [
  * System-generated values (order IDs, monetary amounts, dates) and pre-built
  * HTML fragments (order_items table, brand colours) do not need escaping.
  */
-function escHtml(s: string): string {
+export function escHtml(s: string): string {
   return s
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
@@ -641,6 +665,10 @@ export function buildPreviewVarMap(settings: AdminSettings): Record<string, stri
     delivery_address: "42 Example Street, London, E1 6RF",
     payment_method: "Cash on Delivery",
     estimated_time: `${settings.restaurant.deliveryTime}`,
+    refund_amount: `${sym}8.50`,
+    refund_type: "Partial refund",
+    refund_method: "Card (Stripe)",
+    refund_reason: `<p><strong>Reason:</strong> Customer request</p>`,
     restaurant_name: settings.restaurant.name,
     restaurant_phone: settings.restaurant.phone,
     restaurant_address: restAddr,
@@ -685,6 +713,7 @@ export function buildEmailDocument(
   if (footerPhone) footerParts.push(footerPhone);
   if (receiptSettings?.website?.trim()) footerParts.push(receiptSettings.website.trim());
   if (receiptSettings?.email?.trim()) footerParts.push(receiptSettings.email.trim());
+  if (receiptSettings?.companyNumber?.trim()) footerParts.push(`Company No: ${receiptSettings.companyNumber.trim()}`);
   if (receiptSettings?.vatNumber?.trim()) footerParts.push(`VAT: ${receiptSettings.vatNumber.trim()}`);
 
   // Optional bottom messages
@@ -763,11 +792,31 @@ export interface ReservationEmailData {
   note?: string | null;
   section?: string;
   cancel_token?: string;  // used to build the self-service cancel link
+  /** Secret check-in code; the confirmation emails show it as a QR image. */
+  check_in_code?: string;
   // VIP booking fee receipt — populated only for VIP-table reservations. Drives
   // the "booking fee paid" line in the confirmation email (the bill).
   vip_fee?: number;
   payment_status?: string;   // "none" | "paid"
   payment_method?: string;   // "stripe" | "paypal" | "cash" | "card"
+}
+
+/**
+ * The "show this when you arrive" block of a reservation email: the check-in
+ * QR image (an inline attachment, `cid:`) and the booking reference to give
+ * instead. `placeholder` swaps the image for a grey square, for the admin
+ * preview and test emails, which have no attachment.
+ */
+export function checkInQrEmailBlock(reference: string, placeholder = false): string {
+  const image = placeholder
+    ? `<div style="width:180px;height:180px;margin:0 auto;border:2px dashed #d1d5db;border-radius:8px;line-height:180px;text-align:center;color:#9ca3af;font-size:13px">QR code</div>`
+    : `<img src="cid:${CHECK_IN_QR_CID}" width="180" height="180" alt="Check-in QR code" style="display:block;margin:0 auto;width:180px;height:180px;border:0">`;
+  return `<div style="margin:20px 0;padding:18px 16px;border:1px solid #e5e7eb;border-radius:12px;text-align:center">
+  <p style="margin:0 0 4px;font-weight:700;color:#111827;font-size:15px">Your check-in code</p>
+  <p style="margin:0 0 12px;color:#6b7280;font-size:13px">Show this at the restaurant when you arrive.</p>
+  ${image}
+  <p style="margin:12px 0 0;color:#374151;font-size:13px">No QR? Give your booking reference: <strong style="letter-spacing:1px">${escHtml(reference)}</strong></p>
+</div>`;
 }
 
 /** Build variable map from a real reservation row + settings. */
@@ -836,6 +885,8 @@ export function buildReservationVarMap(
     // VIP booking fee receipt — empty string for free reservations.
     booking_fee: feeAmount > 0 ? `${sym}${feeAmount.toFixed(2)}` : "",
     booking_fee_receipt: bookingFeeReceipt,
+    // Filled by sendReservationEmailServer, which attaches the QR image itself.
+    checkin_qr: "",
   };
 }
 
@@ -906,6 +957,7 @@ export function buildReservationPreviewVarMap(settings: AdminSettings): Record<s
     brand_color_light: brandColorLight(primaryColor),
     booking_fee: "",
     booking_fee_receipt: "",
+    checkin_qr: checkInQrEmailBlock("A1B2C3D4", true),
   };
 }
 

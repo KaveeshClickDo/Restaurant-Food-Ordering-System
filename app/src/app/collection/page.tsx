@@ -5,17 +5,20 @@ import { useRouter } from "next/navigation";
 import {
   PackageCheck, LogOut, RefreshCw, Banknote, CheckCircle2, Clock,
   User, Loader2, ChefHat, CalendarClock, AlertCircle, ShoppingBag,
-  History as HistoryIcon, Search,
+  History as HistoryIcon, Search, Receipt,
 } from "lucide-react";
 import { useApp } from "@/context/AppContext";
 import { useConnectivity } from "@/lib/connectivity";
 import { fmt, relTime, fmtTime } from "@/components/pos/_utils";
 import PaymentModal from "@/components/pos/PaymentModal";
+import type { DojoSaleResult } from "@/lib/dojo/types";
 import CollectionFooter from "@/components/collection/CollectionFooter";
+import CollectionReceiptModal from "@/components/collection/CollectionReceiptModal";
+import type { Customer, Order, PaymentStatus } from "@/types";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-interface CollectionItem { name: string; qty: number; price?: number; selectedVariations?: { variationId: string; optionId: string; label: string }[]; selectedAddOns?: { id: string; name: string; price: number }[]; }
+interface CollectionItem { name: string; qty: number; price?: number; selectedVariations?: { variationId: string; optionId: string; label: string }[]; selectedAddOns?: { id: string; name: string; price: number }[]; specialInstructions?: string; }
 interface CollectionOrder {
   id: string;
   items: CollectionItem[];
@@ -28,7 +31,19 @@ interface CollectionOrder {
   scheduled_time: string | null;
   customer_id: string | null;
   customers: { name: string | null; phone: string | null } | null;
+  service_fee?: number | null;
+  coupon_code?: string | null;
+  coupon_discount?: number | null;
+  vat_amount?: number | null;
+  vat_inclusive?: boolean | null;
+  store_credit_used?: number | null;
+  gift_card_used?: number | null;
+  /** Tip added on the card machine (Dojo's figure), apart from the total. */
+  card_tip_amount?: number | null;
 }
+
+type Tender = "cash" | "card" | "split";
+const TENDER_LABEL: Record<Tender, string> = { cash: "Cash", card: "Card", split: "Split (cash + card)" };
 
 const STATUS_LABEL: Record<string, string> = {
   pending: "Pending", confirmed: "Confirmed", preparing: "Preparing", ready: "Ready",
@@ -45,6 +60,48 @@ function customerName(o: CollectionOrder): string {
 }
 function initials(name: string) {
   return name.split(" ").map((p) => p[0]).join("").slice(0, 2).toUpperCase();
+}
+
+// The receipt for an order. Right after taking payment the settle call only returns
+// { ok }, so `method` (the tender the staff chose) is passed and the receipt is
+// built from the card's own data plus the values the server just stored (paid,
+// "Cash" / "Card" / "Split …"). For a History row, `method` is left out and the
+// order's stored payment method and status are used.
+function toReceipt(o: CollectionOrder, method?: Tender, cardTip?: number): { order: Order; customer: Customer } {
+  const order: Order = {
+    id: o.id,
+    customerId: o.customer_id,
+    date: o.date,
+    status: "delivered",
+    fulfillment: "collection",
+    total: o.total,
+    items: o.items.map((i) => ({
+      name: i.name,
+      qty: i.qty,
+      price: i.price ?? 0,
+      selectedVariations: i.selectedVariations,
+      selectedAddOns: i.selectedAddOns,
+      specialInstructions: i.specialInstructions,
+    })),
+    note: o.note ?? undefined,
+    paymentMethod: method ? TENDER_LABEL[method] : (o.payment_method ?? undefined),
+    paymentStatus: method ? "paid" : (o.payment_status as PaymentStatus),
+    serviceFee: o.service_fee ?? 0,
+    couponCode: o.coupon_code ?? undefined,
+    couponDiscount: o.coupon_discount ?? 0,
+    vatAmount: o.vat_amount ?? 0,
+    vatInclusive: o.vat_inclusive ?? true,
+    storeCreditUsed: o.store_credit_used ?? 0,
+    giftCardUsed: o.gift_card_used ?? 0,
+    cardTipAmount: cardTip ?? Number(o.card_tip_amount ?? 0),
+    scheduledTime: o.scheduled_time ?? undefined,
+  };
+  const customer = {
+    id: o.customer_id ?? "guest",
+    name: customerName(o),
+    phone: o.customers?.phone ?? "",
+  } as unknown as Customer;
+  return { order, customer };
 }
 
 type Tab = "pickups" | "history";
@@ -71,6 +128,11 @@ export default function CollectionPage() {
 
   const [payTarget, setPayTarget] = useState<CollectionOrder | null>(null);
   const [markingId, setMarkingId] = useState<string | null>(null);
+  const [dojoEnabled, setDojoEnabled] = useState(false);
+  // Receipt being shown: the order just paid, or a History row. Kept apart from
+  // `orders`: settling moves the order to History, so the next refresh drops it
+  // from the board.
+  const [receipt, setReceipt] = useState<{ order: Order; customer: Customer } | null>(null);
 
   // Hydrate the staff identity for the header (middleware already gates the route).
   // Re-checked on a light poll + whenever the tab regains focus so an admin edit
@@ -82,10 +144,11 @@ export default function CollectionPage() {
       const r = await fetch("/api/collection/auth", { cache: "no-store" });
       if (r.status === 401) { router.replace("/collection/login"); return; }
       if (!r.ok) return; // transient blip — keep last-known
-      const d = await r.json() as { ok?: boolean; staff?: { name: string; avatarColor?: string } };
+      const d = await r.json() as { ok?: boolean; staff?: { name: string; avatarColor?: string }; dojoEnabled?: boolean };
       if (!d?.ok || !d.staff) return;
       setStaffName(d.staff.name);
       if (d.staff.avatarColor) setStaffColor(d.staff.avatarColor);
+      setDojoEnabled(Boolean(d.dojoEnabled));
     } catch { /* network blip — keep last-known */ }
   }, [router]);
 
@@ -136,17 +199,32 @@ export default function CollectionPage() {
     router.replace("/collection/login");
   }
 
-  async function settlePayment(order: CollectionOrder, method: "cash" | "card" | "split") {
+  /** Returns true when saved, else the reason. After a card machine payment a
+   *  failed save keeps the payment screen open: it shows the reason and retries
+   *  without charging again. */
+  async function settlePayment(order: CollectionOrder, method: Tender, dojo?: DojoSaleResult): Promise<true | string> {
     setError("");
-    const r = await fetch(`/api/collection/orders/${order.id}/settle`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ paymentMethod: method }),
-    });
-    const json = await r.json().catch(() => ({})) as { ok?: boolean; error?: string };
-    if (!r.ok || !json.ok) setError(json.error ?? "Could not take payment. Please try again.");
+    let message: string | null = null;
+    let cardTip = 0;
+    try {
+      const r = await fetch(`/api/collection/orders/${order.id}/settle`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ paymentMethod: method, ...(dojo ? { dojo } : {}) }),
+      });
+      const json = await r.json().catch(() => ({})) as { ok?: boolean; error?: string; cardTipAmount?: number };
+      if (!r.ok || !json.ok) message = json.error ?? "Could not take payment. Please try again.";
+      // A tip added on the card machine, as the server recorded it from Dojo.
+      else cardTip = json.cardTipAmount ?? dojo?.tipAmount ?? 0;
+    } catch {
+      message = "Network error. Please try again.";
+    }
+    if (message && dojo) return message;
+    if (message) setError(message);
+    else setReceipt(toReceipt(order, method, cardTip));
     setPayTarget(null);
     refresh();
+    return message ?? true;
   }
 
   async function markCollected(order: CollectionOrder) {
@@ -380,6 +458,14 @@ export default function CollectionPage() {
                     </p>
                   </div>
                   <span className="text-white font-bold text-sm flex-shrink-0">{fmt(order.total, sym)}</span>
+                  <button
+                    onClick={() => setReceipt(toReceipt(order))}
+                    title="View receipt"
+                    aria-label={`View receipt for ${customerName(order)}`}
+                    className="flex-shrink-0 flex items-center justify-center gap-1.5 min-h-8 min-w-8 sm:px-2 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-200 text-xs font-semibold transition-colors"
+                  >
+                    <Receipt size={18} />
+                  </button>
                 </div>
               ))}
             </div>
@@ -390,15 +476,28 @@ export default function CollectionPage() {
       {/* Payment modal — gift card hidden (already applied at online checkout). */}
       {payTarget && (
         <PaymentModal
+          // One instance per order: its card machine payment belongs to this order.
+          key={payTarget.id}
           total={payTarget.total}
           currencySymbol={sym}
           isOffline={!isOnline}
           allowGiftCard={false}
+          dojoEnabled={dojoEnabled}
+          saleReference={`Collection ${payTarget.id}`}
           onClose={() => setPayTarget(null)}
-          onComplete={(method) => {
+          onComplete={(method, _payments, _cash, _gc, dojo) => {
             const pm = method === "card" ? "card" : method === "split" ? "split" : "cash";
-            settlePayment(payTarget, pm);
+            return settlePayment(payTarget, pm, dojo);
           }}
+        />
+      )}
+
+      {/* Receipt — opens after taking payment and from a History row. Print goes to the Online printer, PDF opens the print window. */}
+      {receipt && (
+        <CollectionReceiptModal
+          order={receipt.order}
+          customer={receipt.customer}
+          onClose={() => setReceipt(null)}
         />
       )}
 

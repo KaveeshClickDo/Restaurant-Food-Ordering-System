@@ -7,6 +7,7 @@ import {
   Map as MapIcon, LayoutGrid, Crown,
 } from "lucide-react";
 import { ReservationFormSchema } from "@/lib/schemas/reservation";
+import CheckInQr from "@/components/reservation/CheckInQr";
 import { cleanPhone, formErrorMessage } from "@/lib/inputUtils";
 import MultiFloorTableMap from "@/components/reservation/MultiFloorTableMap";
 import { type MapTable } from "@/components/reservation/TableMap";
@@ -97,6 +98,8 @@ export default function BookPage() {
   const [submitting,    setSubmitting]    = useState(false);
   const [submitError,   setSubmitError]   = useState("");
   const [reservationId, setReservationId] = useState("");
+  // The guest's check-in code, shown as a QR on the confirmed screen.
+  const [checkInCode, setCheckInCode] = useState("");
 
   // When slots load or date changes, default to the first future slot (never a past one)
   useEffect(() => {
@@ -136,8 +139,8 @@ export default function BookPage() {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ tableId: selectedTable.id, date, time, ...check.data, source: "online", marketingOptIn }),
       });
-      const json = await res.json() as { ok: boolean; reservationId?: string; error?: string };
-      if (json.ok && json.reservationId) { setReservationId(json.reservationId); setStep("confirmed"); }
+      const json = await res.json() as { ok: boolean; reservationId?: string; checkInCode?: string; error?: string };
+      if (json.ok && json.reservationId) { setReservationId(json.reservationId); setCheckInCode(json.checkInCode ?? ""); setStep("confirmed"); }
       else { setSubmitError(json.error ?? "Failed to create reservation."); }
     } catch { setSubmitError("Network error — please try again."); }
     finally {
@@ -190,6 +193,7 @@ export default function BookPage() {
             <p><span className="text-gray-500">Name:</span> <span className="font-semibold text-gray-800 dark:text-zinc-200">{name}</span></p>
             <p className="text-xs text-gray-400 pt-1">Ref: <span className="font-mono">{reservationId.slice(0, 8).toUpperCase()}</span></p>
           </div>
+          {checkInCode && <CheckInQr code={checkInCode} reference={reservationId.slice(0, 8).toUpperCase()} />}
           <p className="text-xs text-gray-400">A confirmation email has been sent. Check your inbox for a cancel link.</p>
         </div>
       </div>

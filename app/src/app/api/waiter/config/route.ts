@@ -9,6 +9,7 @@
 
 import { NextResponse }  from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { isDojoEffectivelyEnabled } from "@/lib/dojo";
 
 export async function GET() {
   try {
@@ -55,6 +56,7 @@ export async function GET() {
       ok: true,
       waiters,
       tables,
+      dojoEnabled: await isDojoEffectivelyEnabled(),
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unexpected error";

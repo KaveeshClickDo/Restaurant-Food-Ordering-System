@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { ChefHat, CheckCircle2, Clock, UtensilsCrossed, Wifi } from "lucide-react";
 import type { OrderLine } from "@/types";
@@ -115,13 +115,24 @@ function LiveClock() {
 function MarqueeLabel({
   label,
   className,
+  cycleMs = 0,
+  cycleStartMs = 0,
+  onOverflowPx,
 }: {
   label: string;
   className?: string;
+  /** Loop length shared by every scrolling number on the page (0 = none scroll). */
+  cycleMs?: number;
+  /** When the page's shared loop started, so a number can join it in step. */
+  cycleStartMs?: number;
+  onOverflowPx?: (px: number) => void;
 }) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const textRef = useRef<HTMLSpanElement>(null);
   const [overflowPx, setOverflowPx] = useState(0);
+  // Bumped when the text element is re-created (see loopKey below), so the
+  // resize observer watches the new element.
+  const [loopKeyForMeasure, setLoopKeyForMeasure] = useState("static");
 
   useEffect(() => {
     const measure = () => {
@@ -139,23 +150,41 @@ function MarqueeLabel({
     if (wrapRef.current) ro.observe(wrapRef.current);
     if (textRef.current) ro.observe(textRef.current);
     return () => ro.disconnect();
-  }, [label]);
+  }, [label, loopKeyForMeasure]);
 
-  const needsScroll = label.length > 8 && overflowPx > 0;
+  const wantsScroll = label.length > 8 && overflowPx > 0;
 
-  // Speed: 2s base + 0.06s per overflow-px → smooth at any card width / screen size
-  const durationSec = needsScroll ? (2 + overflowPx * 0.02).toFixed(2) : "0";
+  // Tell the panel how far this number must slide; it picks one loop length
+  // for the whole page from the widest overflow.
+  useEffect(() => {
+    onOverflowPx?.(wantsScroll ? overflowPx : 0);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wantsScroll, overflowPx]);
+
+  // Every scrolling number on a page runs the same loop, started together, so
+  // the page can change at a loop boundary without cutting any of them off.
+  // The text element is re-created whenever the page's loop (re)starts, which
+  // restarts its animation in step; a number that appears part-way through a
+  // loop joins it at the right point through a negative delay.
+  const needsScroll = wantsScroll && cycleMs > 0;
+  const loopKey = needsScroll ? `${cycleStartMs}-${cycleMs}` : "static";
+  const phaseMs = useMemo(
+    () => (needsScroll ? Math.max(0, Date.now() - cycleStartMs) % cycleMs : 0),
+    [needsScroll, cycleMs, cycleStartMs],
+  );
+  useEffect(() => { setLoopKeyForMeasure(loopKey); }, [loopKey]);
 
   return (
     <div ref={wrapRef} className="w-full overflow-hidden flex-shrink-0">
       <span
+        key={loopKey}
         ref={textRef}
         style={
           needsScroll
             ? ({
               "--slide-px": `-${overflowPx}px`,
-              "--slide-dur": `${durationSec}s`,
-              animation: "order-slide var(--slide-dur) ease-in-out infinite",
+              "--slide-dur": `${(cycleMs / 1000).toFixed(2)}s`,
+              animation: `order-slide var(--slide-dur) ease-in-out -${phaseMs}ms infinite`,
             } as React.CSSProperties)
             : undefined
         }
@@ -177,12 +206,18 @@ function OrderCard({
   order,
   isReady,
   cols,
-  maxRows
+  maxRows,
+  cycleMs,
+  cycleStartMs,
+  onLabelOverflowPx,
 }: {
   order: DisplayOrder;
   isReady: boolean;
   cols: number;
   maxRows: number;
+  cycleMs?: number;
+  cycleStartMs?: number;
+  onLabelOverflowPx?: (px: number) => void;
 }) {
   const prevReady = useRef(isReady);
   const [flash, setFlash] = useState(false);
@@ -232,6 +267,9 @@ function OrderCard({
           label={order.label}
           className={`font-black tracking-widest ${numCls} ${isReady ? "text-emerald-300" : "text-orange-400"
             }`}
+          cycleMs={cycleMs}
+          cycleStartMs={cycleStartMs}
+          onOverflowPx={onLabelOverflowPx}
         />
 
         <div className={`flex-shrink-0 border-t ${isReady ? "border-emerald-800/60" : "border-gray-700/70"}`} />
@@ -308,23 +346,42 @@ function OrderPanel({
   const [page, setPage] = useState(0);
   const [fade, setFade] = useState(false);
 
-  useEffect(() => setPage(0), [cols, maxRows]);
+  // How far each order number has to slide (px), reported by its label.
+  const [overflowById, setOverflowById] = useState<Record<string, number>>({});
+  const reportOverflow = useCallback((id: string, px: number) => {
+    setOverflowById((prev) => (prev[id] === px ? prev : { ...prev, [id]: px }));
+  }, []);
 
-  // Auto-advance pages with a 300 ms opacity fade
-  useEffect(() => {
-    if (pageCount <= 1) return;
-    const id = setInterval(() => {
-      setFade(true);
-      setTimeout(() => {
-        setPage((p) => (p + 1) % pageCount);
-        setFade(false);
-      }, 350);
-    }, PAGE_INTERVAL);
-    return () => clearInterval(id);
-  }, [pageCount]);
+  useEffect(() => setPage(0), [cols, maxRows]);
 
   const safePage = Math.min(page, pageCount - 1);
   const visible = orders.slice(safePage * pageSize, (safePage + 1) * pageSize);
+
+  // One loop length for every scrolling number on this page, from the widest
+  // overflow (same speed rule as before: 3 s + 0.03 s per px). 0 = nothing scrolls.
+  const maxOverflowPx = visible.reduce((max, o) => Math.max(max, overflowById[o.id] ?? 0), 0);
+  const cycleMs = maxOverflowPx > 0 ? Math.round((3 + maxOverflowPx * 0.03) * 1000) : 0;
+
+  // The shared loop (re)starts when this page is on screen or its length changes.
+  const [cycleStartMs, setCycleStartMs] = useState(() => Date.now());
+  useEffect(() => { setCycleStartMs(Date.now()); }, [safePage, cycleMs]);
+
+  // Auto-advance with a 350 ms fade. Timed from when this page is on screen,
+  // never from the page before it. With scrolling numbers, wait for the first
+  // loop boundary after PAGE_INTERVAL, when every number is back at its start.
+  useEffect(() => {
+    if (pageCount <= 1) return;
+    const showFor = cycleMs > 0 ? Math.ceil(PAGE_INTERVAL / cycleMs) * cycleMs : PAGE_INTERVAL;
+    let fadeId: ReturnType<typeof setTimeout> | undefined;
+    const flipId = setTimeout(() => {
+      setFade(true);
+      fadeId = setTimeout(() => {
+        setPage((p) => (p + 1) % pageCount);
+        setFade(false);
+      }, 350);
+    }, Math.max(0, cycleStartMs + showFor - Date.now()));
+    return () => { clearTimeout(flipId); if (fadeId) clearTimeout(fadeId); };
+  }, [pageCount, cycleMs, cycleStartMs]);
 
   return (
     <div className="flex flex-col flex-1 min-h-0 w-full overflow-hidden">
@@ -357,7 +414,16 @@ function OrderPanel({
             }}
           >
             {visible.map((order) => (
-              <OrderCard key={order.id} order={order} isReady={isReady} cols={cols} maxRows={maxRows} />
+              <OrderCard
+                key={order.id}
+                order={order}
+                isReady={isReady}
+                cols={cols}
+                maxRows={maxRows}
+                cycleMs={cycleMs}
+                cycleStartMs={cycleStartMs}
+                onLabelOverflowPx={(px) => reportOverflow(order.id, px)}
+              />
             ))}
           </div>
         </div>

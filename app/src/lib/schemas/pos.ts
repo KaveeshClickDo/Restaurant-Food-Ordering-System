@@ -1,5 +1,7 @@
+import { CHECK_IN_QR_TEXT_RE } from "@/lib/reservationCheckIn";
 import { z } from "zod";
 import { NonEmptyString, Money, PositiveMoney } from "./primitives";
+import { DojoResultSchema } from "./dojo";
 
 // ── POS sale ─────────────────────────────────────────────────────────────────
 // The POS cart item shape is rich + flexible — let it pass through and let the
@@ -30,6 +32,9 @@ export const PosSaleCreateSchema = z.object({
   // the KDS ticket header so chefs see one combined instruction string. Not
   // persisted on pos_sales separately — see /api/pos/sales/route.ts.
   kitchenNote:    z.string().max(300).optional(),
+  // Whole-order switch — off for sales with nothing for the kitchen to make
+  // (e.g. a pre-made cake slice). Defaults to true when omitted
+  sendToKitchen:  z.boolean().optional(),
   taxAmount:      Money.optional(),
   taxRate:        z.number().nonnegative().optional(),
   taxInclusive:   z.boolean().optional(),
@@ -55,12 +60,20 @@ export const PosSaleCreateSchema = z.object({
   receiptNo:        z.string().max(32).optional(),
   terminalId:       z.string().max(64).optional(),
   clientCreatedAt:  z.string().optional(),
+  // ── Dojo card-terminal result (feat/dojo-payments) ─────────────────────────
+  // Present only when the card leg was collected on an integrated Dojo terminal.
+  // The server records it centrally in dojo_payments (source_type=pos_sale).
+  // Absent for cash / standalone-card sales.
+  dojo: DojoResultSchema.optional(),
 }).passthrough();
 
 export const PosSaleVoidSchema = z.object({
   voidReason:   NonEmptyString,
   refundMethod: z.enum(["cash", "card", "none"]).optional(),
   refundAmount: Money.optional(),
+  /** For a card machine sale's card refund: one id per Void & Refund screen,
+   *  resent on retries, so Dojo can't refund twice. */
+  refundRequestId: z.string().min(8).max(64).optional(),
 });
 
 // ── POS dine-in void / refund ────────────────────────────────────────────────
@@ -80,6 +93,9 @@ export const PosDineInRefundSchema = z.object({
   refundAmount: PositiveMoney,
   refundMethod: z.enum(["cash", "card"]).optional(),
   reason:       NonEmptyString,
+  /** For a card machine bill's card refund: one id per refund screen, resent
+   *  on retries, so Dojo can't refund twice. */
+  refundRequestId: z.string().min(8).max(64).optional(),
 });
 
 export const PosClockSchema = z.object({
@@ -131,6 +147,8 @@ export const KdsOrderStatusSchema = z.object({
 // outstanding balance was tendered and flips the order to paid + delivered.
 export const PosCollectionSettleSchema = z.object({
   paymentMethod: z.enum(["cash", "card", "split"]),
+  // Present only when the card leg was collected on an integrated Dojo terminal.
+  dojo: DojoResultSchema.optional(),
 });
 
 export const OrderDriverAssignSchema = z.object({
@@ -173,6 +191,10 @@ export const EmailRelaySchema = z.object({
   /** Marketing checkbox next to the e-bill email field (default ticked).
    *  false → the captured contact starts/stays unsubscribed. */
   marketingOptIn: z.boolean().optional().default(true),
+  /** A booking receipt's check-in QR. Only this exact format is accepted, and
+   *  the server draws the image itself (attached inline as cid:), so the relay
+   *  can't be used to send arbitrary files. */
+  checkInQr: z.string().regex(CHECK_IN_QR_TEXT_RE, "Invalid check-in QR.").optional(),
 }).strict();  // reject extra fields (especially the `smtp` injection vector)
 
 export const PrintSchema = z.object({
@@ -198,8 +220,12 @@ export const PosSettingsPatchSchema = z
       })
       .strict()
       .optional(),
+    // Merges into an existing "pos"-category printer by id — POS can edit/
+    // toggle one, never add/remove or touch "kitchen".
     printer: z
       .object({
+        id:               NonEmptyString,
+        category:         z.literal("pos").optional(),
         enabled:          z.boolean().optional(),
         name:             z.string().optional(),
         connection:       z.enum(["network", "usb", "bluetooth", "browser"]).optional(),
@@ -209,7 +235,19 @@ export const PosSettingsPatchSchema = z
         bluetoothName:    z.string().optional(),
         autoPrint:        z.boolean().optional(),
         paperWidth:       z.number().int().optional(),
-        allowedIps:       z.array(z.string()).optional(),
+      })
+      .strict()
+      .optional(),
+    addPrinter: z
+      .object({ id: NonEmptyString })
+      .strict()
+      .optional(),
+    removePrinterId: NonEmptyString.optional(),
+    // Sets which "pos"-category printer is active. `id: null` clears it.
+    activePrinterId: z
+      .object({
+        category: z.literal("pos"),
+        id:       z.string().nullable(),
       })
       .strict()
       .optional(),
@@ -226,6 +264,7 @@ export const PosSettingsPatchSchema = z
         phone:           z.string().optional(),
         website:         z.string().optional(),
         email:           z.string().optional(),
+        companyNumber:   z.string().optional(),
         vatNumber:       z.string().optional(),
         thankYouMessage: z.string().optional(),
         customMessage:   z.string().optional(),
@@ -234,6 +273,7 @@ export const PosSettingsPatchSchema = z
       .optional(),
   })
   .refine(
-    (d) => d.taxSettings !== undefined || d.printer !== undefined || d.receiptSettings !== undefined,
-    { message: "Provide taxSettings, printer and/or receiptSettings to update." },
+    (d) => d.taxSettings !== undefined || d.printer !== undefined || d.receiptSettings !== undefined
+      || d.activePrinterId !== undefined || d.addPrinter !== undefined || d.removePrinterId !== undefined,
+    { message: "Provide taxSettings, receiptSettings and/or a printer change (printer, addPrinter, removePrinterId, activePrinterId) to update." },
   );

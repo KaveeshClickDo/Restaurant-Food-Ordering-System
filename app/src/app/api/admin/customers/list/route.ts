@@ -153,6 +153,10 @@ function mapOrder(o: any) {
     // "Gift card" refund method (it gates on order.giftCardUsed > 0).
     giftCardId:            o.gift_card_id ?? undefined,
     giftCardUsed:          o.gift_card_used ? Number(o.gift_card_used) : undefined,
+    // A tip added on the card machine (collection / dine-in), apart from total.
+    cardTipAmount:         o.card_tip_amount ? Number(o.card_tip_amount) : undefined,
+    cardTipRefunded:       o.card_tip_refunded ? Number(o.card_tip_refunded) : undefined,
+    dojoPaymentIntentId:   o.dojo_payment_intent_id || undefined,
   };
 }
 

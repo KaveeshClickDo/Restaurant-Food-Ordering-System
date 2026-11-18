@@ -12,7 +12,10 @@
     "db:seed-menu": "npx tsx --env-file=.env.local seed-menu.ts",
     "db:backfill-contacts": "npx tsx --env-file=.env.local backfill-marketing-contacts.ts",
     "android": "npx cap sync android && npx cap open android",
-    "android:build": "npm run build && npx cap sync android"
+    "android:build": "npm run build && npx cap sync android",
+    "dojo:demo": "npx tsx scripts/dojo-demo.ts",
+    "dojo:sandbox": "npx tsx --env-file=.env.local scripts/dojo-sandbox.ts",
+    "dojo:routes": "npx tsx --env-file=.env.local scripts/dojo-routes.ts"
   },
   "dependencies": {
     "@capacitor-community/sqlite": "^7.0.3",
@@ -27,6 +30,7 @@
     "lucide-react": "^1.8.0",
     "next": "^15.5.18",
     "nodemailer": "^8.0.5",
+    "qr-scanner": "1.4.2",
     "qrcode": "^1.5.4",
     "react": "^19.1.7",
     "react-dom": "^19.1.7",

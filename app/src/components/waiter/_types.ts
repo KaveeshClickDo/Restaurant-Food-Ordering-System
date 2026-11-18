@@ -35,6 +35,7 @@ export interface WaiterReceipt {
   waiterName: string;
   date: string;                // ISO
   items: { name: string; qty: number; price: number }[];
+  covers?: number;
   /** Pre-discount/tip/service fee sum of items. Optional — when absent the receipt has no
    *  discount/tip/service fee and `total` is shown alone (back-compat). */
   subtotal?: number;
@@ -49,6 +50,9 @@ export interface WaiterReceipt {
   vatRate?: number;
   /** Table-service tip (money). */
   tipAmount?: number;
+  /** A tip the customer added on the Dojo card machine, from Dojo's record.
+   *  Not part of `total`: the card paid total + this. */
+  cardTipAmount?: number;
   /** Service fee (money). */
   serviceFeeAmount?: number;
   /** Final amount owed = subtotal − discount + (exclusive VAT) + tip + serviceFee */
@@ -58,6 +62,9 @@ export interface WaiterReceipt {
   giftCardUsed?: number;
   paymentMethod?: "cash" | "card" | "gift_card" | "pending";
   orderIds: string[];
+  kitchenPrintError?: string;
+  /** True while the automatic kitchen print is in flight. */
+  kitchenPrintPending?: boolean;
 }
 
 // Today's reservations the waiter grid overlays on the table tiles. Shape
@@ -101,7 +108,9 @@ export interface TileReservation {
 export interface WaiterActiveOrder {
   id: string;
   tableLabel: string;
-  /** Kitchen lifecycle: pending | confirmed | preparing | ready.
+  /** Kitchen lifecycle: pending | confirmed | preparing | ready | served.
+   *  "served" means the waiter carried the food out but the bill is still
+   *  open — it still occupies the table, just no longer counts as ready.
    *  (delivered/cancelled rows are filtered out — they free the table.) */
   status: string;
   items: { name: string; qty: number; price: number }[];

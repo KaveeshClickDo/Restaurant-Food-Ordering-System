@@ -13,6 +13,8 @@ import { supabase } from "@/lib/supabase";
 import { isCapacitorAndroid } from "@/lib/capacitorBridge";
 import { enqueueSale, cancelQueuedSale, listEntries } from "@/lib/posOutbox";
 import { kvGet, kvSet } from "@/lib/posLocalDb";
+import { getDojoConfig } from "@/lib/dojo/posApi";
+import type { DojoSaleResult } from "@/lib/dojo/types";
 import bcrypt from "bcryptjs";
 
 // On-device cache keys (Phase 1.6 / 4). kvGet/kvSet are Capacitor-only (no-ops
@@ -293,6 +295,8 @@ interface POSContextValue {
   setTipAmount: React.Dispatch<React.SetStateAction<number>>;
   kitchenNote: string;
   setKitchenNote: React.Dispatch<React.SetStateAction<string>>;
+  sendToKitchen: boolean;
+  setSendToKitchen: React.Dispatch<React.SetStateAction<boolean>>;
   assignedCustomer: POSCustomer | null;
   setAssignedCustomer: React.Dispatch<React.SetStateAction<POSCustomer | null>>;
   // Computed totals
@@ -312,12 +316,25 @@ interface POSContextValue {
     paymentMethod: "cash" | "card" | "split" | "gift_card",
     payments: { method: "cash" | "card"; amount: number }[],
     cashTendered?: number,
-    giftCard?: { code: string; amount: number }
-  ) => Promise<{ sale: POSSale | null; error?: string }>;
+    giftCard?: { code: string; amount: number },
+    // Set only when the card leg was collected on an integrated Dojo terminal;
+    // the server records it in the central dojo_payments table.
+    dojo?: DojoSaleResult,
+    // The sale's id, when the caller made it before taking payment (the till
+    // does, so the card machine payment can name the sale). Use each id for
+    // ONE sale only: the server treats a repeated id as a replay of the first
+    // sale. Omitted → a fresh id.
+    saleId?: string,
+  ) => Promise<{ sale: POSSale | null; error?: string; sendToKitchen: boolean }>;
+  /** True when the Dojo card-terminal flow is on: DOJO_MODE (mock|live) AND
+   *  the admin toggle. */
+  dojoEnabled: boolean;
   // voidSale returns `{ ok, error? }` so callers can surface the server's
   // actual reason (insufficient permission, sale already voided, refund
   // amount exceeds total, etc.) instead of a generic network message.
-  voidSale: (saleId: string, reason: string, refundMethod?: "cash" | "card" | "none", refundAmount?: number) => Promise<{ ok: boolean; error?: string }>;
+  // refundRequestId: for a card machine sale's refund to the card, one id per
+  // Void & Refund screen, resent on its retries, so Dojo can't refund twice.
+  voidSale: (saleId: string, reason: string, refundMethod?: "cash" | "card" | "none", refundAmount?: number, refundRequestId?: string) => Promise<{ ok: boolean; error?: string }>;
   // Clock in/out return `{ ok, error? }` so the Staff tab can toast the
   // server's actual reason (409 already clocked in / 404 nothing to close)
   // instead of failing silently — a stale button state was untraceable before.
@@ -652,6 +669,7 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
   const [tipAmount, setTipAmount] = useState(0);
   const [serviceFeePct, setServiceFeePct] = useState({ pct: 0 });
   const [kitchenNote, setKitchenNote] = useState("");
+  const [sendToKitchen, setSendToKitchen] = useState(true);
   const [assignedCustomer, setAssignedCustomer] = useState<POSCustomer | null>(null);
 
   // ── Staff — DB-backed (pos_staff table) ──────────────────────────────────
@@ -1315,6 +1333,7 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
     setTipAmount(0);
     setServiceFeePct({ pct: 0 });
     setKitchenNote("");
+    setSendToKitchen(true);
     setAssignedCustomer(null);
   }, []);
 
@@ -1350,12 +1369,30 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
   const grandTotal     = round2(grandTotalRaw);
 
   // ── Complete sale ─────────────────────────────────────────────────────────
+  // ── Dojo card-terminal availability ──────────────────────────────────────────
+  // Reflects the server flag (DOJO_MODE AND the admin toggle). Fetched once a
+  // staff session exists so the /api/pos/dojo/config call is authenticated.
+  // Off → PaymentModal keeps the manual card confirm, i.e. today's behaviour.
+  // See lib/dojo/effectiveFlag.ts.
+  const [dojoEnabled, setDojoEnabled] = useState(false);
+  useEffect(() => {
+    if (!currentStaff?.id) { setDojoEnabled(false); return; }
+    let cancelled = false;
+    getDojoConfig()
+      .then((c) => { if (!cancelled) setDojoEnabled(Boolean(c.enabled)); })
+      .catch(() => { if (!cancelled) setDojoEnabled(false); });
+    return () => { cancelled = true; };
+  }, [currentStaff?.id]);
+
   const completeSale = useCallback(async (
     paymentMethod: "cash" | "card" | "split" | "gift_card",
     payments: { method: "cash" | "card"; amount: number }[],
     cashTendered?: number,
-    giftCard?: { code: string; amount: number }
-  ): Promise<{ sale: POSSale | null; error?: string }> => {
+    giftCard?: { code: string; amount: number },
+    dojo?: DojoSaleResult,
+    presetSaleId?: string,
+  ): Promise<{ sale: POSSale | null; error?: string; sendToKitchen: boolean }> => {
+    const saleSendToKitchen = sendToKitchen;
     // Compute totals at full precision, then round each money field to 2dp
     // before sending. The server's Money primitive rejects float garbage
     // (15.000000000000002, 13.043478260869563, etc.) — round at the producer
@@ -1391,7 +1428,7 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
     const onAndroid = isCapacitorAndroid();
     const clientCreatedAt = onAndroid ? new Date().toISOString() : undefined;
 
-    const saleId = uuid();
+    const saleId = presetSaleId ?? uuid();
     const saleDate = new Date().toISOString();
     // Build the payload. On web (`onAndroid = false`) the new offline fields
     // stay undefined and the existing server allocator runs exactly as before.
@@ -1402,6 +1439,7 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
       discountAmount: round2(disc),
       discountNote: discount.note,
       kitchenNote:  kitchenNote.trim() || undefined,
+      sendToKitchen,
       taxAmount: round2(tax),
       // Snapshot the VAT mode + rate at time of sale so receipts always show
       // the correct label, even if the settings change later.
@@ -1418,6 +1456,8 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
       // the sale total, then stamps + redeems. total stays the full goods
       // value; the gift card covers part/all of what's owed.
       ...(giftCard ? { giftCardCode: giftCard.code, giftCardUsed: round2(giftCard.amount) } : {}),
+      // Dojo card-terminal result (the server records it in dojo_payments).
+      ...(dojo ? { dojo } : {}),
       staffId: currentStaff?.id ?? "",
       staffName: currentStaff?.name ?? "",
       customerId: assignedCustomer?.id,
@@ -1437,24 +1477,21 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
         headers: { "Content-Type": "application/json" },
         body:    JSON.stringify(payload),
       });
-      // 409 means the outbox / a retry re-sent a sale we already persisted —
-      // treat the returned `sale` as authoritative.
-      if (res.ok || res.status === 409) {
-        const json = await res.json() as { ok: boolean; sale?: POSSale };
-        if (json.sale){
-          sale = json.sale;
-
-          if (giftCard && !sale.giftCard) {
-            sale.giftCard = { code: giftCard.code, amount: giftCard.amount };
-          }
-        } 
-
-      } else {
+      // A 409 is either an idempotent replay of a sale we already persisted
+      // (the outbox / a retry re-sent it — carries `sale`) or a stock conflict
+      // (carries `error`, no `sale`) — read the body once and branch on which
+      // one actually came back, instead of trusting the status code alone.
+      const json = await res.json().catch(() => ({})) as { ok?: boolean; sale?: POSSale; error?: string };
+      if (json.sale) {
+        sale = json.sale;
+        if (giftCard && !sale.giftCard) {
+          sale.giftCard = { code: giftCard.code, amount: giftCard.amount };
+        }
+      } else if (!res.ok) {
         // Surface the server's actual reason to the caller so the cashier sees
-        // "'Burger' is no longer available on the menu" instead of a generic
-        // network error. Stock conflicts (409 with no sale), validation 400s,
-        // permission 403s all carry a useful message in `error`.
-        const json = await res.json().catch(() => ({})) as { error?: string };
+        // "'Burger' only has 2 left in stock." instead of a generic network
+        // error. Stock conflicts (409), validation 400s, permission 403s all
+        // carry a useful message in `error`.
         serverError = json.error;
         // 4xx is expected user-input flow (item went away, insufficient stock,
         // permission denied) — log as a warning so Next.js's dev error overlay
@@ -1504,6 +1541,8 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
           tipAmount:      payload.tipAmount,
           serviceFeeAmount: payload.serviceFeeAmount,
           total:          payload.total,
+          cardTipAmount:  dojo?.tipAmount ?? undefined,
+          cardPayment:    dojo ? { scheme: dojo.cardScheme, last4: dojo.cardLast4, authCode: dojo.authCode } : undefined,
           paymentMethod:  payload.paymentMethod,
           payments:       payload.payments,
           cashTendered:   payload.cashTendered,
@@ -1518,7 +1557,7 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
       }
     }
 
-    if (!sale) return { sale: null, error: serverError };
+    if (!sale) return { sale: null, error: serverError, sendToKitchen: saleSendToKitchen };
 
     // Optimistic local state update + downstream effects only run after the
     // sale is durably persisted in the DB.
@@ -1555,14 +1594,15 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
     // and could push our stale value back to the server.
 
     clearCart();
-    return { sale };
-  }, [cart, discount, tipAmount, serviceFeePct, kitchenNote, settings, currentStaff, assignedCustomer, clearCart, fetchCustomers]);
+    return { sale, sendToKitchen: saleSendToKitchen };
+  }, [cart, discount, tipAmount, serviceFeePct, kitchenNote, sendToKitchen, settings, currentStaff, assignedCustomer, clearCart, fetchCustomers]);
 
   const voidSale = useCallback(async (
     saleId: string,
     reason: string,
     refundMethod?: "cash" | "card" | "none",
     refundAmount?: number,
+    refundRequestId?: string,
   ): Promise<{ ok: boolean; error?: string }> => {
     // v1 OFFLINE VOID (full cancel). If this sale is still queued in the outbox
     // (rung this session, not yet synced), "voiding" it is a full undo: drop the
@@ -1587,11 +1627,14 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
     const sale = sales.find((s) => s.id === saleId);
     if (!sale) return { ok: false, error: "Sale not found." };
 
+    // How the server divided the refund: the part out of the sale total, and a
+    // tip added on the card machine (kept apart so "net kept" stays right).
+    let refundSplit: { salePart: number; tipPart: number } | null = null;
     try {
       const res = await fetch(`${apiBase()}/api/pos/sales/${saleId}`, {
         method:  "PATCH",
         headers: { "Content-Type": "application/json" },
-        body:    JSON.stringify({ voidReason: reason, refundMethod, refundAmount }),
+        body:    JSON.stringify({ voidReason: reason, refundMethod, refundAmount, refundRequestId }),
       });
       if (!res.ok) {
         const json = await res.json().catch(() => ({})) as { error?: string };
@@ -1602,6 +1645,8 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
         log("voidSale failed:", res.status, json.error ?? "(no details)");
         return { ok: false, error: json.error };
       }
+      const done = await res.json().catch(() => ({})) as { refund?: { salePart: number; tipPart: number } | null };
+      refundSplit = done.refund ?? null;
     } catch (err) {
       // Offline is expected here: an already-synced sale can only be voided by
       // the server. (Unsynced current-session sales took the cancelQueuedSale
@@ -1611,9 +1656,15 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
     }
 
     // 2. Update local sales state
+    const salePart = refundSplit ? refundSplit.salePart : refundAmount;
     setSales((prev) =>
       prev.map((s) => s.id === saleId
-        ? { ...s, voided: true, voidReason: reason, refundMethod, refundAmount }
+        ? {
+            ...s, voided: true, voidReason: reason, refundMethod, refundAmount: salePart,
+            ...(refundSplit && refundSplit.tipPart > 0
+              ? { cardTipRefunded: Math.round(((s.cardTipRefunded ?? 0) + refundSplit.tipPart) * 100) / 100 }
+              : {}),
+          }
         : s)
     );
 
@@ -1623,8 +1674,8 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
     if (sale.customerId) {
       setCustomers((prev) =>
         prev.map((c) =>
-          c.id === sale.customerId && refundAmount && refundAmount > 0
-            ? { ...c, totalSpend: Math.max(0, (c.totalSpend ?? 0) - refundAmount) }
+          c.id === sale.customerId && salePart && salePart > 0
+            ? { ...c, totalSpend: Math.max(0, (c.totalSpend ?? 0) - salePart) }
             : c
         )
       );
@@ -1761,9 +1812,10 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
       tipAmount, setTipAmount,
       serviceFeePct, setServiceFeePct, serviceFeeAmount,
       kitchenNote, setKitchenNote,
+      sendToKitchen, setSendToKitchen,
       assignedCustomer, setAssignedCustomer,
       subtotal, discountAmount, taxAmount, afterTaxTotal, grandTotal,
-      completeSale, voidSale,
+      completeSale, voidSale, dojoEnabled,
       clockIn, clockOut, isClocked,
       refreshClockEntries: fetchClockEntries,
       exportSales,

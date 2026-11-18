@@ -32,6 +32,16 @@
 
 import type { Resend as ResendClient } from "resend";
 
+/** A file sent with the email. With `cid` it is an inline image the HTML
+ *  shows through `<img src="cid:…">` (e.g. a booking's check-in QR code):
+ *  Gmail and Outlook block images embedded as data: URLs, but show these. */
+export interface EmailAttachment {
+  filename:    string;
+  content:     Buffer;
+  contentType: string;
+  cid?:        string;
+}
+
 export interface SendEmailArgs {
   to:       string;
   subject:  string;
@@ -40,6 +50,7 @@ export interface SendEmailArgs {
   /** Extra SMTP headers. Used by marketing campaigns for the RFC 8058
    *  one-click unsubscribe pair (List-Unsubscribe / List-Unsubscribe-Post). */
   headers?: Record<string, string>;
+  attachments?: EmailAttachment[];
 }
 
 export interface SendEmailResult {
@@ -111,6 +122,14 @@ async function sendViaResend(from: string, args: SendEmailArgs, apiKey: string):
         subject: args.subject,
         html:    args.html,
         ...(args.headers ? { headers: args.headers } : {}),
+        ...(args.attachments?.length ? {
+          attachments: args.attachments.map((a) => ({
+            filename:    a.filename,
+            content:     a.content,
+            contentType: a.contentType,
+            ...(a.cid ? { inlineContentId: a.cid } : {}),
+          })),
+        } : {}),
       });
       if (error) {
         lastErr = new Error(error.message ?? "Resend API error");
@@ -159,6 +178,14 @@ async function sendViaSmtp(from: string, args: SendEmailArgs): Promise<SendEmail
         subject: args.subject,
         html:    args.html,
         ...(args.headers ? { headers: args.headers } : {}),
+        ...(args.attachments?.length ? {
+          attachments: args.attachments.map((a) => ({
+            filename:    a.filename,
+            content:     a.content,
+            contentType: a.contentType,
+            ...(a.cid ? { cid: a.cid } : {}),
+          })),
+        } : {}),
       });
       console.log(`[email/smtp] sent "${args.subject}" → ${args.to}`);
       return { ok: true };
@@ -189,7 +216,7 @@ export async function sendEmail(args: SendEmailArgs): Promise<SendEmailResult> {
   const smtpHost  = process.env.SMTP_HOST?.trim();
 
   if (!resendKey && !smtpHost) {
-    return { ok: false, error: "Email not configured (set RESEND_API_KEY or SMTP_HOST)" };
+    return { ok: false, error: "Email sending is not set up yet. Please contact support." };
   }
 
   const from = buildFromHeader(args.fromName);

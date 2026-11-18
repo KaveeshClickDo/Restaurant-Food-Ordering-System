@@ -1,15 +1,56 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { usePOS } from "@/context/POSContext";
 import { useConnectivity } from "@/lib/connectivity";
+import { apiBase } from "@/lib/apiBase";
+import { uuid } from "@/lib/uuid";
 import { POSSale } from "@/types/pos";
-import { X, Banknote, CreditCard, WifiOff } from "lucide-react";
+import { X, Banknote, CreditCard, WifiOff, AlertTriangle } from "lucide-react";
 import { fmt } from "../_utils";
+import { cardLegAmount } from "@/lib/posCardPayment";
+
+/** A sale paid on the Dojo card machine (GET /api/pos/dojo/sales/[id]). */
+interface CardMachinePayment {
+  cardScheme: string | null;
+  cardLast4: string | null;
+  amount: number | null;
+  status: string | null;
+  /** Already refunded through Dojo by an earlier try whose void didn't save. */
+  refunded: boolean;
+}
 
 export default function VoidSaleModal({ sale, onClose }: { sale: POSSale; onClose: () => void }) {
   const { settings, voidSale } = usePOS();
   const { isOnline } = useConnectivity();
+  // A card machine sale's "Card" refund goes back to the card through Dojo
+  // (PATCH /api/pos/sales/[id] does it, before voiding). One request id per
+  // screen, resent on retries, so Dojo can't refund twice.
+  const [cardMachine, setCardMachine] = useState<CardMachinePayment | null>(null);
+  const [testMode, setTestMode] = useState(false);
+  const [requestId] = useState(() => uuid());
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!isOnline || sale.voided || (sale.paymentMethod !== "card" && sale.paymentMethod !== "split")) return;
+    let cancelled = false;
+    fetch(`${apiBase()}/api/pos/dojo/sales/${encodeURIComponent(sale.id)}`, { cache: "no-store" })
+      .then((r) => r.json())
+      .then((json: { ok?: boolean; payment?: CardMachinePayment | null; test?: boolean }) => {
+        if (cancelled || !json.ok) return;
+        setCardMachine(json.payment ?? null);
+        setTestMode(Boolean(json.test));
+        // A split sale whose card part was on the machine: refund the card part
+        // to the card (and the rest in cash) unless staff choose otherwise.
+        if (json.payment && sale.paymentMethod === "split") setRefundMethod("card");
+      })
+      .catch(() => { /* treated as a sale not paid on the card machine */ });
+    return () => { cancelled = true; };
+  }, [isOnline, sale.id, sale.voided, sale.paymentMethod]);
+
+  const cardName = cardMachine
+    ? [cardMachine.cardScheme, cardMachine.cardLast4 ? `****${cardMachine.cardLast4}` : null].filter(Boolean).join(" ") || "the card"
+    : null;
   // Offline, the only void that works is a *full cancel* of an unsynced sale
   // (the sale never reached the server, so there's nothing to partially refund).
   // Voiding an already-synced sale needs the server and is blocked — voidSale
@@ -20,7 +61,10 @@ export default function VoidSaleModal({ sale, onClose }: { sale: POSSale; onClos
   // stored net of the gift card, so it IS the refundable cash/card amount.
   // giftUsed drives the "non-refundable" note shown to the cashier below.
   const giftUsed  = sale.giftCardUsed ?? 0;
-  const moneyPaid = Math.max(0, sale.total);
+  // A tip the customer added on the card machine was paid too, so it can be
+  // given back: it's on top of `total`, and a refund takes from the sale first.
+  const cardTipLeft = Math.max(0, Math.round(((sale.cardTipAmount ?? 0) - (sale.cardTipRefunded ?? 0)) * 100) / 100);
+  const moneyPaid = Math.max(0, Math.round((sale.total + cardTipLeft) * 100) / 100);
   const [voidReason, setVoidReason]   = useState("");
   const [refundMethod, setRefundMethod] = useState<"cash" | "card" | "none">(sale.paymentMethod === "card" ? "card" : "cash");
   const [refundAmount, setRefundAmount] = useState(moneyPaid.toFixed(2));
@@ -37,17 +81,27 @@ export default function VoidSaleModal({ sale, onClose }: { sale: POSSale; onClos
     const amt = method === "none" ? 0 : parseFloat(refundAmount);
 
     setSubmitting(true);
-    const { ok, error } = await voidSale(sale.id, voidReason.trim(), method, isNaN(amt) ? 0 : amt);
+    setError(null);
+    const { ok, error: reason } = await voidSale(sale.id, voidReason.trim(), method, isNaN(amt) ? 0 : amt, requestId);
     setSubmitting(false);
     if (!ok) {
       // Surface the server's actual reason (no permission, already voided,
-      // refund > total, etc.) instead of a generic network message. Falls
-      // back to the network copy when the request never reached the server.
-      alert(error ?? "Couldn't void the sale on the server. Check your network and try again.");
+      // refund > total, Dojo refused the card refund, etc.) instead of a
+      // generic network message. Falls back to the network copy when the
+      // request never reached the server. Nothing was voided.
+      setError(reason ?? "Couldn't void the sale on the server. Check your network and try again.");
       return;
     }
     onClose();
   }
+
+  const toCard = !offlineCancel && refundMethod === "card" && cardMachine !== null;
+  // What goes back to the card through Dojo (its own part plus the tip) and
+  // what is handed back in cash (the rest of a split sale's refund).
+  const refundNum = Math.max(0, parseFloat(refundAmount) || 0);
+  const cardBack  = toCard ? Math.min(refundNum, Math.round((cardLegAmount(sale) + cardTipLeft) * 100) / 100) : 0;
+  const cashBack  = toCard ? Math.max(0, Math.round((refundNum - cardBack) * 100) / 100) : 0;
+  const tipInRefund = Math.max(0, Math.round((refundNum - sale.total) * 100) / 100);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
@@ -97,7 +151,7 @@ export default function VoidSaleModal({ sale, onClose }: { sale: POSSale; onClos
             <div className="grid grid-cols-3 gap-2">
               {([
                 { id: "cash",  label: "Cash",       icon: Banknote,   color: "border-green-500 bg-green-500/10 text-green-400" },
-                { id: "card",  label: "Card",        icon: CreditCard, color: "border-blue-500  bg-blue-500/10  text-blue-400"  },
+                { id: "card",  label: cardMachine ? "To card" : "Card", icon: CreditCard, color: "border-blue-500  bg-blue-500/10  text-blue-400"  },
                 { id: "none",  label: "No Refund",   icon: X,          color: "border-slate-500 bg-slate-700    text-slate-300" },
               ] as const).map(({ id, label, icon: Icon, color }) => (
                 <button
@@ -142,6 +196,13 @@ export default function VoidSaleModal({ sale, onClose }: { sale: POSSale; onClos
                   {fmt(giftUsed, settings.currencySymbol)} paid by gift card is non-refundable · max refund {fmt(moneyPaid, settings.currencySymbol)}
                 </p>
               )}
+              {cardTipLeft > 0 && (
+                <p className="text-slate-400 text-xs mt-1">
+                  {tipInRefund > 0
+                    ? `Includes the ${fmt(tipInRefund, settings.currencySymbol)} tip added on the card machine`
+                    : `The ${fmt(cardTipLeft, settings.currencySymbol)} tip added on the card machine is kept`}
+                </p>
+              )}
             </div>
           )}
 
@@ -154,8 +215,33 @@ export default function VoidSaleModal({ sale, onClose }: { sale: POSSale; onClos
             }`}>
               {refundMethod === "cash" ? <Banknote size={16} /> : <CreditCard size={16} />}
               <span className="text-sm font-semibold">
-                Return {fmt(parseFloat(refundAmount) || 0, settings.currencySymbol)} in {refundMethod === "cash" ? "cash to customer" : "card refund"}
+                {toCard
+                  ? `Refund ${fmt(cardBack, settings.currencySymbol)} to ${cardName} through Dojo`
+                    + (cashBack > 0 ? ` and ${fmt(cashBack, settings.currencySymbol)} in cash` : "")
+                  : `Return ${fmt(parseFloat(refundAmount) || 0, settings.currencySymbol)} in ${refundMethod === "cash" ? "cash to customer" : "card refund"}`}
               </span>
+            </div>
+          )}
+
+          {/* Card machine sale: what the card refund does */}
+          {toCard && (
+            <p className="text-slate-400 text-xs leading-relaxed">
+              {cardMachine?.refunded
+                ? "This sale was already refunded to the card through Dojo. Voiding it now only saves the void."
+                : "Paid on the card machine, so the money goes straight back to the card. If Dojo refuses, nothing is voided."}
+              {testMode && !cardMachine?.refunded && (
+                <span className="block mt-1 text-amber-300">
+                  Test mode: Dojo&apos;s sandbox refuses refunds of card machine payments (&quot;Your refund request was not
+                  successful&quot;). Dojo has confirmed that&apos;s expected, and the request is correct.
+                </span>
+              )}
+            </p>
+          )}
+
+          {error && (
+            <div className="flex items-start gap-2 px-4 py-3 rounded-xl border border-red-500/30 bg-red-500/10 text-red-300">
+              <AlertTriangle size={16} className="mt-0.5 shrink-0" />
+              <span className="text-xs leading-relaxed">{error}</span>
             </div>
           )}
         </div>

@@ -7,10 +7,13 @@ import ConfirmDialog from "@/components/ConfirmDialog";
 import {
   CalendarDays, Clock, Users, UtensilsCrossed, CheckCircle2, XCircle,
   AlertTriangle, Trash2, RefreshCw, MapPin, ChevronDown, Loader2,
-  ToggleLeft, ToggleRight, Settings2, Search, Mail, Phone,
+  ToggleLeft, ToggleRight, Settings2, Search, Mail, Phone, Receipt,
   LogIn, LogOut, UserPlus, Ban, Star, Link, ExternalLink, Crown,
 } from "lucide-react";
 import { cleanPhone } from "@/lib/inputUtils";
+import ReservationReceiptModal from "@/components/pos/ReservationReceiptModal";
+import CheckInLookup from "@/components/reservation/CheckInLookup";
+import type { ReservationReceiptData } from "@/components/pos/_reservationReceipt";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -242,10 +245,12 @@ function ReservationCard({
   res,
   onStatusChange,
   onDelete,
+  onOpenReceipt,
 }: {
   res: Reservation;
   onStatusChange: (id: string, status: ReservationStatus) => Promise<void>;
   onDelete: (id: string) => Promise<void>;
+  onOpenReceipt: (res: Reservation) => void;
 }) {
   const { settings } = useApp();
   const currencySymbol = settings.currency?.symbol ?? "£";
@@ -404,6 +409,12 @@ function ReservationCard({
             <Loader2 size={16} className="animate-spin text-gray-400" />
           ) : (
             <>
+              <button
+                onClick={() => onOpenReceipt(res)}
+                className="flex items-center gap-1.5 bg-gray-100 hover:bg-gray-200 border border-gray-200 active:scale-95 text-gray-600 text-xs font-semibold px-3 py-2 rounded-xl transition-all"
+              >
+                <Receipt size={13} /> Receipt
+              </button>
               {/* Prominent check-in / check-out buttons */}
               {res.status === "confirmed" && (
                 <button
@@ -536,6 +547,11 @@ export default function ReservationsPanel() {
   // (a walk-in can be seated) but show a "booked HH:MM" warning so staff decide.
   const [addUpcoming,   setAddUpcoming]   = useState<Record<string, string>>({});
   const [addLoadingTbl, setAddLoadingTbl] = useState(false);
+  // Shown after creating a booking (autoPrint: true), or on demand via a
+  // card's Receipt button (autoPrint: false) — mirrors the POS reservations
+  // receipt (ReservationsView.tsx), printing to the "online" printer instead
+  // of POS's "pos" one (surface="admin").
+  const [receiptModal, setReceiptModal] = useState<{ data: ReservationReceiptData; autoPrint: boolean } | null>(null);
 
   // Fetch which tables are already booked at the chosen date/time. Reuses the
   // public availability endpoint (no auth required) — same data the customer
@@ -740,6 +756,13 @@ export default function ReservationsPanel() {
       setAddError("Phone number is required for phone bookings.");
       return;
     }
+    // Phone bookings also need an email — it's how the confirmation/cancel
+    // link reaches the guest, same as an online booking would. Walk-ins skip
+    // this: they're already at the table.
+    if (addSource === "phone" && !addEmail.trim()) {
+      setAddError("Email is required for phone bookings.");
+      return;
+    }
 
     const table = settings.diningTables?.find((t) => t.id === addTableId);
     if (!table) { setAddError("Selected table no longer exists. Refresh and try again."); return; }
@@ -781,10 +804,27 @@ export default function ReservationsPanel() {
           ...(table.isVip && (table.vipPrice ?? 0) > 0 ? { paymentMethod: addPayMethod } : {}),
         }),
       });
-      const json = await res.json() as { ok: boolean; error?: string };
+      const json = await res.json() as { ok: boolean; error?: string; reservationId?: string; checkInCode?: string };
       if (json.ok) {
         setShowAddModal(false);
         fetchReservations();
+        if (json.reservationId) {
+          setReceiptModal({
+            autoPrint: true,
+            data: {
+              id: json.reservationId,
+              customerName: addName.trim(), customerEmail: addEmail.trim(), customerPhone: addPhone.trim(),
+              date: addDate, time: addTime, partySize: addParty,
+              tableLabel: table.label, section: table.section ?? "",
+              source: addSource, note: addNote.trim(), staffName: "",
+              vipFee: table.isVip ? (table.vipPrice ?? 0) : 0,
+              paymentMethod: table.isVip ? addPayMethod : undefined,
+              // A phone booking is still to come, so its receipt carries the
+              // check-in QR; a walk-in is already seated.
+              checkInCode: addSource === "phone" ? json.checkInCode : undefined,
+            },
+          });
+        }
       } else {
         setAddError(json.error ?? "Failed to create booking.");
       }
@@ -796,15 +836,38 @@ export default function ReservationsPanel() {
     }
   }
 
+  /** Reopen the receipt for an existing reservation row (any source, any
+   *  status) — view/print/email on demand. Staff attribution isn't tracked
+   *  on the admin surface (password login, no named-staff concept), so
+   *  staffName is left blank here, same as POS does when reopened from its list. */
+  function openReceiptFor(res: Reservation) {
+    setReceiptModal({
+      autoPrint: false,
+      data: {
+        id: res.id,
+        customerName: res.customerName, customerEmail: res.customerEmail, customerPhone: res.customerPhone,
+        date: res.date, time: res.time, partySize: res.partySize,
+        tableLabel: res.tableLabel, section: res.section ?? "",
+        source: res.source ?? "online", note: res.note ?? "", staffName: "",
+        vipFee: res.vipFee ?? 0,
+        paymentMethod: res.paymentMethod,
+        checkInCode: res.status === "pending" || res.status === "confirmed" ? res.checkInCode : undefined,
+      },
+    });
+  }
+
   const filtered = reservations.filter((r) => {
     if (filterSource && r.source !== filterSource) return false;
     if (!search) return true;
     const q = search.toLowerCase();
+    // Phone and reference ignore spaces (and a leading "#"), as people read them out.
+    const compact = q.replace(/[\s#]/g, "");
     return (
       r.customerName.toLowerCase().includes(q) ||
       r.customerEmail.toLowerCase().includes(q) ||
       r.tableLabel.toLowerCase().includes(q) ||
-      r.id.toLowerCase().includes(q)
+      r.id.toLowerCase().includes(q) ||
+      (!!compact && (r.customerPhone ?? "").replace(/\s/g, "").includes(compact))
     );
   });
 
@@ -864,6 +927,35 @@ export default function ReservationsPanel() {
 
       {showSettings && <ReservationSettings />}
 
+      {/* Check in a guest: plug-in scanner, typed reference or camera */}
+      <CheckInLookup
+        surface="admin"
+        theme="light"
+        currencySymbol={settings.currency?.symbol ?? "£"}
+        onCheckedIn={() => { void fetchReservations(); }}
+        onViewReceipt={(res) => openReceiptFor({
+          id:            res.id,
+          tableId:       res.table_id,
+          tableLabel:    res.table_label,
+          tableSeats:    0,
+          section:       res.section,
+          customerName:  res.customer_name,
+          customerEmail: res.customer_email,
+          customerPhone: res.customer_phone,
+          date:          res.date,
+          time:          res.time,
+          partySize:     res.party_size,
+          status:        res.status as Reservation["status"],
+          note:          res.note ?? undefined,
+          createdAt:     "",
+          source:        res.source ?? undefined,
+          vipFee:        res.vip_fee,
+          paymentStatus: (res.payment_status ?? undefined) as Reservation["paymentStatus"],
+          paymentMethod: res.payment_method ?? undefined,
+          checkInCode:   res.check_in_code ?? undefined,
+        })}
+      />
+
       {/* Stats row */}
       <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-3">
         {[
@@ -920,7 +1012,7 @@ export default function ReservationsPanel() {
           <Search size={14} className="text-gray-400 flex-shrink-0" />
           <input
             type="text"
-            placeholder="Name, email, table…"
+            placeholder="Name, phone, email, table, reference…"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="w-full text-sm focus:outline-none placeholder-gray-400"
@@ -959,6 +1051,7 @@ export default function ReservationsPanel() {
               res={res}
               onStatusChange={handleStatusChange}
               onDelete={handleDelete}
+              onOpenReceipt={openReceiptFor}
             />
           ))}
         </div>
@@ -978,7 +1071,8 @@ export default function ReservationsPanel() {
         const maxParty = rs.maxPartySize ?? 10;
         const partyTooLarge = addParty > maxParty;
         const phoneMissing = addSource === "phone" && !addPhone.trim();
-        const canSubmit = !addSaving && !!addTableId && !!addName.trim() && !slotPast && !isBlackout && !partyTooLarge && !phoneMissing;
+        const emailMissing = addSource === "phone" && !addEmail.trim();
+        const canSubmit = !addSaving && !!addTableId && !!addName.trim() && !slotPast && !isBlackout && !partyTooLarge && !phoneMissing && !emailMissing;
         const selectedAddTable = activeTables.find((t) => t.id === addTableId);
         const addTableIsVip = !!selectedAddTable?.isVip && (selectedAddTable.vipPrice ?? 0) > 0;
         const currencySymbol = settings.currency?.symbol ?? "£";
@@ -1175,7 +1269,8 @@ export default function ReservationsPanel() {
                   <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Guest details</p>
                   <input type="text" required value={addName} onChange={(e) => setAddName(e.target.value)} placeholder="Full name *"
                     className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-orange-400 transition" />
-                  <input type="email" autoComplete="off" value={addEmail} onChange={(e) => setAddEmail(e.target.value)} placeholder="Email (optional)"
+                  <input type="email" autoComplete="off" required={addSource === "phone"} value={addEmail} onChange={(e) => setAddEmail(e.target.value)}
+                    placeholder={addSource === "phone" ? "Email *" : "Email (optional)"}
                     className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-orange-400 transition" />
                   <input type="tel" inputMode="tel" autoComplete="off" required={addSource === "phone"} value={addPhone} onChange={(e) => setAddPhone(cleanPhone(e.target.value))}
                     placeholder={addSource === "phone" ? "Phone *" : "Phone (optional)"}
@@ -1240,6 +1335,15 @@ export default function ReservationsPanel() {
           </div>
         );
       })()}
+
+      {receiptModal && (
+        <ReservationReceiptModal
+          data={receiptModal.data}
+          autoPrint={receiptModal.autoPrint}
+          surface="admin"
+          onClose={() => setReceiptModal(null)}
+        />
+      )}
     </div>
   );
 }

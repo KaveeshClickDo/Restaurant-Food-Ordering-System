@@ -4,6 +4,8 @@ export type ResRow = {
   date: string; time: string; party_size: number; status: string; note?: string;
   checked_in_at?: string; checked_out_at?: string;
   vip_fee?: number; payment_status?: string; payment_method?: string;
+  /** Secret check-in code the guest shows as a QR (lib/reservationCheckIn.ts). */
+  check_in_code?: string;
 };
 
 export function fmt12Pos(time: string): string {

@@ -12,7 +12,7 @@
  * told when to navigate away via onExit.
  */
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useApp } from "@/context/AppContext";
 import {
   ArrowLeft, Receipt, Loader2, ClipboardList, Percent, BadgeDollarSign,
@@ -22,15 +22,19 @@ import {
 import CollectionFooter from "@/components/collection/CollectionFooter";
 import { computeTax, taxSurcharge } from "@/lib/taxUtils";
 import { parseTableLabelFromNote } from "@/lib/tableLabel";
+import { fullOrderNumber } from "@/lib/orderNumber";
 import type { WaiterStaff, DiningTable } from "@/types";
 import type { BillOrder, WaiterReceipt } from "./_types";
 import { fmtCur } from "./_utils";
 import { buildReceiptHtml } from "./_receiptHtml";
 import ReceiptModal from "./ReceiptModal";
+import { printWaiterReceiptToPos } from "./_thermalPrint";
 import BillEmailBar from "./BillEmailBar";
 import VoidRefundModal from "./VoidRefundModal";
+import DojoChargePanel from "@/components/pos/DojoChargePanel";
+import type { DojoSaleResult } from "@/lib/dojo/types";
 
-export default function BillView({ table, waiter, receipt, setReceipt, onCheckoutReservation, onExit }: {
+export default function BillView({ table, waiter, receipt, setReceipt, onCheckoutReservation, onExit, dojoEnabled = false }: {
   table: DiningTable;
   waiter: Omit<WaiterStaff, "pin"> | null;
   /** Shared last-receipt state — set after settle, survives leaving this view. */
@@ -40,6 +44,8 @@ export default function BillView({ table, waiter, receipt, setReceipt, onCheckou
   onCheckoutReservation: (label: string) => void;
   /** Leave the bill view; refresh=true re-polls occupancy (after settle/void). */
   onExit: (refresh: boolean) => void;
+  /** When true, "Pay by Card" offers the Dojo terminal vs manual choice. */
+  dojoEnabled?: boolean;
 }) {
   const { settings: appSettings } = useApp();
   const sym = appSettings.currency?.symbol ?? "£";
@@ -49,6 +55,14 @@ export default function BillView({ table, waiter, receipt, setReceipt, onCheckou
   const [paying, setPaying] = useState(false);
   // Pending settle confirmation (the chosen method) — null means no prompt visible.
   const [settleConfirm, setSettleConfirm] = useState<"cash" | "card" | "gift_card" | null>(null);
+  // Dojo card flow: "choose" shows terminal-vs-manual; "dojo" drives the terminal.
+  const [cardFlow, setCardFlow] = useState<"none" | "choose" | "dojo">("none");
+  /** This bill's Dojo payment intent, kept across Back so a retry reuses it.
+   *  Cleared once the bill is settled: the table's next bill is a new payment. */
+  const dojoIntent = useRef<string | null>(null);
+  // True while a terminal payment is live; leaving the bill then would stop the
+  // app watching a machine that can still take the money.
+  const [dojoActive, setDojoActive] = useState(false);
   // Gift card applied to the bill (bearer code). Reduces the amount due; the
   // remainder is settled by cash/card as normal.
   const [billGiftCard, setBillGiftCard] = useState<{ code: string; balance: number } | null>(null);
@@ -73,6 +87,8 @@ export default function BillView({ table, waiter, receipt, setReceipt, onCheckou
     orderIds: string[];
     total: number;
     tableLabel: string;
+    /** A tip added on the card machine, refundable with the bill. */
+    cardTip?: number;
   } | null>(null);
 
   // Clear bill-level tender extras (gift card, discount, tip, service-fee) so a settled
@@ -152,8 +168,12 @@ export default function BillView({ table, waiter, receipt, setReceipt, onCheckou
     }
   }
 
-  async function payBill(method: "cash" | "card" | "gift_card") {
-    if (billOrders.length === 0 || paying) return;
+  /** Settle the bill. Returns null when settled, else the reason. With a card
+   *  machine payment the reason goes back to its screen (which retries the
+   *  save without charging again) instead of an alert. */
+  async function payBill(method: "cash" | "card" | "gift_card", dojo?: DojoSaleResult): Promise<string | null> {
+    if (billOrders.length === 0) return "There are no orders on this bill.";
+    if (paying) return "The bill is already being settled.";
     setPaying(true);
     const round2 = (n: number) => Math.round(n * 100) / 100;
     const subtotal = round2(billOrders.reduce((s, o) => s + o.total, 0));
@@ -180,13 +200,15 @@ export default function BillView({ table, waiter, receipt, setReceipt, onCheckou
           ...(tipAmount > 0 ? { tipAmount } : {}),
           ...(serviceFeeAmount > 0 ? { serviceFeeAmount } : {}),
           ...(billGiftCard && gcAmount > 0 ? { giftCardCode: billGiftCard.code, giftCardUsed: gcAmount } : {}),
+          ...(dojo ? { dojo } : {}),
         }),
       });
     } catch (err) {
       console.error("payBill network error:", err);
       setPaying(false);
-      alert("Couldn't settle the bill. Check your network and try again.");
-      return;
+      const message = "Couldn't settle the bill. Check your network and try again.";
+      if (!dojo) alert(message);
+      return message;
     }
     setPaying(false);
     if (!res.ok) {
@@ -197,9 +219,16 @@ export default function BillView({ table, waiter, receipt, setReceipt, onCheckou
       const json = await res.json().catch(() => ({})) as { error?: string };
       const log = res.status >= 500 ? console.error : console.warn;
       log("payBill failed:", res.status, json.error ?? "(no details)");
-      alert(json.error ?? "Couldn't settle the bill. Please try again.");
-      return;
+      const message = json.error ?? "Couldn't settle the bill. Please try again.";
+      if (!dojo) alert(message);
+      return message;
     }
+    // This payment is done: the table's next bill must not reuse its intent.
+    dojoIntent.current = null;
+    // A tip the customer added on the card machine, as the server recorded it
+    // from Dojo (falls back to the machine's own figure).
+    const settled = await res.json().catch(() => ({})) as { cardTipAmount?: number };
+    const cardTip = settled.cardTipAmount ?? dojo?.tipAmount ?? 0;
     // Table is settled — close out any reservation that was seated here today.
     // Best-effort; the bill is already the source of truth.
     onCheckoutReservation(table.label);
@@ -224,6 +253,7 @@ export default function BillView({ table, waiter, receipt, setReceipt, onCheckou
       vatInclusive: vatAmount > 0 ? tax.inclusive : undefined,
       vatRate: vatAmount > 0 ? appSettings.taxSettings?.rate : undefined,
       tipAmount: tipAmount > 0 ? tipAmount : undefined,
+      cardTipAmount: cardTip > 0 ? cardTip : undefined,
       serviceFeeAmount: serviceFeeAmount > 0 ? serviceFeeAmount : undefined,
       // Store NET money paid (gift card already deducted); the receipt re-adds
       // gift_card_used to show the gross goods line. Avoids double-counting.
@@ -234,6 +264,7 @@ export default function BillView({ table, waiter, receipt, setReceipt, onCheckou
     });
     resetBillExtras();
     // Stay on bill view — ReceiptModal overlays and navigates away on close
+    return null;
   }
 
   // ── Computed ─────────────────────────────────────────────────────────────────
@@ -288,9 +319,12 @@ export default function BillView({ table, waiter, receipt, setReceipt, onCheckou
       orderIds: billOrders.map(o => o.id),
     };
     const restaurantName = rs?.restaurantName?.trim() || appSettings?.restaurant?.name || "Restaurant";
-    const html = buildReceiptHtml(tempReceipt, restaurantName, rs?.address ?? "", rs?.phone ?? "", rs?.website ?? "", rs?.vatNumber ?? "", rs?.thankYouMessage ?? "Thank you for dining with us!", sym);
+    const html = buildReceiptHtml(tempReceipt, restaurantName, rs, sym);
     const win = window.open("", "_blank", "width=400,height=600");
-    if (!win) return;
+    if (!win) {
+      alert("Pop-up was blocked. Allow pop-ups for this site and try again.");
+      return;
+    }
     win.document.write(html);
     win.document.close();
     win.focus();
@@ -305,7 +339,8 @@ export default function BillView({ table, waiter, receipt, setReceipt, onCheckou
         <header className="bg-slate-900 border-b border-slate-800 px-4 py-3 flex items-center gap-3 flex-shrink-0">
           <button
             onClick={() => onExit(false)}
-            className="w-9 h-9 flex items-center justify-center rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 transition flex-shrink-0"
+            disabled={dojoActive}
+            className="w-9 h-9 flex items-center justify-center rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 transition flex-shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
           >
             <ArrowLeft size={16} />
           </button>
@@ -482,6 +517,47 @@ export default function BillView({ table, waiter, receipt, setReceipt, onCheckou
                     </button>
                   </div>
                 </div>
+              ) : cardFlow === "dojo" ? (
+                <DojoChargePanel
+                  amount={dueAfterGiftCard}
+                  // Names the bill's first order, as tickets print it, so the
+                  // payment can be told apart from the table's next one.
+                  reference={billOrders[0]
+                    ? `Table ${table.label} ${fullOrderNumber(billOrders[0].id)}`
+                    : `Table ${table.label}`}
+                  currencySymbol={sym}
+                  busy={paying}
+                  scope="waiter"
+                  // Stays on the card machine screen until the bill is settled,
+                  // so a failed save can be retried without charging again.
+                  onApproved={async (r) => {
+                    const message = await payBill("card", r);
+                    if (!message) setCardFlow("none");
+                    return message ?? true;
+                  }}
+                  onManualFallback={() => { setCardFlow("none"); payBill("card"); }}
+                  onBack={() => setCardFlow("none")}
+                  onActiveChange={setDojoActive}
+                  intentMemory={dojoIntent}
+                />
+              ) : cardFlow === "choose" ? (
+                <div className="space-y-3">
+                  <p className="text-slate-400 text-xs font-bold uppercase tracking-widest text-center mb-1">
+                    Pay {fmtCur(dueAfterGiftCard, sym)} by card
+                  </p>
+                  <button onClick={() => setCardFlow("dojo")}
+                    className="w-full flex items-center gap-3 p-4 bg-slate-800 hover:bg-slate-700 border border-slate-600 hover:border-blue-500/50 rounded-2xl transition">
+                    <CreditCard size={20} className="text-blue-400 flex-shrink-0" />
+                    <div className="text-left flex-1 min-w-0"><p className="text-white font-semibold text-sm">Card machine</p><p className="text-slate-400 text-xs">Send to the Dojo terminal</p></div>
+                  </button>
+                  <button onClick={() => { setCardFlow("none"); setSettleConfirm("card"); }}
+                    className="w-full flex items-center gap-3 p-4 bg-slate-800 hover:bg-slate-700 border border-slate-600 hover:border-slate-400/50 rounded-2xl transition">
+                    <CreditCard size={20} className="text-slate-300 flex-shrink-0" />
+                    <div className="text-left flex-1 min-w-0"><p className="text-white font-semibold text-sm">Other</p><p className="text-slate-400 text-xs">Record manually — use your own machine</p></div>
+                  </button>
+                  <button onClick={() => setCardFlow("none")}
+                    className="w-full pt-1 text-slate-500 hover:text-slate-300 text-sm font-medium transition">Cancel</button>
+                </div>
               ) : (
                 <>
                   {/* Gift card tender */}
@@ -546,7 +622,7 @@ export default function BillView({ table, waiter, receipt, setReceipt, onCheckou
                         <span className="text-sm">Pay by Cash</span>
                       </button>
                       <button
-                        onClick={() => setSettleConfirm("card")}
+                        onClick={() => (dojoEnabled ? setCardFlow("choose") : setSettleConfirm("card"))}
                         disabled={paying}
                         className="flex flex-col items-center gap-1 md:gap-2  bg-blue-600 hover:bg-blue-500 disabled:opacity-50 active:scale-[0.97] text-white font-bold py-2 md:py-5 rounded-2xl transition-all"
                       >
@@ -727,12 +803,16 @@ export default function BillView({ table, waiter, receipt, setReceipt, onCheckou
             setReceipt(null);
             onExit(true);
           }}
+          thermalPrint={() => printWaiterReceiptToPos(receipt, appSettings)}
+          noPrinterHint="Ask a POS admin to set one up in Settings → Hardware."
+          printerLabel="Receipt"
           onRefund={receipt.orderIds.length > 0 ? () => {
             setVoidRefundTarget({
               mode: "refund",
               orderIds: receipt.orderIds,
               total: receipt.total,
               tableLabel: receipt.tableLabel,
+              cardTip: receipt.cardTipAmount,
             });
           } : undefined}
         />

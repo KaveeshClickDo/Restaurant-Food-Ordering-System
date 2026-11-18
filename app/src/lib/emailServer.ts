@@ -10,17 +10,21 @@
  * Server-only: never import from a client component.
  */
 
-import type { AdminSettings, Customer, EmailTemplateEvent, Order, OrderStatus } from "@/types";
+import type { AdminSettings, Customer, EmailTemplateEvent, Order, OrderStatus, RefundMethod } from "@/types";
 import {
   applyVars,
   buildEmailDocument,
   buildVarMap,
   buildReservationVarMap,
+  checkInQrEmailBlock,
   DEFAULT_EMAIL_TEMPLATES,
+  escHtml,
 } from "./emailTemplates";
 import type { ReservationEmailData } from "./emailTemplates";
-import { sendEmail } from "./emailSender";
+import { sendEmail, emailConfigured, type EmailAttachment } from "./emailSender";
 import { supabaseAdmin } from "./supabaseAdmin";
+import { bookingReference, CHECK_IN_QR_CID } from "./reservationCheckIn";
+import { checkInQrPng } from "./checkInQrImage";
 
 /**
  * Fetch just the brand primary color from the admin settings row.
@@ -45,31 +49,71 @@ export async function sendEmailDirect(
   to: string,
   subject: string,
   html: string,
+  attachments?: EmailAttachment[],
 ): Promise<{ ok: boolean; error?: string }> {
-  return sendEmail({ to, subject, html });
+  return sendEmail({ to, subject, html, attachments });
+}
+
+/** Reservation emails that carry the guest's check-in QR code. */
+const CHECK_IN_QR_EVENTS: readonly EmailTemplateEvent[] = ["reservation_confirmation", "reservation_update"];
+
+/** The check-in QR image for this email, or null when it shouldn't have one
+ *  (other events, or a booking that has already started or ended). */
+async function checkInQrAttachment(event: EmailTemplateEvent, res: ReservationEmailData): Promise<EmailAttachment | null> {
+  if (!CHECK_IN_QR_EVENTS.includes(event)) return null;
+  if (res.status !== "pending" && res.status !== "confirmed") return null;
+  let code = res.check_in_code;
+  if (!code) {
+    // Status-change callers don't select the code; read it here. Best-effort:
+    // a database without the column just sends the email without a QR.
+    const { data } = await supabaseAdmin.from("reservations").select("check_in_code").eq("id", res.id).maybeSingle();
+    code = (data as { check_in_code?: string } | null)?.check_in_code ?? undefined;
+  }
+  if (!code) return null;
+  try {
+    return {
+      filename:    `booking-${bookingReference(res.id)}-check-in.png`,
+      content:     await checkInQrPng(code),
+      contentType: "image/png",
+      cid:         CHECK_IN_QR_CID,
+    };
+  } catch (err) {
+    console.error("[email] check-in QR image failed:", err instanceof Error ? err.message : err);
+    return null;
+  }
 }
 
 /**
- * High-level server-side reservation email sender.
- * Finds the template, applies variables, builds the HTML document, and sends.
- * Silent no-op when the template is disabled or SMTP is not configured.
- * Never throws — logs errors to console only.
+ * Build a reservation email from its template, without sending it. The
+ * confirmation emails get the check-in QR: as an inline image where the
+ * template has {{checkin_qr}}, or added after the message when a saved
+ * (older) template doesn't have the tag yet. Returns null when the template
+ * is switched off or there is no recipient.
  */
-export async function sendReservationEmailServer(
+export async function buildReservationEmail(
   event: EmailTemplateEvent,
   res: ReservationEmailData,
   settings: AdminSettings,
   siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? "",
-): Promise<void> {
+): Promise<{ to: string; subject: string; html: string; attachments: EmailAttachment[] } | null> {
   const template = settings.emailTemplates?.find((t) => t.event === event && t.enabled);
-  if (!template) return;
+  if (!template) return null;
 
   const to = res.customer_email?.trim();
-  if (!to) return;
+  if (!to) return null;
 
-  const vars    = buildReservationVarMap(res, settings, siteUrl);
+  const vars = buildReservationVarMap(res, settings, siteUrl);
+  let bodyTemplate = template.body;
+  const attachments: EmailAttachment[] = [];
+  const qr = await checkInQrAttachment(event, res);
+  if (qr) {
+    attachments.push(qr);
+    vars.checkin_qr = checkInQrEmailBlock(bookingReference(res.id));
+    if (!bodyTemplate.includes("{{checkin_qr}}")) bodyTemplate += "\n{{checkin_qr}}";
+  }
+
   const subject = applyVars(template.subject, vars);
-  const body    = applyVars(template.body,    vars);
+  const body    = applyVars(bodyTemplate,     vars);
 
   const restAddr = [
     settings.restaurant.addressLine1,
@@ -86,10 +130,29 @@ export async function sendReservationEmailServer(
     settings.colors,
   );
 
-  const result = await sendEmailDirect(to, subject, html);
-  if (!result.ok) {
-    if (result.error?.toLowerCase().includes("smtp not configured")) return;
-    console.error(`[email] ${event} failed for ${to}:`, result.error);
+  return { to, subject, html, attachments };
+}
+
+/**
+ * High-level server-side reservation email sender: builds the email
+ * ({@link buildReservationEmail}) and sends it.
+ * Silent no-op when the template is disabled or email sending isn't set up.
+ * Never throws — logs errors to console only.
+ */
+export async function sendReservationEmailServer(
+  event: EmailTemplateEvent,
+  res: ReservationEmailData,
+  settings: AdminSettings,
+  siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? "",
+): Promise<void> {
+  if (!emailConfigured()) return;
+  try {
+    const email = await buildReservationEmail(event, res, settings, siteUrl);
+    if (!email) return;
+    const result = await sendEmailDirect(email.to, email.subject, email.html, email.attachments);
+    if (!result.ok) console.error(`[email] ${event} failed for ${email.to}:`, result.error);
+  } catch (err) {
+    console.error(`[email] ${event} failed:`, err instanceof Error ? err.message : err);
   }
 }
 
@@ -350,5 +413,102 @@ export async function sendOrderStatusEmail(
   const result = await sendEmailDirect(cust.email, subject, html);
   if (!result.ok && !result.error?.toLowerCase().includes("smtp not configured")) {
     console.error(`[orders] status email (${newStatus}) failed:`, result.error);
+  }
+}
+
+/**
+ * Server-side refund-confirmation email. Fires on every refund issued from
+ * the admin Refunds panel — partial or full — independent of the "order
+ * cancelled" email a full refund on an undelivered order also triggers
+ * (they communicate different things: money back vs. order won't be
+ * fulfilled). Silent no-op for guests / POS walk-in / when no "order_refunded"
+ * template is enabled, mirroring {@link sendOrderStatusEmail}'s guards.
+ * Never throws — logs errors to console only.
+ */
+export async function sendRefundEmail(
+  orderId: string,
+  refund: { amount: number; reason?: string; type: "full" | "partial"; method: RefundMethod },
+): Promise<void> {
+  const [{ data: orderRow }, { data: settingsRow }] = await Promise.all([
+    supabaseAdmin.from("orders").select("*").eq("id", orderId).single(),
+    supabaseAdmin.from("app_settings").select("data").limit(1).single(),
+  ]);
+
+  if (!orderRow) return;
+  const settings = settingsRow?.data as AdminSettings | undefined;
+  if (!settings) return;
+
+  const templates = settings.emailTemplates?.length ? settings.emailTemplates : DEFAULT_EMAIL_TEMPLATES;
+  const template  = templates.find((t) => t.event === "order_refunded" && t.enabled);
+  if (!template) return;
+
+  const customerId = orderRow.customer_id as string | undefined;
+  // Same guard as sendOrderStatusEmail — no real recipient for guest checkouts
+  // or the POS walk-in sentinel.
+  if (!customerId || customerId === "guest" || customerId === "pos-walk-in") return;
+
+  const { data: cust } = await supabaseAdmin
+    .from("customers")
+    .select("id, name, email, phone, created_at, tags")
+    .eq("id", customerId)
+    .single();
+  if (!cust?.email) return;
+  if (cust.email.endsWith("@internal")) return;
+
+  const order: Order = {
+    id:             orderRow.id as string,
+    customerId:     customerId,
+    date:           (orderRow.date as string) ?? new Date().toISOString(),
+    status:         orderRow.status as OrderStatus,
+    fulfillment:    orderRow.fulfillment as Order["fulfillment"],
+    total:          orderRow.total as number,
+    items:          (orderRow.items as Order["items"]) ?? [],
+    paymentMethod:  orderRow.payment_method as string | undefined,
+    address:        orderRow.address as string | undefined,
+    deliveryFee:    orderRow.delivery_fee as number | undefined,
+    serviceFee:     orderRow.service_fee as number | undefined,
+    vatAmount:      orderRow.vat_amount as number | undefined,
+    vatInclusive:   orderRow.vat_inclusive as boolean | undefined,
+    couponCode:     orderRow.coupon_code as string | undefined,
+    couponDiscount: orderRow.coupon_discount as number | undefined,
+    deliveryCode:   orderRow.delivery_code as string | undefined,
+  };
+
+  const customer: Customer = {
+    id:        cust.id,
+    name:      cust.name,
+    email:     cust.email,
+    phone:     cust.phone ?? "",
+    createdAt: cust.created_at,
+    tags:      cust.tags ?? [],
+    orders:    [],
+  };
+
+  const restAddr = [
+    settings.restaurant.addressLine1,
+    settings.restaurant.city,
+    settings.restaurant.postcode,
+  ].filter(Boolean).join(", ");
+
+  const sym = settings.currency?.symbol || "£";
+  const reason = refund.reason?.trim();
+  const methodLabel =
+    refund.method === "cash"         ? "Cash" :
+    refund.method === "store_credit" ? "Store credit" :
+    order.paymentMethod || "Your original payment method";
+  const vars = {
+    ...buildVarMap(order, customer, settings),
+    refund_amount: `${sym}${refund.amount.toFixed(2)}`,
+    refund_type:   refund.type === "full" ? "Full refund" : "Partial refund",
+    refund_method: escHtml(methodLabel),
+    refund_reason: reason ? `<p><strong>Reason:</strong> ${escHtml(reason)}</p>` : "",
+  };
+  const subject = applyVars(template.subject, vars);
+  const body    = applyVars(template.body,    vars);
+  const html    = buildEmailDocument(body, settings.restaurant.name, restAddr, settings.restaurant.phone, settings.receiptSettings, settings.colors);
+
+  const result = await sendEmailDirect(cust.email, subject, html);
+  if (!result.ok && !result.error?.toLowerCase().includes("smtp not configured")) {
+    console.error("[orders] refund email failed:", result.error);
   }
 }

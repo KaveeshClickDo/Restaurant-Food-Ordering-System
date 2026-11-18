@@ -255,6 +255,19 @@ alter table orders add column if not exists tip_amount      numeric not null def
 alter table orders add column if not exists discount_amount numeric not null default 0;
 alter table orders add column if not exists discount_note   text;
 
+-- A tip the customer added on the Dojo card machine (dine-in bill or collection
+-- order), from Dojo's own record of the payment (dojo_payments.tip_amount). NOT
+-- part of `total`: the card paid total + this. Stamped on the order the payment
+-- is recorded against (a dine-in bill's anchor order). card_tip_refunded is the
+-- part of it given back with a refund, kept apart so refunded_amount stays
+-- within `total` and reports stay right.
+alter table orders add column if not exists card_tip_amount   numeric(10,2) not null default 0;
+alter table orders add column if not exists card_tip_refunded numeric(10,2) not null default 0;
+-- The Dojo card machine payment that paid this order. Every order of a dine-in
+-- bill carries it, not only the anchor that dojo_payments.source_id names, so
+-- any order of a card machine bill can be refunded to the card.
+alter table orders add column if not exists dojo_payment_intent_id text;
+
 -- Dine-in table linkage. Historically dine-in orders linked to a table only via
 -- the free-text note ("[WAITER] Table T4 · …"), which is fragile to parse and
 -- impossible to index. These columns make the link structural — set at order
@@ -1275,6 +1288,94 @@ alter table pos_sales add column if not exists synced_at          timestamptz de
 create index if not exists idx_pos_sales_terminal_id
   on pos_sales (terminal_id) where terminal_id is not null;
 
+-- A tip the customer added on the Dojo card machine, from Dojo's own record of
+-- the payment (dojo_payments.tip_amount). NOT part of `total`: the till charged
+-- `total` and the card paid total + this. Kept apart so receipts and the
+-- transaction list show it on its own line (Dojo's gratuity check).
+alter table pos_sales add column if not exists card_tip_amount numeric(10,2) not null default 0;
+-- The part of card_tip_amount given back with a refund. Kept apart from
+-- refund_amount, which stays within `total`, so "net kept" reports stay right.
+alter table pos_sales add column if not exists card_tip_refunded numeric(10,2) not null default 0;
+
+-- ── Dojo card-terminal payments (feat/dojo-payments) ─────────────────────────
+-- Every card payment collected on an integrated Dojo terminal — across POS
+-- sales, collection/dine-in settle, gift-card sales and reservation deposits —
+-- is recorded here, keyed by the Dojo payment intent, with a polymorphic link
+-- back to whatever it paid for (source_type/source_id). One central place =
+-- clean "all card-machine takings" reporting and refund lookup, with no dojo_*
+-- columns spread across five tables. See docs/dojo/README.md.
+--   source_type   pos_sale | collection | dine_in | reservation | gift_card
+create table if not exists dojo_payments (
+  payment_intent_id    text primary key,        -- Dojo "pi_…"
+  terminal_session_id  text,                    -- Dojo "ts_…"
+  transaction_id       text,                    -- acquirer transaction id
+  auth_code            text,
+  card_scheme          text,                    -- VISA / MASTERCARD / …
+  card_last4           text,
+  status               text,                    -- Captured / Authorized / Refunded / …
+  amount               numeric(10,2),
+  currency             text,
+  source_type          text not null,
+  source_id            text,
+  staff_id             text,
+  created_at           timestamptz not null default now()
+);
+create index if not exists idx_dojo_payments_source on dojo_payments (source_type, source_id);
+-- Tip the customer added on the card machine, and Dojo's total for the intent
+-- (from the payment intent's tipsAmount / totalAmount), in major units.
+alter table dojo_payments add column if not exists tip_amount   numeric(10,2);
+alter table dojo_payments add column if not exists total_amount numeric(10,2);
+alter table dojo_payments enable row level security;
+drop policy if exists "deny_anon_all" on dojo_payments;
+create policy "deny_anon_all" on dojo_payments for all to anon using (false) with check (false);
+
+-- An earlier iteration stored dojo_* columns on pos_sales directly; the central
+-- dojo_payments table above supersedes that. Drop them if a prior migrate added
+-- them (idempotent — no-op on fresh databases).
+alter table pos_sales drop column if exists dojo_payment_intent_id;
+alter table pos_sales drop column if exists dojo_terminal_session_id;
+alter table pos_sales drop column if exists dojo_transaction_id;
+alter table pos_sales drop column if exists dojo_auth_code;
+alter table pos_sales drop column if exists dojo_card_scheme;
+alter table pos_sales drop column if exists dojo_card_last4;
+alter table pos_sales drop column if exists dojo_status;
+drop index if exists idx_pos_sales_dojo_payment_intent_id;
+
+-- Received Dojo webhook events, for at-least-once dedup + audit. The webhook
+-- route inserts keyed on Dojo's event id; a duplicate is a harmless no-op.
+create table if not exists dojo_events (
+  id          text primary key,          -- Dojo event id (evt_…)
+  event_type  text,
+  payload     jsonb not null,
+  received_at timestamptz not null default now()
+);
+alter table dojo_events enable row level security;
+drop policy if exists "deny_anon_all" on dojo_events;
+create policy "deny_anon_all" on dojo_events for all to anon using (false) with check (false);
+
+-- Refunds made through Dojo (payment intent refunds), with who issued them.
+-- request_id is the idempotency key sent to Dojo, so one refund request can't
+-- be recorded (or sent) twice; source_type/source_id say what was refunded,
+-- as in dojo_payments.
+create table if not exists dojo_refunds (
+  id                 text        primary key default gen_random_uuid()::text,
+  payment_intent_id  text        not null,
+  refund_id          text,                      -- Dojo's refund id
+  request_id         text        not null unique,
+  amount             numeric(10,2) not null,    -- major units
+  reason             text,
+  source_type        text        not null,
+  source_id          text,
+  staff_id           text,                      -- null = website admin
+  intent_status      text,                      -- the intent's status after it (Refunded / Captured)
+  created_at         timestamptz not null default now()
+);
+create index if not exists idx_dojo_refunds_source on dojo_refunds (source_type, source_id);
+create index if not exists idx_dojo_refunds_intent on dojo_refunds (payment_intent_id);
+alter table dojo_refunds enable row level security;
+drop policy if exists "deny_anon_all" on dojo_refunds;
+create policy "deny_anon_all" on dojo_refunds for all to anon using (false) with check (false);
+
 -- ── Session versioning for staff roles ───────────────────────────────────────
 -- Embedded in the HMAC session token so admin-initiated credential changes
 -- (password/email) or deactivation immediately invalidate all live
@@ -1394,6 +1495,20 @@ begin
       check (payment_status in ('none','paid'));
   end if;
 end $$;
+
+-- ── Reservation check-in code ────────────────────────────────────────────────
+-- A secret code per booking, shown to the guest as a QR code (confirmation
+-- email, booking page, booking receipt). Staff scan it in POS / admin to find
+-- the booking and check the guest in. Kept apart from cancel_token on purpose:
+-- whoever holds cancel_token can cancel the booking online, while this code
+-- does nothing unless a logged-in staff member scans it.
+-- 32 upper-case hex characters (letters and digits only, so a keyboard-style
+-- barcode scanner set to another keyboard layout can't garble it). The default
+-- is volatile, so adding the column gives every existing row its own code.
+alter table reservations add column if not exists check_in_code text not null
+  default upper(replace(gen_random_uuid()::text, '-', ''));
+create unique index if not exists reservations_check_in_code_unique
+  on reservations(check_in_code);
 
 
 -- ── 3. Indexes ───────────────────────────────────────────────────────────────
