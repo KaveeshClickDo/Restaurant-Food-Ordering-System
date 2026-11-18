@@ -40,45 +40,59 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   if (!(await isAdminAuthenticated())) return unauthorizedResponse();
 
   const { searchParams } = new URL(req.url);
-  const status = searchParams.get("status");   // active | redeemed | voided | expired
-  const search = searchParams.get("search")?.trim().toLowerCase();
+  const status   = searchParams.get("status");   // active | redeemed | voided | expired
+  const search   = searchParams.get("search")?.trim();
+  const page     = Math.max(1, Number(searchParams.get("page")) || 1);
+  const pageSize = Math.min(100, Math.max(1, Number(searchParams.get("pageSize")) || 20));
+  const from     = (page - 1) * pageSize;
+  const to       = from + pageSize - 1;
 
   let q = supabaseAdmin
     .from("gift_cards")
-    .select("*")
+    .select("*", { count: "exact" })
     .order("created_at", { ascending: false })
-    .limit(500);
+    .range(from, to);
 
   if (status && ["inactive", "active", "redeemed", "voided", "expired"].includes(status)) {
     q = q.eq("status", status);
   }
-
-  const { data, error } = await q;
-  if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
-
-  let rows = data ?? [];
-  // Search is applied in TS (small dataset, ≤500 rows) so we can match across
-  // code OR recipient email without a complex OR query.
   if (search) {
-    rows = rows.filter((r) =>
-      r.code?.toLowerCase().includes(search) ||
-      r.issued_to_email?.toLowerCase().includes(search) ||
-      r.issued_to_name?.toLowerCase().includes(search),
-    );
+    const esc = search.replace(/[%,]/g, "");
+    q = q.or(`code.ilike.%${esc}%,issued_to_email.ilike.%${esc}%,issued_to_name.ilike.%${esc}%`);
   }
 
-  // Aggregate stats for the panel header.
-  const totalOutstanding = rows
+  const { data, error, count } = await q;
+  if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+
+  // Aggregate stats for the panel header — scoped to the same status/search
+  // filter but NOT paginated, so the header always reflects every matching
+  // card rather than just the current page.
+  let statsQ = supabaseAdmin.from("gift_cards").select("status, balance");
+  if (status && ["inactive", "active", "redeemed", "voided", "expired"].includes(status)) {
+    statsQ = statsQ.eq("status", status);
+  }
+  if (search) {
+    const esc = search.replace(/[%,]/g, "");
+    statsQ = statsQ.or(`code.ilike.%${esc}%,issued_to_email.ilike.%${esc}%,issued_to_name.ilike.%${esc}%`);
+  }
+  const { data: statsRows, error: statsErr } = await statsQ;
+  if (statsErr) return NextResponse.json({ ok: false, error: statsErr.message }, { status: 500 });
+
+  const matching = statsRows ?? [];
+  const totalOutstanding = matching
     .filter((r) => r.status === "active")
     .reduce((s, r) => s + Number(r.balance), 0);
 
   return NextResponse.json({
     ok: true,
-    giftCards: rows.map(rowToGiftCard),
+    giftCards: (data ?? []).map(rowToGiftCard),
+    totalCount: count ?? 0,
+    page,
+    pageSize,
     stats: {
-      total:           rows.length,
-      activeCount:     rows.filter((r) => r.status === "active").length,
-      inactiveCount:   rows.filter((r) => r.status === "inactive").length,
+      total:           matching.length,
+      activeCount:     matching.filter((r) => r.status === "active").length,
+      inactiveCount:   matching.filter((r) => r.status === "inactive").length,
       totalOutstanding: parseFloat(totalOutstanding.toFixed(2)),
     },
   });

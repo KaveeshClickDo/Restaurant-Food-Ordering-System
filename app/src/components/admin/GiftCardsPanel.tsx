@@ -5,7 +5,7 @@ import { useApp } from "@/context/AppContext";
 import type { GiftCard, GiftCardTransaction, GiftCardStatus } from "@/types";
 import {
   Gift, Plus, Search, Loader2, CheckCircle, AlertCircle, X,
-  Ban, Mail, Eye, TrendingUp, Power, Printer,
+  Ban, Mail, Eye, TrendingUp, Power, Printer, ChevronLeft, ChevronRight,
 } from "lucide-react";
 import { buildGiftCardPrintHtml } from "./_giftCardPrint";
 
@@ -40,6 +40,9 @@ export default function GiftCardsPanel() {
   const [loading,  setLoading]  = useState(true);
   const [filter,   setFilter]   = useState<StatusFilter>("all");
   const [search,   setSearch]   = useState("");
+  const [page,     setPage]     = useState(1);
+  const [totalCount, setTotalCount] = useState(0);
+  const PAGE_SIZE = 20;
   const [toasts,   setToasts]   = useState<Toast[]>([]);
   const [createOpen, setCreateOpen] = useState(false);
   const [detailId, setDetailId] = useState<string | null>(null);
@@ -54,14 +57,15 @@ export default function GiftCardsPanel() {
   const fetchCards = useCallback(async () => {
     setLoading(true);
     try {
-      const params = new URLSearchParams();
+      const params = new URLSearchParams({ page: String(page), pageSize: String(PAGE_SIZE) });
       if (filter !== "all") params.set("status", filter);
       if (search.trim())    params.set("search", search.trim());
       const res = await fetch(`/api/admin/gift-cards?${params}`);
-      const json = await res.json() as { ok: boolean; giftCards?: GiftCard[]; stats?: typeof stats; error?: string };
+      const json = await res.json() as { ok: boolean; giftCards?: GiftCard[]; stats?: typeof stats; totalCount?: number; error?: string };
       if (json.ok) {
         setCards(json.giftCards ?? []);
         if (json.stats) setStats(json.stats);
+        setTotalCount(json.totalCount ?? 0);
       } else {
         addToast(json.error ?? "Failed to load gift cards.", false);
       }
@@ -70,9 +74,23 @@ export default function GiftCardsPanel() {
     } finally {
       setLoading(false);
     }
-  }, [filter, search]);
+  }, [filter, search, page]);
 
-  useEffect(() => { void fetchCards(); }, [fetchCards]);
+  // Reset to page 1 whenever the filter or search narrows/widens the result
+  // set, without firing an extra fetch at the stale page first: when the
+  // filter/search key changes while page !== 1, just reset the page and let
+  // the resulting re-render (with page back to 1) do the single real fetch.
+  const prevFilterSearchKey = useRef(`${filter}|${search}`);
+  useEffect(() => {
+    const key = `${filter}|${search}`;
+    if (key !== prevFilterSearchKey.current) {
+      prevFilterSearchKey.current = key;
+      if (page !== 1) { setPage(1); return; }
+    }
+    void fetchCards();
+  }, [fetchCards, filter, search, page]);
+
+  const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
 
   // Open a print-ready window with the card artwork. Used for inactive cards so
   // they can be printed and displayed in store (the code is worthless until the
@@ -269,6 +287,31 @@ export default function GiftCardsPanel() {
           </div>
         )}
       </div>
+
+      {/* Pagination */}
+      {!loading && totalCount > 0 && (
+        <div className="flex items-center justify-between gap-3 px-1">
+          <p className="text-xs text-gray-500">
+            Page {page} of {totalPages} · {totalCount} card{totalCount !== 1 ? "s" : ""}
+          </p>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+              disabled={page <= 1}
+              className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold border border-gray-200 text-gray-600 hover:border-gray-300 disabled:opacity-40 disabled:cursor-not-allowed transition"
+            >
+              <ChevronLeft size={13} /> Prev
+            </button>
+            <button
+              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+              disabled={page >= totalPages}
+              className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold border border-gray-200 text-gray-600 hover:border-gray-300 disabled:opacity-40 disabled:cursor-not-allowed transition"
+            >
+              Next <ChevronRight size={13} />
+            </button>
+          </div>
+        </div>
+      )}
 
       {createOpen && (
         <IssueCardModal sym={sym} onClose={() => setCreateOpen(false)} onIssued={() => { void fetchCards(); }} addToast={addToast} />
