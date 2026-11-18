@@ -1,14 +1,14 @@
 "use client";
 
 import { uuid } from "@/lib/uuid";
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useApp } from "@/context/AppContext";
 import type { Order, Refund, RefundMethod } from "@/types";
 import { fullOrderNumber } from "@/lib/orderNumber";
 import {
   RotateCcw, Search, ChevronDown, ChevronUp, X,
   AlertCircle, CheckCircle2, Clock, DollarSign,
-  FileText, CreditCard, Banknote, Gift,
+  FileText, CreditCard, Banknote, Gift, ChevronLeft, ChevronRight,
 } from "lucide-react";
 import { PaymentStatusBadge, StripeIntentLink } from "@/components/admin/PaymentStatusBadge";
 
@@ -571,6 +571,8 @@ export default function RefundsPanel() {
   const [filter,      setFilter]      = useState<EligibleFilter>("all");
   const [modalOrder,  setModalOrder]  = useState<{ order: Order; customerName: string } | null>(null);
   const [toast,       setToast]       = useState<string | null>(null);
+  const [page,        setPage]        = useState(1);
+  const [pageSize,    setPageSize]    = useState(10);
 
   // Flatten all eligible orders across all customers — see isRefundEligible.
   // POS counter / dine-in orders are excluded — this panel is online-only.
@@ -618,6 +620,17 @@ export default function RefundsPanel() {
       (order.paymentMethod ?? "").toLowerCase().includes(q);
     return matchFilter && matchSearch;
   });
+
+  // Reset to page 1 whenever the filter/search reshapes the list — purely
+  // client-side slicing, so there's no stale-request race to guard against
+  // (same approach as CustomersPanel).
+  useEffect(() => { setPage(1); }, [search, filter, pageSize]);
+
+  const totalPages = Math.max(1, Math.ceil(displayed.length / pageSize));
+  const pageItems = useMemo(
+    () => displayed.slice((page - 1) * pageSize, page * pageSize),
+    [displayed, page, pageSize],
+  );
 
   /** Returns why the refund failed (the form stays open), or null when done. */
   async function handleSubmitRefund(fields: Omit<Refund, "id" | "processedAt" | "processedBy"> & { id?: string }): Promise<string | null> {
@@ -711,10 +724,24 @@ export default function RefundsPanel() {
         </div>
       ) : (
         <div className="space-y-3">
-          <p className="text-xs text-gray-400 font-semibold px-1">
-            {displayed.length} order{displayed.length !== 1 ? "s" : ""}
-          </p>
-          {displayed.map(({ order, customerName }) => (
+          <div className="flex items-center justify-between gap-3 px-1 flex-wrap">
+            <p className="text-xs text-gray-400 font-semibold">
+              {displayed.length} order{displayed.length !== 1 ? "s" : ""}
+            </p>
+            <label className="flex items-center gap-1.5 text-xs text-gray-500">
+              Rows
+              <select
+                value={pageSize}
+                onChange={(e) => setPageSize(Number(e.target.value))}
+                className="border border-gray-200 rounded-lg text-xs font-semibold text-gray-600 pl-2 pr-1 py-1 focus:outline-none focus:ring-2 focus:ring-teal-300"
+              >
+                {[10, 20, 50].map((n) => (
+                  <option key={n} value={n}>{n} per page</option>
+                ))}
+              </select>
+            </label>
+          </div>
+          {pageItems.map(({ order, customerName }) => (
             <OrderRefundCard
               key={order.id}
               order={order}
@@ -722,6 +749,27 @@ export default function RefundsPanel() {
               onProcess={(o, name) => setModalOrder({ order: o, customerName: name })}
             />
           ))}
+
+          {/* Pagination */}
+          <div className="flex items-center justify-between gap-3 px-1 pt-1">
+            <p className="text-xs text-gray-500">Page {page} of {totalPages}</p>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                disabled={page <= 1}
+                className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold border border-gray-200 text-gray-600 hover:border-gray-300 disabled:opacity-40 disabled:cursor-not-allowed transition"
+              >
+                <ChevronLeft size={13} /> Prev
+              </button>
+              <button
+                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                disabled={page >= totalPages}
+                className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold border border-gray-200 text-gray-600 hover:border-gray-300 disabled:opacity-40 disabled:cursor-not-allowed transition"
+              >
+                Next <ChevronRight size={13} />
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
