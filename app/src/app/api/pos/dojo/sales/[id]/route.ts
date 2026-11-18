@@ -9,7 +9,7 @@
 
 import { NextResponse } from "next/server";
 import { requirePosSession } from "@/lib/posPermissions";
-import { dojoConfig, isDojoSandboxKey } from "@/lib/dojo";
+import { isDojoSandboxKey } from "@/lib/dojo";
 import { findDojoPayment, hasDojoRefund } from "@/lib/dojo/refund";
 
 export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> }) {
@@ -18,7 +18,6 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
   const { id } = await ctx.params;
 
   const payment = await findDojoPayment("pos_sale", id);
-  const cfg = dojoConfig();
   return NextResponse.json({
     ok: true,
     payment: payment
@@ -30,6 +29,6 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
           refunded: await hasDojoRefund("pos_sale", id),
         }
       : null,
-    test: cfg.mode === "mock" || isDojoSandboxKey(),
+    test: isDojoSandboxKey(),
   });
 }

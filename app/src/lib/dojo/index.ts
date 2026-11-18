@@ -2,7 +2,7 @@
  * Server-side entry point for the Dojo card-terminal integration. SERVER-SIDE
  * ONLY: routes import from here. The client bundle uses ./posApi and ./types.
  *
- * mock ↔ sandbox ↔ live is purely a config change (DOJO_MODE); see ./select.
+ * Sandbox or production is purely a config change (the API key); see ./config.
  */
 
 export type { DojoGateway } from "./gateway";

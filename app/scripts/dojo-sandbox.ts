@@ -10,9 +10,9 @@
  *
  * It refuses any key that isn't a sandbox key and never prints the key. It
  * prints what Dojo actually returns (statuses with their timing, terminal
- * prompts, and any refused call), so the simulator (lib/dojo/mock.ts) can be
- * kept in line, and exits with code 1 if a must-pass check fails. A terminal
- * missing from the account is listed for Dojo rather than counted as a failure.
+ * prompts, and any refused call), and exits with code 1 if a must-pass check
+ * fails. A terminal missing from the account is listed for Dojo rather than
+ * counted as a failure.
  */
 
 import { randomUUID } from "node:crypto";

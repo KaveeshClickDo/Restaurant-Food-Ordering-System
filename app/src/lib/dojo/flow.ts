@@ -2,7 +2,7 @@
  * Starting a card machine payment, independent of HTTP. SERVER-SIDE ONLY.
  *
  * Used by the POS and waiter session routes (through sessionHandlers) and by
- * the dojo:demo script, so the simulator runs exactly the logic the tills do.
+ * the dojo:sandbox script, so it runs exactly the logic the tills do.
  * It deliberately imports nothing that needs Next or the database.
  *
  * Three rules from Dojo's go-live checklist live here:

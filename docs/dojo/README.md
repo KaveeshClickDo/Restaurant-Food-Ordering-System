@@ -35,7 +35,7 @@ When the feature is off — the default — every surface behaves exactly as bef
 isDojoEffectivelyEnabled()  =  DOJO_MODE env master   AND   admin toggle
 ```
 
-- **`DOJO_MODE`** (server env) is the master: `off` | `mock` | `live`.
+- **`DOJO_MODE`** (server env) is the master: `off` | `live`.
 - **Admin toggle** lives at **Admin → Integrations → Card Terminal**, stored in
   `app_settings.data.dojoTerminal.enabled`.
 
@@ -47,10 +47,10 @@ off, a new payment can't be started, though one already under way can finish.
 | `DOJO_MODE` | Key needed? | Behaviour |
 |---|---|---|
 | `off` (default) | no | hidden; manual card record, as today |
-| `mock` | **no** | in-memory simulator; build and test every outcome with no Dojo account |
 | `live` | **yes** | real `https://api.dojo.tech`; key prefix picks the environment (`sk_sandbox_` / `sk_prod_`) |
 
 `live` without `DOJO_API_KEY` falls back to `off` — it never pretends to be live.
+Any other value counts as `off`. To test without real money, use a sandbox key.
 The API address is fixed in code (`config.ts`), so a typo can't send the key
 elsewhere.
 
@@ -162,7 +162,7 @@ the surface's own settle call ─▶ recordDojoPayment(...) ─▶ dojo_payments
   cancel, and 90s to start a payment. Starting can take up to four Dojo calls,
   so the tablet's limit is longer than the server's: it never gives up on a
   session the server did open.
-- **Test mode:** on the simulator or a sandbox key, the payment screen shows a
+- **Test mode:** on a sandbox key, the payment screen shows a
   "Test mode — no real money moves" badge (the start response carries `test`).
 - **Payment reference:** Dojo requires one, 1–60 characters. Each screen names
   what is paid for, with nothing secret or personal:
@@ -202,7 +202,7 @@ again (an earlier try whose void didn't save just saves the void). Every
 refund is recorded in `dojo_refunds` with who issued it. On the sandbox, Dojo
 refuses refunds of card machine payments ("Your refund request was not
 successful"), which Dojo confirmed is expected; the screen explains that in
-test mode. On the simulator the refund succeeds.
+test mode.
 
 **Tips and split sales.** A tip the customer added on the card machine was paid
 too, so a refund can include it: the screens start at sale + tip and say so.
@@ -268,24 +268,24 @@ Apply with `cd app && npm run db:migrate` — idempotent, safe to re-run.
 
 ---
 
-## 6. Test it now (no Dojo account)
+## 6. Test it
 
 ```bash
 cd app
-npm run dojo:demo        # every terminal + retry, cancel, busy, timeouts, keyed payments, refunds, webhook signatures; exits 1 on a failure
+npm run dojo:checks      # no card machine or network: staff messages, headers, time limits, settings, webhook signatures; exits 1 on a failure
 ```
 
-With a sandbox key, two more (both exit 1 on a failure):
+With a sandbox key, the card machine itself (both exit 1 on a failure):
 
 ```bash
 npm run dojo:sandbox     # the payment logic against Dojo's real sandbox: every virtual terminal, refunds, …
 npm run dojo:routes      # the routes as the tablet calls them (login gate skipped, stand-in database)
 ```
 
-In the UI: set `DOJO_MODE=mock`, `npm run dev`, open `/pos` or `/waiter`, take a
-card payment. The mock's terminals copy the virtual terminals Dojo set up on our
-sandbox account, with the same TIDs. Pin one with `DOJO_TERMINAL_ID`, which takes
-a TID or a Dojo terminal id (`tm_…`), so the same value works in mock and live:
+In the UI: set `DOJO_MODE=live` with a sandbox key, `npm run dev`, open `/pos` or
+`/waiter`, take a card payment. Dojo set up virtual terminals on our sandbox
+account. Pin one with `DOJO_TERMINAL_ID`, which takes a TID or a Dojo terminal id
+(`tm_…`):
 
 | `DOJO_TERMINAL_ID` | Outcome (as the sandbox returns it) |
 |---|---|
@@ -301,7 +301,7 @@ a TID or a Dojo terminal id (`tm_…`), so the same value works in mock and live
 
 ### 6a. Sandbox results
 
-`npm run dojo:sandbox` runs the same scenarios against Dojo's real sandbox. It
+`npm run dojo:sandbox` runs these scenarios against Dojo's real sandbox. It
 needs only `DOJO_API_KEY=sk_sandbox_…` in `app/.env.local`, refuses any other
 key, and takes sections: `npm run dojo:sandbox -- refunds signature`.
 
@@ -379,9 +379,9 @@ The APK only had to ship the UI once.
 
 **Core — `app/src/lib/dojo/`** (server-side unless noted)
 `index.ts` (server entry point), `config.ts` (mode + env), `effectiveFlag.ts`
-(env AND admin toggle), `select.ts` (mock or real client by `DOJO_MODE`),
-`gateway.ts` (interface + snapshot/result mappers), `client.ts` (real HTTP),
-`mock.ts` (simulator), `flow.ts` (starting a payment: terminal by TID, intent
+(env AND admin toggle), `select.ts` (the client, while `DOJO_MODE` is live),
+`gateway.ts` (interface + snapshot/result mappers), `client.ts` (HTTP),
+`flow.ts` (starting a payment: terminal by TID, intent
 reuse, already-paid check), `sessionHandlers.ts` (shared route logic),
 `recordPayment.ts` (verified write to `dojo_payments`; `isDojoPaymentRecorded`
 for retried saves), `refund.ts` (payment intent refunds, recorded in
@@ -410,7 +410,7 @@ retry, keyed entry), `useDojoTerminal.ts`, `PaymentModal.tsx`, `SaleView.tsx`,
 `components/pos/dashboard/VoidSaleModal.tsx` (refund to card),
 `components/admin/IntegrationsPanel.tsx`.
 
-**Checks** — `app/scripts/dojo-demo.ts` (simulator), `app/scripts/dojo-sandbox.ts`
+**Checks** — `app/scripts/dojo-checks.ts` (no machine or network), `app/scripts/dojo-sandbox.ts`
 (real sandbox, payment logic), `app/scripts/dojo-routes.ts` (real sandbox,
 through the routes). The UAT script: [UAT.md](./UAT.md).
 

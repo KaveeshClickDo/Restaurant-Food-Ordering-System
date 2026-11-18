@@ -34,7 +34,7 @@ const missingId = () =>
  * Always a Sale with automatic capture. Refund sessions pay money out and need
  * canIssueRefund, which these routes don't check; and nothing here captures a
  * pre-authorisation. So the schema doesn't accept either from the client.
- * `test` tells the screen to show a test-mode badge (simulator or sandbox key).
+ * `test` tells the screen to show a test-mode badge (a sandbox key).
  *
  * A keyed sale (`cardHolderNotPresent`, MOTO) only where the route allows it:
  * the till, for phone bookings. A keyed payment has no chip & PIN check, so
@@ -76,8 +76,7 @@ export async function handleCreateSession(
       paymentIntentId: body.paymentIntentId,
       cardHolderNotPresent: body.cardHolderNotPresent,
     });
-    const test = cfg.mode === "mock" || isDojoSandboxKey();
-    return NextResponse.json({ ok: true, ...started, test });
+    return NextResponse.json({ ok: true, ...started, test: isDojoSandboxKey() });
   } catch (err) {
     return dojoErrorResponse(err, "create");
   }
@@ -90,12 +89,11 @@ export async function handleCreateSession(
  */
 export async function handleListTerminals(availableOnly = false): Promise<NextResponse> {
   try {
-    const cfg = dojoConfig();
     const terminals = await getDojoGateway().listTerminals(availableOnly);
     return NextResponse.json({
       ok: true,
       terminals: terminals.map((t) => ({ id: t.id, status: t.status, tid: t.properties?.tid ?? null })),
-      test: cfg.mode === "mock" || isDojoSandboxKey(),
+      test: isDojoSandboxKey(),
     });
   } catch (err) {
     return dojoErrorResponse(err, "terminals");
@@ -139,8 +137,8 @@ export async function handleSignSession(req: NextRequest, id: string): Promise<N
 }
 
 /**
- * Cancel a session before a card is presented. Dojo (and the mock) refuse once
- * the card has been presented; that comes back as code "cancel_too_late", and
+ * Cancel a session before a card is presented. Dojo refuses once the card has
+ * been presented; that comes back as code "cancel_too_late", and
  * the client keeps polling — the payment simply continues. PUT, not DELETE:
  * the session is not removed.
  */

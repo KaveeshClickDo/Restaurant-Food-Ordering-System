@@ -26,7 +26,7 @@
  *
  * Which machine: each tablet remembers the one it uses, per surface. With one
  * machine online it's used straight away; with several and none remembered,
- * staff pick first. In test mode (simulator or sandbox key) the picker always
+ * staff pick first. In test mode (a sandbox key) the picker always
  * shows, because testers switch between the virtual terminals. Result screens
  * offer "Use another" when there's more than one.
  *

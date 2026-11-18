@@ -326,8 +326,8 @@ interface POSContextValue {
     // sale. Omitted → a fresh id.
     saleId?: string,
   ) => Promise<{ sale: POSSale | null; error?: string; sendToKitchen: boolean }>;
-  /** True when the Dojo card-terminal flow is on: DOJO_MODE (mock|live) AND
-   *  the admin toggle. */
+  /** True when the Dojo card-terminal flow is on: DOJO_MODE=live AND the admin
+   *  toggle. */
   dojoEnabled: boolean;
   // voidSale returns `{ ok, error? }` so callers can surface the server's
   // actual reason (insufficient permission, sale already voided, refund
