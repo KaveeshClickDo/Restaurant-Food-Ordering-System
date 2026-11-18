@@ -7,7 +7,7 @@ import { parseTableLabelFromNote } from "@/lib/tableLabel";
 import {
   Circle, CheckCircle2, ChefHat, Package, Truck, Ban,
   RefreshCw, Search, Bike, ShoppingBag, Tablet, UtensilsCrossed, ClipboardList,
-  Receipt,
+  Receipt, ChevronLeft, ChevronRight,
 } from "lucide-react";
 import { ReceiptModal } from "./ReceiptModal";
 import { Customer, Order } from "@/types";
@@ -18,8 +18,6 @@ type RangePreset = "all" | "today" | "7d" | "30d" | "custom";
 // Delivery / Collection (online), Walk-in (POS counter), Dine-in (table
 // service). The three operational boards show *today*; this is the browsable
 // archive across all dates. No management controls.
-
-const POS_CUSTOMER_ID = "pos-walk-in";
 
 type SourceTab = "delivery" | "collection" | "walk-in" | "dine-in";
 
@@ -88,13 +86,6 @@ const TABS: { id: SourceTab; label: string; icon: React.ReactNode }[] = [
   { id: "dine-in", label: "Dine-in", icon: <UtensilsCrossed size={14} /> },
 ];
 
-function classify(o: RawOrder): SourceTab {
-  if (o.fulfillment === "dine-in") return "dine-in";
-  if (o.customer_id === POS_CUSTOMER_ID) return "walk-in"; // POS counter mirror
-  if (o.fulfillment === "delivery") return "delivery";
-  return "collection";
-}
-
 function fmtDateTime(iso: string) {
   return new Date(iso).toLocaleString("en-GB", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
 }
@@ -116,20 +107,33 @@ function orderLabel(o: RawOrder, tab: SourceTab): string {
 export default function OrderHistoryPanel() {
   const { settings } = useApp();
   const sym = settings.currency?.symbol ?? "£";
+  const [pageSize, setPageSize] = useState(10);
   const [orders, setOrders] = useState<RawOrder[]>([]);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<SourceTab>("delivery");
   const [search, setSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+  const [page, setPage] = useState(1);
+  const [totalCount, setTotalCount] = useState(0);
+  const [totalForFilter, setTotalForFilter] = useState(0);
+  const [sourceCounts, setSourceCounts] = useState<Record<SourceTab, number>>({
+    delivery: 0, collection: 0, "walk-in": 0, "dine-in": 0,
+  });
   // Date-range filter. preset drives the from/to bounds; "custom" reveals the
   // date inputs. Bounds are passed to the API so old ranges aren't capped by
   // the recent-rows limit.
   const [preset, setPreset] = useState<RangePreset>("all");
   const [customFrom, setCustomFrom] = useState("");
   const [customTo, setCustomTo] = useState("");
-  const lastKey = useRef<string>("");
 
   // State for receipt modal
   const [viewingReceipt, setViewingReceipt] = useState<RawOrder | null>(null);
+
+  // Debounce the search box before it drives a refetch.
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(search.trim()), 350);
+    return () => clearTimeout(t);
+  }, [search]);
 
   // Resolve the preset into ISO from/to bounds (local-day aligned).
   const { fromISO, toISO } = useMemo(() => {
@@ -151,44 +155,44 @@ export default function OrderHistoryPanel() {
   const fetchOrders = useCallback(async (isInitial = false) => {
     if (isInitial) setLoading(true);
     try {
-      // All sources for the selected range (most recent first). Single fetch →
-      // instant tab switching client-side. from/to scope the DB query so older
-      // ranges aren't truncated by the recent-rows cap.
-      const params = new URLSearchParams({ limit: "5000" });
+      // One source tab, one page at a time — tab switches and page changes
+      // each trigger a fresh fetch (no more "load every source, bucket
+      // client-side" — that's exactly what let "All time" grow unbounded).
+      const params = new URLSearchParams({ source: tab, page: String(page), pageSize: String(pageSize) });
       if (fromISO) params.set("from", fromISO);
       if (toISO) params.set("to", toISO);
+      if (debouncedSearch) params.set("search", debouncedSearch);
       const r = await fetch(`/api/admin/orders?${params}`, { cache: "no-store" });
       if (!r.ok) return;
-      const json = await r.json() as { ok: boolean; orders?: RawOrder[] };
+      const json = await r.json() as {
+        ok: boolean; orders?: RawOrder[]; totalCount?: number;
+        totalForFilter?: number; sourceCounts?: Record<SourceTab, number>;
+      };
       if (json.ok) {
-        const next = json.orders ?? [];
-        const key = JSON.stringify(next);
-        if (key !== lastKey.current) { lastKey.current = key; setOrders(next); }
+        setOrders(json.orders ?? []);
+        setTotalCount(json.totalCount ?? 0);
+        setTotalForFilter(json.totalForFilter ?? 0);
+        if (json.sourceCounts) setSourceCounts(json.sourceCounts);
       }
     } catch { /* keep last-known */ }
     finally { if (isInitial) setLoading(false); }
-  }, [fromISO, toISO]);
+  }, [tab, page, pageSize, fromISO, toISO, debouncedSearch]);
 
-  useEffect(() => { fetchOrders(true); }, [fetchOrders]);
+  // Reset to page 1 whenever the tab, date range, search, or page size
+  // narrows/widens/reshapes the result set — without firing an extra fetch
+  // at the stale page first (same guard as GiftCardsPanel: reset page, let
+  // the resulting re-render do the single real fetch).
+  const prevFilterKey = useRef(`${tab}|${fromISO}|${toISO}|${debouncedSearch}|${pageSize}`);
+  useEffect(() => {
+    const key = `${tab}|${fromISO}|${toISO}|${debouncedSearch}|${pageSize}`;
+    if (key !== prevFilterKey.current) {
+      prevFilterKey.current = key;
+      if (page !== 1) { setPage(1); return; }
+    }
+    void fetchOrders(true);
+  }, [fetchOrders, tab, fromISO, toISO, debouncedSearch, pageSize, page]);
 
-  const buckets = useMemo(() => {
-    const b: Record<SourceTab, RawOrder[]> = { delivery: [], collection: [], "walk-in": [], "dine-in": [] };
-    for (const o of orders) b[classify(o)].push(o);
-    return b;
-  }, [orders]);
-
-  const rows = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    const list = buckets[tab];
-    if (!q) return list;
-    return list.filter((o) =>
-      orderLabel(o, tab).toLowerCase().includes(q) ||
-      o.id.toLowerCase().includes(q) ||
-      (o.customer?.name ?? "").toLowerCase().includes(q),
-    );
-  }, [buckets, tab, search]);
-
-  const tabTotal = rows.reduce((s, o) => s + (o.status === "cancelled" ? 0 : Number(o.total ?? 0)), 0);
+  const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
 
   const PRESETS: { id: RangePreset; label: string }[] = [
     { id: "all", label: "All time" },
@@ -227,7 +231,7 @@ export default function OrderHistoryPanel() {
           return (
             <button
               key={t.id}
-              onClick={() => { setTab(t.id); setSearch(""); }}
+              onClick={() => { setTab(t.id); setSearch(""); setDebouncedSearch(""); }}
               className={`flex items-center gap-2 pl-2.5 pr-2.5 sm:pr-3 py-2 rounded-xl text-sm font-semibold border transition ${isActive
                 ? "bg-white border-orange-300 text-gray-900 shadow-sm ring-1 ring-orange-200"
                 : "bg-white text-gray-500 border-gray-200 hover:border-gray-300"
@@ -238,7 +242,7 @@ export default function OrderHistoryPanel() {
               </span>
               {t.label}
               <span className={`text-[11px] font-bold px-1.5 py-0.5 rounded-full ${isActive ? "bg-orange-100 text-orange-600" : "bg-gray-100 text-gray-500"}`}>
-                {buckets[t.id].length}
+                {sourceCounts[t.id]}
               </span>
             </button>
           );
@@ -281,10 +285,24 @@ export default function OrderHistoryPanel() {
       </div>
 
       {/* Summary line */}
-      <div className="flex items-center gap-2 text-sm">
-        <span className="text-gray-500">{rows.length} {TABS.find((t) => t.id === tab)?.label.toLowerCase()} order{rows.length !== 1 ? "s" : ""}</span>
-        <span className="text-gray-300">·</span>
-        <span className="text-gray-500">Total <span className="font-bold text-gray-800 tabular-nums">{sym}{tabTotal.toFixed(2)}</span></span>
+      <div className="flex items-center justify-between gap-3 text-sm flex-wrap">
+        <div className="flex items-center gap-2">
+          <span className="text-gray-500">{totalCount} {TABS.find((t) => t.id === tab)?.label.toLowerCase()} order{totalCount !== 1 ? "s" : ""}</span>
+          <span className="text-gray-300">·</span>
+          <span className="text-gray-500">Total <span className="font-bold text-gray-800 tabular-nums">{sym}{totalForFilter.toFixed(2)}</span></span>
+        </div>
+        <label className="flex items-center gap-1.5 text-xs text-gray-500">
+          Rows
+          <select
+            value={pageSize}
+            onChange={(e) => setPageSize(Number(e.target.value))}
+            className="border border-gray-200 rounded-lg text-xs font-semibold text-gray-600 pl-2 pr-1 py-1 focus:outline-none focus:ring-2 focus:ring-orange-300"
+          >
+            {[10, 20, 50].map((n) => (
+              <option key={n} value={n}>{n} per page</option>
+            ))}
+          </select>
+        </label>
       </div>
 
       {/* List */}
@@ -293,7 +311,7 @@ export default function OrderHistoryPanel() {
           <RefreshCw size={28} className="mx-auto text-gray-200 mb-2 animate-spin" />
           <p className="text-sm text-gray-400">Loading orders…</p>
         </div>
-      ) : rows.length === 0 ? (
+      ) : orders.length === 0 ? (
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm py-16 text-center">
           <ClipboardList size={36} className="mx-auto text-gray-200 mb-2.5" />
           <p className="font-semibold text-gray-400">No {TABS.find((t) => t.id === tab)?.label.toLowerCase()} orders</p>
@@ -301,7 +319,7 @@ export default function OrderHistoryPanel() {
         </div>
       ) : (
         <div className="space-y-2">
-          {rows.map((o) => {
+          {orders.map((o) => {
             const cfg = STATUS_CONFIG[o.status] ?? STATUS_CONFIG.pending;
             const itemCount = (o.items ?? []).reduce((s, i) => s + (i.qty ?? 0), 0);
             const itemSummary = (o.items ?? []).map((i) => {
@@ -343,11 +361,28 @@ export default function OrderHistoryPanel() {
         </div>
       )}
 
-      <p className="text-xs text-gray-400 text-center pt-1">
-        {preset === "all"
-          ? "Showing the most recent 5,000 orders. Narrow the date range to see older records."
-          : "Showing all orders in the selected date range (up to 5,000)."}
-      </p>
+      {/* Pagination */}
+      {!loading && totalCount > 0 && (
+        <div className="flex items-center justify-between gap-3 px-1 flex-wrap">
+          <p className="text-xs text-gray-500">Page {page} of {totalPages}</p>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+              disabled={page <= 1}
+              className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold border border-gray-200 text-gray-600 hover:border-gray-300 disabled:opacity-40 disabled:cursor-not-allowed transition"
+            >
+              <ChevronLeft size={13} /> Prev
+            </button>
+            <button
+              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+              disabled={page >= totalPages}
+              className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold border border-gray-200 text-gray-600 hover:border-gray-300 disabled:opacity-40 disabled:cursor-not-allowed transition"
+            >
+              Next <ChevronRight size={13} />
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Receipt modal */}
       {viewingReceipt && (
