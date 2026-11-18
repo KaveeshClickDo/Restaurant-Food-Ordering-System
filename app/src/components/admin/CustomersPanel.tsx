@@ -1,7 +1,7 @@
 "use client";
 
 import { uuid } from "@/lib/uuid";
-import { useState, useMemo, useRef } from "react";
+import { useState, useMemo, useRef, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useApp } from "@/context/AppContext";
 import { Customer, CustomerPosSale, Order, OrderStatus } from "@/types";
@@ -11,7 +11,7 @@ import {
   sendEmailViaApi, buildVarMap, applyVars, buildEmailDocument,
 } from "@/lib/emailTemplates";
 import {
-  Users, Search, ChevronRight, X, Phone, Mail, MapPin,
+  Users, Search, ChevronRight, ChevronLeft, X, Phone, Mail, MapPin,
   ShoppingBag, Clock, TrendingUp, Star, ArrowUpDown,
   CheckCircle2, ChefHat, Package, Truck, Ban,
   Circle, RefreshCw, Receipt, Send,
@@ -110,6 +110,8 @@ export default function CustomersPanel() {
   const [sortKey, setSortKey] = useState<SortKey>("spent");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
 
   // Quick stats
   const totalRevenue = customers.reduce((s, c) => s + totalSpent(c), 0);
@@ -147,6 +149,17 @@ export default function CustomersPanel() {
     return list;
   }, [customers, search, tagFilter, sortKey, sortDir]);
 
+  // Reset to page 1 whenever the filter/search/sort reshapes the list —
+  // purely client-side slicing, so unlike the fetch-backed panels there's no
+  // stale-request race to guard against.
+  useEffect(() => { setPage(1); }, [search, tagFilter, sortKey, sortDir, pageSize]);
+
+  const totalPages = Math.max(1, Math.ceil(displayed.length / pageSize));
+  const pageItems = useMemo(
+    () => displayed.slice((page - 1) * pageSize, page * pageSize),
+    [displayed, page, pageSize],
+  );
+
   function SortBtn({ k, children }: { k: SortKey; children: React.ReactNode }) {
     return (
       <button
@@ -180,7 +193,7 @@ export default function CustomersPanel() {
             </div>
             <div>
               <span className="font-bold text-gray-900 text-sm">Customers</span>
-              <span className="text-xs text-gray-400 ml-2">{displayed.length} shown</span>
+              <span className="text-xs text-gray-400 ml-2">{displayed.length} total</span>
             </div>
           </div>
 
@@ -242,7 +255,7 @@ export default function CustomersPanel() {
                   </td>
                 </tr>
               )}
-              {displayed.map((c) => {
+              {pageItems.map((c) => {
                 const lastOrder = [...c.orders].sort((a, b) => b.date.localeCompare(a.date))[0];
                 const spent = totalSpent(c);
                 return (
@@ -294,6 +307,43 @@ export default function CustomersPanel() {
             </tbody>
           </table>
         </div>
+
+        {/* Pagination */}
+        {displayed.length > 0 && (
+          <div className="flex items-center justify-between gap-3 px-5 py-3 border-t border-gray-100 flex-wrap">
+            <div className="flex items-center gap-3">
+              <p className="text-xs text-gray-500">Page {page} of {totalPages}</p>
+              <label className="flex items-center gap-1.5 text-xs text-gray-500">
+                Rows
+                <select
+                  value={pageSize}
+                  onChange={(e) => setPageSize(Number(e.target.value))}
+                  className="border border-gray-200 rounded-lg text-xs font-semibold text-gray-600 pl-2 pr-1 py-1 focus:outline-none focus:ring-2 focus:ring-orange-300"
+                >
+                  {[10, 20, 50].map((n) => (
+                    <option key={n} value={n}>{n} per page</option>
+                  ))}
+                </select>
+              </label>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                disabled={page <= 1}
+                className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold border border-gray-200 text-gray-600 hover:border-gray-300 disabled:opacity-40 disabled:cursor-not-allowed transition"
+              >
+                <ChevronLeft size={13} /> Prev
+              </button>
+              <button
+                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                disabled={page >= totalPages}
+                className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold border border-gray-200 text-gray-600 hover:border-gray-300 disabled:opacity-40 disabled:cursor-not-allowed transition"
+              >
+                Next <ChevronRight size={13} />
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Add customer modal */}
