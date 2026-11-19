@@ -345,15 +345,25 @@ function DriverLoginInner() {
                     <label className="block text-xs font-semibold text-gray-400 mb-1.5 uppercase tracking-wide">
                       Confirm password
                     </label>
-                    <input
-                      type="password"
-                      value={resetConfirm}
-                      onChange={(e) => { setResetConfirm(e.target.value); setResetError(""); }}
-                      placeholder="Repeat new password"
-                      required
-                      autoComplete="new-password"
-                      className="w-full bg-gray-700 border border-gray-600 text-white placeholder-gray-500 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent transition"
-                    />
+                    <div className="relative">
+                      <input
+                        type={showReset ? "text" : "password"}
+                        value={resetConfirm}
+                        onChange={(e) => { setResetConfirm(e.target.value); setResetError(""); }}
+                        placeholder="Repeat new password"
+                        required
+                        autoComplete="new-password"
+                        className="w-full bg-gray-700 border border-gray-600 text-white placeholder-gray-500 rounded-xl px-4 py-3 pr-12 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent transition"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowReset((v) => !v)}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white transition"
+                        tabIndex={-1}
+                      >
+                        {showReset ? <EyeOff size={16} /> : <Eye size={16} />}
+                      </button>
+                    </div>
                   </div>
 
                   {resetError && (

@@ -18,6 +18,7 @@ import {
   CheckCheck, AlertCircle, RotateCcw,
   Gift, Award, FileText, Save,
   Trash2, Key, Pencil, Loader2, ShieldCheck, ExternalLink, AlertTriangle, UserCog,
+  Eye, EyeOff,
 } from "lucide-react";
 import { ReceiptModal } from "./ReceiptModal";
 
@@ -408,6 +409,7 @@ function AddCustomerModal({
   const [form, setForm] = useState({ name: "", email: "", phone: "", password: "" });
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
 
   function set(k: keyof typeof form, v: string) {
     setForm((f) => ({ ...f, [k]: v }));
@@ -489,14 +491,24 @@ function AddCustomerModal({
             <label className="block text-xs font-semibold text-gray-600 mb-1">
               Password <span className="text-gray-400 font-normal">(optional — lets them sign in)</span>
             </label>
-            <input
-              type="password"
-              autoComplete="new-password"
-              value={form.password}
-              onChange={(e) => set("password", e.target.value)}
-              placeholder="Min. 6 characters"
-              className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400 transition"
-            />
+            <div className="relative">
+              <input
+                type={showPassword ? "text" : "password"}
+                autoComplete="new-password"
+                value={form.password}
+                onChange={(e) => set("password", e.target.value)}
+                placeholder="Min. 6 characters"
+                className="w-full border border-gray-200 rounded-xl px-3 py-2.5 pr-10 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400 transition"
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword((v) => !v)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                tabIndex={-1}
+              >
+                {showPassword ? <EyeOff size={15} /> : <Eye size={15} />}
+              </button>
+            </div>
             <p className="text-[11px] text-gray-400 mt-1">
               Leave blank to create the account without a password — set one later from the customer, or they can use “Forgot password”.
             </p>
@@ -1601,6 +1613,7 @@ function ChangePasswordModal({
   const [confirm, setConfirm] = useState("");
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
   const inFlight = useRef(false);
 
   async function handleSubmit(ev: React.FormEvent) {
@@ -1647,24 +1660,44 @@ function ChangePasswordModal({
           <p className="text-sm text-gray-600">Set a new password for {customer.name}.</p>
           <div>
             <label className="block text-xs font-semibold text-gray-600 mb-1.5 uppercase tracking-wide">New password</label>
-            <input
-              type="password"
-              autoFocus
-              value={value}
-              onChange={(e) => { setValue(e.target.value); setError(""); }}
-              placeholder="Min 6 characters"
-              className={`w-full bg-gray-50 border rounded-xl px-3 py-2.5 text-sm text-gray-800 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent transition ${error ? "border-red-300 bg-red-50" : "border-gray-200"}`}
-            />
+            <div className="relative">
+              <input
+                type={showPassword ? "text" : "password"}
+                autoFocus
+                value={value}
+                onChange={(e) => { setValue(e.target.value); setError(""); }}
+                placeholder="Min 6 characters"
+                className={`w-full bg-gray-50 border rounded-xl px-3 py-2.5 pr-10 text-sm text-gray-800 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent transition ${error ? "border-red-300 bg-red-50" : "border-gray-200"}`}
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword((v) => !v)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                tabIndex={-1}
+              >
+                {showPassword ? <EyeOff size={15} /> : <Eye size={15} />}
+              </button>
+            </div>
           </div>
           <div>
             <label className="block text-xs font-semibold text-gray-600 mb-1.5 uppercase tracking-wide">Confirm password</label>
-            <input
-              type="password"
-              value={confirm}
-              onChange={(e) => { setConfirm(e.target.value); setError(""); }}
-              placeholder="Repeat new password"
-              className="w-full bg-gray-50 border border-gray-200 rounded-xl px-3 py-2.5 text-sm text-gray-800 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent transition"
-            />
+            <div className="relative">
+              <input
+                type={showPassword ? "text" : "password"}
+                value={confirm}
+                onChange={(e) => { setConfirm(e.target.value); setError(""); }}
+                placeholder="Repeat new password"
+                className="w-full bg-gray-50 border border-gray-200 rounded-xl px-3 py-2.5 pr-10 text-sm text-gray-800 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent transition"
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword((v) => !v)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                tabIndex={-1}
+              >
+                {showPassword ? <EyeOff size={15} /> : <Eye size={15} />}
+              </button>
+            </div>
             {error && <p className="text-xs text-red-500 mt-1">{error}</p>}
           </div>
           <div className="flex gap-3 pt-1">

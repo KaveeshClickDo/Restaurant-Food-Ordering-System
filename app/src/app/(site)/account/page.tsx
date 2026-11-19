@@ -1139,6 +1139,7 @@ function ChangePasswordCard() {
   const [confirmPassword, setConfirmPassword] = useState("");
   const [showCurrent, setShowCurrent] = useState(false);
   const [showNew, setShowNew] = useState(false);
+  const [showConfirm, setShowConfirm] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState(false);
@@ -1305,15 +1306,25 @@ function ChangePasswordCard() {
               {/* Confirm password */}
               <div>
                 <label className="block text-xs font-medium text-zinc-500 dark:text-zinc-400 mb-1.5">Confirm new password</label>
-                <input
-                  type="password"
-                  value={confirmPassword}
-                  onChange={(e) => { setConfirmPassword(e.target.value); setError(""); }}
-                  placeholder="Repeat new password"
-                  required
-                  autoComplete="new-password"
-                  className="w-full border border-zinc-200 dark:border-[var(--brand-border-dark)] dark:bg-white/5 dark:text-[var(--brand-text-dark)] rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-zinc-300 dark:focus:ring-zinc-600"
-                />
+                <div className="relative">
+                  <input
+                    type={showConfirm ? "text" : "password"}
+                    value={confirmPassword}
+                    onChange={(e) => { setConfirmPassword(e.target.value); setError(""); }}
+                    placeholder="Repeat new password"
+                    required
+                    autoComplete="new-password"
+                    className={pwdInputCls}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowConfirm((v) => !v)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-600 transition"
+                    tabIndex={-1}
+                  >
+                    {showConfirm ? <EyeOff size={15} /> : <Eye size={15} />}
+                  </button>
+                </div>
               </div>
 
               {error && (

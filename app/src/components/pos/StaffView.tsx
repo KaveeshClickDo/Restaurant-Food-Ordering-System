@@ -550,13 +550,19 @@ export default function StaffView() {
               </div>
               <div>
                 <label className="text-xs text-slate-400 mb-1 block">Password (min 6)</label>
-                <input type="password" value={editDraft.password} onChange={(e) => setEditDraft((p) => ({ ...p, password: e.target.value }))} placeholder="Leave blank to keep current"
-                  className="w-full bg-slate-900 border border-slate-600 rounded-xl px-4 py-2.5 text-white text-sm outline-none focus:border-orange-500 placeholder-slate-500" />
+                <div className="relative">
+                  <input type={showPwd ? "text" : "password"} value={editDraft.password} onChange={(e) => setEditDraft((p) => ({ ...p, password: e.target.value }))} placeholder="Leave blank to keep current"
+                    className="w-full bg-slate-900 border border-slate-600 rounded-xl px-4 py-2.5 text-white text-sm outline-none focus:border-orange-500 placeholder-slate-500" />
+                  <EyeToggle show={showPwd} onToggle={() => setShowPwd((v) => !v)} />
+                </div>
               </div>
               <div>
                 <label className="text-xs text-slate-400 mb-1 block">Tablet PIN (6 digits)</label>
-                <input type="password" inputMode="numeric" value={editDraft.pin} onChange={(e) => setEditDraft((p) => ({ ...p, pin: e.target.value.replace(/\D/g, "").slice(0, 6) }))} placeholder="Leave blank to keep current"
-                  className="w-full bg-slate-900 border border-slate-600 rounded-xl px-4 py-2.5 text-white text-sm outline-none focus:border-orange-500 placeholder-slate-500" />
+                <div className="relative">
+                  <input type={showPin ? "text" : "password"} inputMode="numeric" value={editDraft.pin} onChange={(e) => setEditDraft((p) => ({ ...p, pin: e.target.value.replace(/\D/g, "").slice(0, 6) }))} placeholder="Leave blank to keep current"
+                    className="w-full bg-slate-900 border border-slate-600 rounded-xl px-4 py-2.5 text-white text-sm outline-none focus:border-orange-500 placeholder-slate-500" />
+                  <EyeToggle show={showPin} onToggle={() => setShowPin((v) => !v)} />
+                </div>
               </div>
               <div>
                 <label className="text-xs text-slate-400 mb-1 block">Hourly Rate ({sym})</label>

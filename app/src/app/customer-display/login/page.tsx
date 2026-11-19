@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
-import { Monitor, Loader2, Lock } from "lucide-react";
+import { Monitor, Loader2, Lock, Eye, EyeOff } from "lucide-react";
 
 /**
  * Customer Display unlock screen.
@@ -21,6 +21,7 @@ export default function CustomerDisplayLoginPage() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
   const checkedRef = useRef(false);
 
   async function grant(pw?: string): Promise<boolean> {
@@ -90,13 +91,21 @@ export default function CustomerDisplayLoginPage() {
           <div className="relative">
             <Lock size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" />
             <input
-              type="password"
+              type={showPassword ? "text" : "password"}
               autoFocus
               value={password}
               onChange={(e) => { setPassword(e.target.value); setError(""); }}
               placeholder="Display password"
-              className="w-full pl-10 pr-4 py-3 rounded-2xl bg-gray-900 border border-gray-700 text-white placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-orange-500 transition"
+              className="w-full pl-10 pr-12 py-3 rounded-2xl bg-gray-900 border border-gray-700 text-white placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-orange-500 transition"
             />
+            <button
+              type="button"
+              onClick={() => setShowPassword((v) => !v)}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-300 transition"
+              tabIndex={-1}
+            >
+              {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+            </button>
           </div>
 
           {error && <p className="text-red-400 text-sm text-center font-medium">{error}</p>}
