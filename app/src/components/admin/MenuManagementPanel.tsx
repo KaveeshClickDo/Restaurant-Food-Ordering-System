@@ -12,6 +12,7 @@ import {
   ToggleLeft, ToggleRight, Loader2, Settings2, ImageOff,
   ChevronDown,
   ChevronRight,
+  ChevronLeft,
   FolderMinus,
   FolderOpen,
 } from "lucide-react";
@@ -121,6 +122,8 @@ export default function MenuManagementPanel() {
   const [editingItem, setEditingItem] = useState<MenuItem | null>(null);
   const [deletingCat, setDeletingCat] = useState<Category | null>(null);
   const [deletingItem, setDeletingItem] = useState<MenuItem | null>(null);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
 
   const parents = useMemo(() => getParents(categories), [categories]);
 
@@ -147,6 +150,17 @@ export default function MenuManagementPanel() {
       return matchesCat && matchesSearch;
     });
   }, [menuItems, selectedCatId, categories, search]);
+
+  // Reset to page 1 whenever the category/search reshapes the list — purely
+  // client-side slicing of the already-live menuItems array, so there's no
+  // stale-request race to guard against (same approach as CustomersPanel).
+  useEffect(() => { setPage(1); }, [selectedCatId, search, pageSize]);
+
+  const totalPages = Math.max(1, Math.ceil(displayedItems.length / pageSize));
+  const pageItems = useMemo(
+    () => displayedItems.slice((page - 1) * pageSize, page * pageSize),
+    [displayedItems, page, pageSize],
+  );
 
   const catItemCount = (catId: string) => menuItems.filter((i) => i.categoryId === catId).length;
 
@@ -619,9 +633,30 @@ export default function MenuManagementPanel() {
             </div>
           )}
 
+          {/* Summary line */}
+          {displayedItems.length > 0 && (
+            <div className="flex items-center justify-between gap-3 mb-3 flex-wrap">
+              <p className="text-xs text-gray-400">
+                {displayedItems.length} item{displayedItems.length !== 1 ? "s" : ""}
+              </p>
+              <label className="flex items-center gap-1.5 text-xs text-gray-500">
+                Rows
+                <select
+                  value={pageSize}
+                  onChange={(e) => setPageSize(Number(e.target.value))}
+                  className="border border-gray-200 rounded-lg text-xs font-semibold text-gray-600 pl-2 pr-1 py-1 focus:outline-none focus:ring-2 focus:ring-orange-300"
+                >
+                  {[10, 20, 50].map((n) => (
+                    <option key={n} value={n}>{n} per page</option>
+                  ))}
+                </select>
+              </label>
+            </div>
+          )}
+
           {/* Item grid */}
           <div className="space-y-2">
-            {displayedItems.map((item) => {
+            {pageItems.map((item) => {
               const itemCat = categories.find((c) => c.id === item.categoryId);
               const parentCat =
                 itemCat?.parentId
@@ -762,6 +797,29 @@ export default function MenuManagementPanel() {
               );
             })}
           </div>
+
+          {/* Pagination */}
+          {displayedItems.length > 0 && (
+            <div className="flex items-center justify-between gap-3 mt-4 pt-3 border-t border-gray-100">
+              <p className="text-xs text-gray-500">Page {page} of {totalPages}</p>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}
+                  disabled={page <= 1}
+                  className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold border border-gray-200 text-gray-600 hover:border-gray-300 disabled:opacity-40 disabled:cursor-not-allowed transition"
+                >
+                  <ChevronLeft size={13} /> Prev
+                </button>
+                <button
+                  onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                  disabled={page >= totalPages}
+                  className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold border border-gray-200 text-gray-600 hover:border-gray-300 disabled:opacity-40 disabled:cursor-not-allowed transition"
+                >
+                  Next <ChevronRight size={13} />
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
