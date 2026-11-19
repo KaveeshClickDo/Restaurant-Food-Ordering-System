@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   CreditCard, Search, ExternalLink, RotateCcw,
   ArrowDownCircle, FileText, DollarSign, Loader2, AlertCircle,
+  ChevronLeft, ChevronRight,
 } from "lucide-react";
 import { useApp } from "@/context/AppContext";
 import { PaymentStatusBadge, StripeIntentLink } from "@/components/admin/PaymentStatusBadge";
@@ -13,9 +14,10 @@ import type { PaymentStatus } from "@/types";
 /**
  * PaymentsPanel — admin transaction history for money that actually moved.
  *
- * Lists every order with payment_status in (paid, refunded, partially_refunded)
- * — the same set the /api/admin/payments route returns. Cash orders that are
- * still unpaid never appear here; once a cashier marks one as paid they will.
+ * Backed by the admin_payment_transactions SQL view (supabase/schema.sql),
+ * which unions online orders, VIP booking fees, and Stripe gift-card sales
+ * — see /api/admin/payments. Cash orders that are still unpaid never appear
+ * here; once a cashier marks one as paid they will.
  *
  * For Stripe transactions the PaymentIntent id is rendered as a clickable
  * link to the Stripe Dashboard so the admin can pull up the full charge
@@ -36,18 +38,30 @@ interface PaymentRow {
   refunds: unknown[];
   status: string;
   fulfillment: string;
-  customer_id: string;
-  customers: { name: string; email: string } | null;
+  customer_name: string | null;
+  customer_email: string | null;
 }
 
-type StatusFilter = "all" | "paid" | "refunded" | "partially_refunded";
+interface Totals {
+  txCount: number;
+  paidCount: number;
+  refundedCount: number;
+  stripeCount: number;
+  totalGross: number;
+  totalNet: number;
+  refundedSum: number;
+}
 
-// Staff-side rows (POS walk-in counter sales and waiter dine-in service) store
-// machine tenders ("cash"/"card"); online rows store the configured method
-// name. paymentMethodLabel disambiguates the overlapping Cash/Card buckets.
-function methodLabel(r: PaymentRow): string {
-  const staffOrder = r.customer_id === "pos-walk-in" || r.fulfillment === "dine-in";
-  return paymentMethodLabel(r.payment_method, staffOrder);
+const EMPTY_TOTALS: Totals = { txCount: 0, paidCount: 0, refundedCount: 0, stripeCount: 0, totalGross: 0, totalNet: 0, refundedSum: 0 };
+
+type StatusFilter = "all" | "paid" | "refunded" | "partially_refunded";
+type RangePreset = "all" | "today" | "7d" | "30d" | "custom";
+
+// This panel is online-only (the view already excludes dine-in / POS
+// walk-in orders), so the method label never needs the staffOrder branch —
+// it's always false here.
+function methodLabel(method: string | null): string {
+  return paymentMethodLabel(method, false);
 }
 
 export default function PaymentsPanel() {
@@ -55,67 +69,81 @@ export default function PaymentsPanel() {
   const sym = settings.currency?.symbol ?? "£";
 
   const [rows,     setRows]     = useState<PaymentRow[]>([]);
+  const [totals,   setTotals]   = useState<Totals>(EMPTY_TOTALS);
+  const [totalCount, setTotalCount] = useState(0);
   const [loading,  setLoading]  = useState(true);
   const [error,    setError]    = useState<string | null>(null);
   const [search,   setSearch]   = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
   const [filter,   setFilter]   = useState<StatusFilter>("all");
+  const [page,     setPage]     = useState(1);
+  const [pageSize, setPageSize] = useState(10);
+
+  // Date-range filter — same preset pattern as OrderHistoryPanel.
+  const [preset, setPreset] = useState<RangePreset>("all");
+  const [customFrom, setCustomFrom] = useState("");
+  const [customTo, setCustomTo] = useState("");
 
   useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      setLoading(true);
-      setError(null);
-      try {
-        const r = await fetch("/api/admin/payments?limit=500", { cache: "no-store" });
-        const j = await r.json() as { ok: boolean; payments?: PaymentRow[]; error?: string };
-        if (!cancelled) {
-          if (!j.ok) setError(j.error ?? "Could not load payments.");
-          else       setRows(j.payments ?? []);
-        }
-      } catch (err) {
-        if (!cancelled) setError(err instanceof Error ? err.message : "Network error.");
-      } finally {
-        if (!cancelled) setLoading(false);
+    const t = setTimeout(() => setDebouncedSearch(search.trim()), 350);
+    return () => clearTimeout(t);
+  }, [search]);
+
+  const { fromISO, toISO } = useMemo(() => {
+    const startOfDay = (d: Date) => { const x = new Date(d); x.setHours(0, 0, 0, 0); return x; };
+    const endOfDay   = (d: Date) => { const x = new Date(d); x.setHours(23, 59, 59, 999); return x; };
+    const now = new Date();
+    if (preset === "today") return { fromISO: startOfDay(now).toISOString(), toISO: endOfDay(now).toISOString() };
+    if (preset === "7d")  { const f = new Date(now); f.setDate(f.getDate() - 6);  return { fromISO: startOfDay(f).toISOString(), toISO: endOfDay(now).toISOString() }; }
+    if (preset === "30d") { const f = new Date(now); f.setDate(f.getDate() - 29); return { fromISO: startOfDay(f).toISOString(), toISO: endOfDay(now).toISOString() }; }
+    if (preset === "custom") {
+      return {
+        fromISO: customFrom ? startOfDay(new Date(customFrom)).toISOString() : null,
+        toISO:   customTo   ? endOfDay(new Date(customTo)).toISOString()     : null,
+      };
+    }
+    return { fromISO: null as string | null, toISO: null as string | null };
+  }, [preset, customFrom, customTo]);
+
+  const fetchPayments = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const params = new URLSearchParams({ page: String(page), pageSize: String(pageSize) });
+      if (filter !== "all") params.set("status", filter);
+      if (fromISO) params.set("from", fromISO);
+      if (toISO)   params.set("to", toISO);
+      if (debouncedSearch) params.set("search", debouncedSearch);
+      const r = await fetch(`/api/admin/payments?${params}`, { cache: "no-store" });
+      const j = await r.json() as { ok: boolean; payments?: PaymentRow[]; totalCount?: number; totals?: Totals; error?: string };
+      if (!j.ok) {
+        setError(j.error ?? "Could not load payments.");
+      } else {
+        setRows(j.payments ?? []);
+        setTotalCount(j.totalCount ?? 0);
+        setTotals(j.totals ?? EMPTY_TOTALS);
       }
-    })();
-    return () => { cancelled = true; };
-  }, []);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Network error.");
+    } finally {
+      setLoading(false);
+    }
+  }, [page, pageSize, filter, fromISO, toISO, debouncedSearch]);
 
-  // ── Aggregates ──────────────────────────────────────────────────────────────
-  const stats = useMemo(() => {
-    const paidRows    = rows.filter((r) => r.payment_status === "paid");
-    const refundedRows = rows.filter((r) => r.payment_status === "refunded" || r.payment_status === "partially_refunded");
-    const totalGross  = rows.reduce((s, r) => s + Number(r.total), 0);
-    const totalNet    = rows.reduce((s, r) => s + Number(r.total) - Number(r.refunded_amount ?? 0), 0);
-    const refundedSum = rows.reduce((s, r) => s + Number(r.refunded_amount ?? 0), 0);
-    const stripeCount = rows.filter((r) => r.stripe_payment_intent_id).length;
-    return {
-      txCount:    rows.length,
-      paidCount:  paidRows.length,
-      refundedCount: refundedRows.length,
-      stripeCount,
-      totalGross, totalNet, refundedSum,
-    };
-  }, [rows]);
+  // Reset to page 1 whenever the filter/date-range/search/page size
+  // narrows/widens/reshapes the result set — without firing an extra fetch
+  // at the stale page first (same guard used in CustomersPanel/GiftCardsPanel).
+  const prevKey = useRef(`${filter}|${fromISO}|${toISO}|${debouncedSearch}|${pageSize}`);
+  useEffect(() => {
+    const key = `${filter}|${fromISO}|${toISO}|${debouncedSearch}|${pageSize}`;
+    if (key !== prevKey.current) {
+      prevKey.current = key;
+      if (page !== 1) { setPage(1); return; }
+    }
+    void fetchPayments();
+  }, [fetchPayments, filter, fromISO, toISO, debouncedSearch, pageSize, page]);
 
-  // ── Filter ──────────────────────────────────────────────────────────────────
-  const displayed = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    return rows.filter((r) => {
-      const matchFilter = filter === "all" || r.payment_status === filter;
-      if (!matchFilter) return false;
-      if (!q) return true;
-      return (
-        r.id.toLowerCase().includes(q) ||
-        (r.customers?.name?.toLowerCase().includes(q) ?? false) ||
-        (r.customers?.email?.toLowerCase().includes(q) ?? false) ||
-        (r.payment_method ?? "").toLowerCase().includes(q) ||
-        methodLabel(r).toLowerCase().includes(q) ||
-        (r.stripe_payment_intent_id ?? "").toLowerCase().includes(q) ||
-        (r.paypal_order_id ?? "").toLowerCase().includes(q)
-      );
-    });
-  }, [rows, search, filter]);
+  const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
 
   const FILTERS: { value: StatusFilter; label: string }[] = [
     { value: "all",                 label: "All" },
@@ -124,15 +152,23 @@ export default function PaymentsPanel() {
     { value: "refunded",            label: "Refunded" },
   ];
 
+  const PRESETS: { id: RangePreset; label: string }[] = [
+    { id: "all",   label: "All time" },
+    { id: "today", label: "Today" },
+    { id: "7d",    label: "7 days" },
+    { id: "30d",   label: "30 days" },
+    { id: "custom", label: "Custom" },
+  ];
+
   return (
     <div className="space-y-6">
       {/* ── Stats ─────────────────────────────────────────────────────────── */}
       <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
         {[
-          { label: "Gross collected",  value: fmt(stats.totalGross, sym),  icon: <DollarSign size={18} />,   color: "text-emerald-600 bg-emerald-50 border-emerald-100" },
-          { label: "Net after refunds", value: fmt(stats.totalNet, sym),    icon: <ArrowDownCircle size={18} />, color: "text-blue-600 bg-blue-50 border-blue-100"  },
-          { label: "Refunded",          value: fmt(stats.refundedSum, sym), icon: <RotateCcw size={18} />,    color: "text-teal-600 bg-teal-50 border-teal-100"   },
-          { label: "Stripe charges",    value: stats.stripeCount,           icon: <CreditCard size={18} />,   color: "text-indigo-600 bg-indigo-50 border-indigo-100" },
+          { label: "Gross collected",  value: fmt(totals.totalGross, sym),  icon: <DollarSign size={18} />,   color: "text-emerald-600 bg-emerald-50 border-emerald-100" },
+          { label: "Net after refunds", value: fmt(totals.totalNet, sym),    icon: <ArrowDownCircle size={18} />, color: "text-blue-600 bg-blue-50 border-blue-100"  },
+          { label: "Refunded",          value: fmt(totals.refundedSum, sym), icon: <RotateCcw size={18} />,    color: "text-teal-600 bg-teal-50 border-teal-100"   },
+          { label: "Stripe charges",    value: totals.stripeCount,           icon: <CreditCard size={18} />,   color: "text-indigo-600 bg-indigo-50 border-indigo-100" },
         ].map(({ label, value, icon, color }) => (
           <div key={label} className="bg-white rounded-2xl border border-gray-100 shadow-sm px-4 sm:px-5 py-4 flex flex-col sm:flex-row md:flex-col xl:flex-row items-start sm:items-center md:items-start xl:items-center gap-3 sm:gap-4">
             <div className={`w-8 h-8 sm:w-10 sm:h-10 rounded-xl border flex items-center justify-center flex-shrink-0 ${color}`}>
@@ -144,6 +180,30 @@ export default function PaymentsPanel() {
             </div>
           </div>
         ))}
+      </div>
+
+      {/* ── Date range ───────────────────────────────────────────────────── */}
+      <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-3 flex flex-wrap items-center gap-3">
+        <div className="flex flex-wrap bg-gray-100 rounded-xl p-1 gap-1">
+          {PRESETS.map((p) => (
+            <button
+              key={p.id}
+              onClick={() => setPreset(p.id)}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition ${preset === p.id ? "bg-indigo-500 text-white shadow-sm" : "text-gray-500 hover:text-gray-700"}`}
+            >
+              {p.label}
+            </button>
+          ))}
+        </div>
+        {preset === "custom" && (
+          <div className="flex flex-wrap items-center gap-2">
+            <input type="date" value={customFrom} onChange={(e) => setCustomFrom(e.target.value)}
+              className="px-1 sm:px-3 py-1.5 rounded-lg border border-gray-200 text-xs text-gray-700 focus:outline-none focus:ring-2 focus:ring-indigo-300" />
+            <span className="text-gray-400 text-xs">→</span>
+            <input type="date" value={customTo} onChange={(e) => setCustomTo(e.target.value)}
+              className="px-1 sm:px-3 py-1.5 rounded-lg border border-gray-200 text-xs text-gray-700 focus:outline-none focus:ring-2 focus:ring-indigo-300" />
+          </div>
+        )}
       </div>
 
       {/* ── Search + filter ──────────────────────────────────────────────── */}
@@ -193,7 +253,7 @@ export default function PaymentsPanel() {
         </div>
       )}
 
-      {!loading && !error && displayed.length === 0 && (
+      {!loading && !error && rows.length === 0 && (
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm px-6 py-16 text-center text-gray-400">
           <FileText size={40} className="mx-auto mb-3 opacity-20" />
           <p className="font-semibold text-gray-500">No payments to show</p>
@@ -205,12 +265,24 @@ export default function PaymentsPanel() {
         </div>
       )}
 
-      {!loading && !error && displayed.length > 0 && (
+      {!loading && !error && rows.length > 0 && (
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-          <div className="px-5 py-3 border-b border-gray-100 flex items-center justify-between">
+          <div className="px-5 py-3 border-b border-gray-100 flex items-center justify-between flex-wrap gap-2">
             <p className="text-xs font-semibold text-gray-500">
-              {displayed.length} transaction{displayed.length !== 1 ? "s" : ""}
+              {totalCount} transaction{totalCount !== 1 ? "s" : ""}
             </p>
+            <label className="flex items-center gap-1.5 text-xs text-gray-500">
+              Rows
+              <select
+                value={pageSize}
+                onChange={(e) => setPageSize(Number(e.target.value))}
+                className="border border-gray-200 rounded-lg text-xs font-semibold text-gray-600 pl-2 pr-1 py-1 focus:outline-none focus:ring-2 focus:ring-indigo-300"
+              >
+                {[10, 20, 50].map((n) => (
+                  <option key={n} value={n}>{n} per page</option>
+                ))}
+              </select>
+            </label>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
@@ -227,7 +299,7 @@ export default function PaymentsPanel() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-50">
-                {displayed.map((r) => {
+                {rows.map((r) => {
                   const refunded = Number(r.refunded_amount ?? 0);
                   const net = Number(r.total) - refunded;
                   return (
@@ -240,14 +312,14 @@ export default function PaymentsPanel() {
                       </td>
                       <td className="px-5 py-3">
                         <p className="font-semibold text-gray-800 text-sm truncate max-w-[180px]">
-                          {r.customers?.name ?? "Guest"}
+                          {r.customer_name ?? "Guest"}
                         </p>
-                        {r.customers?.email && (
-                          <p className="text-[10px] text-gray-400 truncate max-w-[180px]">{r.customers.email}</p>
+                        {r.customer_email && (
+                          <p className="text-[10px] text-gray-400 truncate max-w-[180px]">{r.customer_email}</p>
                         )}
                       </td>
                       <td className="px-5 py-3 text-gray-600 text-xs">
-                        {r.payment_method ? methodLabel(r) : "—"}
+                        {r.payment_method ? methodLabel(r.payment_method) : "—"}
                       </td>
                       <td className="px-5 py-3">
                         {r.stripe_payment_intent_id ? (
@@ -278,6 +350,27 @@ export default function PaymentsPanel() {
                 })}
               </tbody>
             </table>
+          </div>
+
+          {/* Pagination */}
+          <div className="flex items-center justify-between gap-3 px-5 py-3 border-t border-gray-100">
+            <p className="text-xs text-gray-500">Page {page} of {totalPages}</p>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                disabled={page <= 1}
+                className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold border border-gray-200 text-gray-600 hover:border-gray-300 disabled:opacity-40 disabled:cursor-not-allowed transition"
+              >
+                <ChevronLeft size={13} /> Prev
+              </button>
+              <button
+                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                disabled={page >= totalPages}
+                className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold border border-gray-200 text-gray-600 hover:border-gray-300 disabled:opacity-40 disabled:cursor-not-allowed transition"
+              >
+                Next <ChevronRight size={13} />
+              </button>
+            </div>
           </div>
         </div>
       )}

@@ -2383,6 +2383,63 @@ do $$ begin
   end if;
 end $$;
 
+-- Admin Payments panel — unions orders, VIP booking fees, and gift-card
+-- sales so the admin route can paginate one source. Mirrors the eligibility
+-- rules in app/src/app/api/admin/payments/route.ts.
+--
+-- security_invoker = true enforces RLS on the underlying tables instead of
+-- the view owner's privileges; the revoke/grant below restricts reads to
+-- service_role, since this carries customer emails and payment refs.
+create or replace view admin_payment_transactions
+  with (security_invoker = true) as
+  select
+    o.id, o.date, o.total, o.payment_method, o.payment_status,
+    o.stripe_payment_intent_id, o.stripe_charge_id,
+    o.paypal_order_id, o.paypal_capture_id,
+    coalesce(o.refunded_amount, 0) as refunded_amount, o.refunds,
+    o.status, o.fulfillment,
+    c.name as customer_name, c.email as customer_email
+  from orders o
+  left join customers c on c.id = o.customer_id
+  where o.payment_status in ('paid', 'refunded', 'partially_refunded')
+    and (o.customer_id is null or o.customer_id <> 'pos-walk-in')
+    and o.fulfillment <> 'dine-in'
+
+  union all
+
+  select
+    'vip:' || r.id, r.created_at, r.vip_fee,
+    case r.payment_method when 'stripe' then 'VIP fee (Stripe)'
+                           when 'paypal' then 'VIP fee (PayPal)'
+                           else 'VIP fee' end,
+    'paid',
+    case when r.payment_method = 'stripe' then r.payment_ref end,
+    null,
+    case when r.payment_method = 'paypal' then r.payment_ref end,
+    null,
+    0, '[]'::jsonb,
+    r.status, 'booking',
+    r.customer_name, r.customer_email
+  from reservations r
+  where r.payment_status = 'paid' and r.vip_fee > 0
+    and r.payment_method in ('stripe', 'paypal')
+
+  union all
+
+  select
+    'gc:' || g.id, g.created_at, g.initial_amount,
+    'Gift card (Stripe)', 'paid',
+    g.stripe_payment_intent_id, null, null, null,
+    0, '[]'::jsonb,
+    'active', 'gift_card',
+    g.issued_to_name, g.issued_to_email
+  from gift_cards g
+  where g.stripe_payment_intent_id is not null;
+
+-- Admin-only read — keeps the blanket anon/authenticated grant above from
+-- sweeping this view in on a future re-run.
+revoke all on admin_payment_transactions from public, anon, authenticated;
+grant select on admin_payment_transactions to service_role;
 
 -- ═══════════════════════════════════════════════════════════════════════════════
 -- Verification queries (paste these separately after running the above):
