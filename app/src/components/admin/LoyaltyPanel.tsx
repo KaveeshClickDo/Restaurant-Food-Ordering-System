@@ -15,6 +15,7 @@ import { useApp } from "@/context/AppContext";
 import { LoyaltyReward } from "@/types";
 import { DEFAULT_CURRENCY } from "@/lib/currency";
 import { Gift, CheckCircle2, AlertCircle, Trash2 } from "lucide-react";
+import ConfirmDialog from "@/components/ConfirmDialog";
 
 export default function LoyaltyPanel() {
   const { settings, updateSettings, menuItems } = useApp();
@@ -126,10 +127,16 @@ export default function LoyaltyPanel() {
     if (json.ok) setRewards((prev) => prev.map((x) => x.id === r.id ? { ...x, active: !r.active } : x));
   }
 
+  const [deleteTarget, setDeleteTarget] = useState<LoyaltyReward | null>(null);
+  const [deleting, setDeleting] = useState(false);
+
   async function deleteReward(id: string) {
+    setDeleting(true);
     const res = await fetch(`/api/admin/rewards/${id}`, { method: "DELETE" });
     const json = await res.json() as { ok: boolean };
     if (json.ok) setRewards((prev) => prev.filter((x) => x.id !== id));
+    setDeleting(false);
+    setDeleteTarget(null);
   }
 
   return (
@@ -267,7 +274,7 @@ export default function LoyaltyPanel() {
                       Edit
                     </button>
                     <button
-                      onClick={() => void deleteReward(r.id)}
+                      onClick={() => setDeleteTarget(r)}
                       className="p-1.5 rounded-lg text-gray-300 hover:text-red-500 hover:bg-red-50 transition flex-shrink-0"
                       title="Delete reward"
                     >
@@ -350,6 +357,17 @@ export default function LoyaltyPanel() {
           )}
         </div>
       </div>
+
+      <ConfirmDialog
+        open={!!deleteTarget}
+        title="Delete this reward?"
+        message={`"${(deleteTarget?.name?.trim() || deleteTarget?.menuItemName) ?? "This reward"}" will no longer be redeemable from the customer rewards page. This can't be undone.`}
+        tone="danger"
+        confirmLabel="Delete"
+        busy={deleting}
+        onConfirm={() => deleteTarget && void deleteReward(deleteTarget.id)}
+        onCancel={() => setDeleteTarget(null)}
+      />
     </div>
   );
 }

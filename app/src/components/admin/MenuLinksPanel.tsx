@@ -6,7 +6,7 @@ import { useApp } from "@/context/AppContext";
 import type { MenuLink } from "@/types";
 import {
   Plus, Trash2, ChevronUp, ChevronDown,
-  Eye, EyeOff, Link2, GripVertical, Monitor, AlignJustify,
+  Eye, EyeOff, Link2, GripVertical, Monitor, AlignJustify, X,
 } from "lucide-react";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -121,11 +121,34 @@ function LinkRow({
 }) {
   const [editing, setEditing] = useState(false);
   const [labelDraft, setLabelDraft] = useState(link.label);
+  const [confirmingRemove, setConfirmingRemove] = useState(false);
 
   function commitLabel() {
     if (labelDraft.trim()) onLabelChange(labelDraft.trim());
     else setLabelDraft(link.label);
     setEditing(false);
+  }
+
+  if (confirmingRemove) {
+    return (
+      <div className="flex items-center gap-3 px-3 py-2.5 rounded-xl border border-red-200 bg-red-50">
+        <p className="text-red-700 text-sm flex-1">
+          Remove <strong>{link.label}</strong> from the menu? This can&apos;t be undone.
+        </p>
+        <button
+          onClick={onRemove}
+          className="bg-red-600 hover:bg-red-700 text-white text-xs font-bold px-3 py-1.5 rounded-lg transition flex-shrink-0"
+        >
+          Remove
+        </button>
+        <button
+          onClick={() => setConfirmingRemove(false)}
+          className="text-gray-400 hover:text-gray-700 transition flex-shrink-0"
+        >
+          <X size={16} />
+        </button>
+      </div>
+    );
   }
 
   return (
@@ -196,7 +219,7 @@ function LinkRow({
 
       {/* Remove */}
       <button
-        onClick={onRemove}
+        onClick={() => setConfirmingRemove(true)}
         title="Remove from menu"
         className="p-1.5 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 transition"
       >

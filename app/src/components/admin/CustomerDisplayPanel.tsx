@@ -16,6 +16,7 @@ import { useEffect, useState } from "react";
 import {
   Monitor, Lock, Eye, EyeOff, Info, AlertCircle, Loader2, Trash2, CheckCircle2,
 } from "lucide-react";
+import ConfirmDialog from "@/components/ConfirmDialog";
 
 export default function CustomerDisplayPanel() {
   const [loading, setLoading]   = useState(true);
@@ -26,6 +27,7 @@ export default function CustomerDisplayPanel() {
   const [error, setError]       = useState("");
   const [saved, setSaved]       = useState("");
   const [busy, setBusy]         = useState(false);
+  const [confirmRemove, setConfirmRemove] = useState(false);
 
   useEffect(() => {
     fetch("/api/admin/display-password", { cache: "no-store" })
@@ -74,6 +76,7 @@ export default function CustomerDisplayPanel() {
       setError("Connection error. Please try again.");
     } finally {
       setBusy(false);
+      setConfirmRemove(false);
     }
   }
 
@@ -151,7 +154,7 @@ export default function CustomerDisplayPanel() {
           </button>
           {isSet && (
             <button
-              onClick={handleRemove}
+              onClick={() => setConfirmRemove(true)}
               disabled={busy}
               className="flex items-center gap-1.5 px-4 py-2.5 border border-red-200 text-red-500 hover:bg-red-50 disabled:opacity-50 text-sm font-semibold rounded-xl transition"
             >
@@ -165,6 +168,17 @@ export default function CustomerDisplayPanel() {
           )}
         </div>
       </div>
+
+      <ConfirmDialog
+        open={confirmRemove}
+        title="Remove the display password?"
+        message="The customer display board will be open to anyone with the URL — no password required. Every live display screen will be logged out."
+        tone="danger"
+        confirmLabel="Remove password"
+        busy={busy}
+        onConfirm={handleRemove}
+        onCancel={() => setConfirmRemove(false)}
+      />
     </div>
   );
 }

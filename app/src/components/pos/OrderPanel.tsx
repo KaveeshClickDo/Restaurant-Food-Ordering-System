@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { usePOS } from "@/context/POSContext";
 import { cartLineTotal, cartLineSaving } from "@/types/pos";
 import {
@@ -8,6 +9,7 @@ import {
   DollarSign, ChefHat, ToggleLeft, ToggleRight,
 } from "lucide-react";
 import { fmt } from "./_utils";
+import ConfirmDialog from "@/components/ConfirmDialog";
 
 export default function OrderPanel({
   onCharge,
@@ -28,6 +30,7 @@ export default function OrderPanel({
     discount, settings, assignedCustomer, currentStaff,
     kitchenNote, setKitchenNote, sendToKitchen, setSendToKitchen,
   } = usePOS();
+  const [showClearConfirm, setShowClearConfirm] = useState(false);
 
   return (
     <div className="flex flex-col h-full bg-slate-900 border-l border-slate-700/50">
@@ -43,7 +46,7 @@ export default function OrderPanel({
           )}
         </div>
         {cart.length > 0 && (
-          <button onClick={clearCart} className="text-slate-500 hover:text-red-400 transition-colors p-1">
+          <button onClick={() => setShowClearConfirm(true)} className="text-slate-500 hover:text-red-400 transition-colors p-1">
             <Trash2 size={14} />
           </button>
         )}
@@ -251,6 +254,16 @@ export default function OrderPanel({
           </button>
         </div>
       )}
+
+      <ConfirmDialog
+        open={showClearConfirm}
+        title="Clear this order?"
+        message="All items will be removed from the current order. This cannot be undone."
+        confirmLabel="Clear order"
+        tone="danger"
+        onConfirm={() => { clearCart(); setShowClearConfirm(false); }}
+        onCancel={() => setShowClearConfirm(false)}
+      />
     </div>
   );
 }
