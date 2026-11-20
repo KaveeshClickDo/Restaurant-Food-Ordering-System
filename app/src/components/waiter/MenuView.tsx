@@ -10,7 +10,7 @@
  * send via onSent(receipt).
  */
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useRef, useEffect } from "react";
 import { useApp } from "@/context/AppContext";
 import {
   ChefHat, ArrowLeft, Plus, Minus, Trash2, SendHorizonal,
@@ -56,6 +56,22 @@ export default function MenuView({ table, covers, setCovers, waiterName, onBack,
   const [modalItem, setModalItem] = useState<MenuItem | null>(null);
   const [showCart, setShowCart] = useState(false); // mobile bottom-sheet
   const [sending, setSending] = useState(false);
+
+  // ── Infinite-scroll pagination (mirrors POS SaleView) ───────────────────────
+  // Mounts a small batch of cards at a time instead of every matching item, so
+  // the browser only requests/decodes that many images at once.
+  const itemScrollRef = useRef<HTMLDivElement>(null);
+  const sentinelRef = useRef<HTMLDivElement>(null);
+  const ITEMS_PER_BATCH = 12;
+  const [visibleCount, setVisibleCount] = useState(ITEMS_PER_BATCH);
+
+  // Reset to the first batch and scroll back to top whenever the category
+  // changes — otherwise a deeply-scrolled count would carry into the new
+  // filter and reveal a burst of items/images at once.
+  useEffect(() => {
+    setVisibleCount(ITEMS_PER_BATCH);
+    itemScrollRef.current?.scrollTo({ top: 0 });
+  }, [activeCatId]);
 
   // Determine which categories are "active" for filtering items.
   // If "all" -> null (shows everything).
@@ -251,6 +267,35 @@ export default function MenuView({ table, covers, setCovers, waiterName, onBack,
     return true;
   });
 
+  // Grow the visible count as the sentinel (rendered after the item grid)
+  // scrolls into view. rootMargin starts loading the next batch before the
+  // waiter hits the true bottom.
+  //
+  // `visibleCount` is a dependency so the observer re-checks itself after
+  // every growth — IntersectionObserver only fires on enter/exit crossings,
+  // so a batch that fits on screen with no scrolling would otherwise stall
+  // growth after the first one.
+  useEffect(() => {
+    const sentinel = sentinelRef.current;
+    const root = itemScrollRef.current;
+    if (!sentinel || !root) return;
+    // No IntersectionObserver support (very old/unusual browser) — show
+    // everything rather than leaving the grid stuck on the first batch.
+    if (typeof IntersectionObserver === "undefined") {
+      setVisibleCount(visibleItems.length);
+      return;
+    }
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (!entry.isIntersecting) return;
+        setVisibleCount((prev) => Math.min(prev + ITEMS_PER_BATCH, visibleItems.length));
+      },
+      { root, rootMargin: "600px" },
+    );
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [visibleItems.length, visibleCount]);
+
   return (
     <div className="h-full bg-slate-950 flex flex-col overflow-hidden">
       {/* ── Header ──────────────────────────────────────────────────────────── */}
@@ -369,15 +414,16 @@ export default function MenuView({ table, covers, setCovers, waiterName, onBack,
           </div>
 
           {/* Item grid */}
-          <div className="flex-1 overflow-y-auto p-4">
+          <div ref={itemScrollRef} className="flex-1 overflow-y-auto p-4">
             {visibleItems.length === 0 ? (
               <div className="flex flex-col items-center justify-center h-65 text-slate-500">
                 <Package size={36} className="mb-3 text-slate-700" />
                 <p className="text-sm">No items found</p>
               </div>
             ) : (
+              <>
               <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-3 lg:grid-cols-4 2xl:grid-cols-5 gap-3">
-                {visibleItems.map((item) => {
+                {visibleItems.slice(0, visibleCount).map((item) => {
                   const stockState = resolveStock(item);
                   const oos = stockState === "out_of_stock";
                   const lowStock = stockState === "low_stock";
@@ -416,7 +462,7 @@ export default function MenuView({ table, covers, setCovers, waiterName, onBack,
 
                         {item.image ? (
                           /* eslint-disable-next-line @next/next/no-img-element */
-                          <img src={item.image} alt={item.name} className="absolute inset-0 w-full h-full object-cover" />
+                          <img src={item.image} alt={item.name} loading="lazy" className="absolute inset-0 w-full h-full object-cover" />
                         ) : (
                           <div className="w-20 h-20 rounded-2xl flex items-center justify-center bg-[#fcdcae] text-[40px]">
                             🍽️
@@ -457,6 +503,8 @@ export default function MenuView({ table, covers, setCovers, waiterName, onBack,
                   );
                 })}
               </div>
+              <div ref={sentinelRef} aria-hidden className="h-px" />
+              </>
             )}
           </div>
         </div>
