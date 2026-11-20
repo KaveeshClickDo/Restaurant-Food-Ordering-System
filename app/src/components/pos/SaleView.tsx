@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePOS } from "@/context/POSContext";
 import { POSProduct, POSSale, getOfferPrice, isOfferActive } from "@/types/pos";
 import { ChevronRight, Gift, Search, X, Users, Star, Package, ShoppingCart } from "lucide-react";
@@ -46,6 +46,16 @@ export default function SaleView({ isOffline = false }: { isOffline?: boolean })
   const [serviceFeeInput, setServiceFeeInput] = useState(serviceFeePct.pct.toString());
   const [customerSearch, setCustomerSearch] = useState("");
 
+  // ── Infinite-scroll pagination (product grid only — the gift-card rack
+  // always renders in full, it's a short separate list) ──────────────────────
+  // Mounts a small batch of cards at a time instead of every matching product,
+  // so the browser only requests/decodes that many images at once. Mirrors
+  // HomePageClient's customer-site infinite scroll (same mechanics).
+  const productScrollRef = useRef<HTMLDivElement>(null);
+  const sentinelRef = useRef<HTMLDivElement>(null);
+  const PRODUCTS_PER_BATCH = 12;
+  const [visibleCount, setVisibleCount] = useState(PRODUCTS_PER_BATCH);
+
   // ── Sellable gift cards (admin pre-issued, inactive) ────────────────────────
   // POS can't mint cards — it only sells what admin created. The gold pill and
   // the rack only exist while there is stock to sell, and never offline (the
@@ -73,6 +83,14 @@ export default function SaleView({ isOffline = false }: { isOffline?: boolean })
   useEffect(() => {
     if (giftCatActive && !showGiftCategory) setActiveCategory("all");
   }, [giftCatActive, showGiftCategory]);
+
+  // Reset to the first batch and scroll back to top whenever the category or
+  // search reshapes the list — otherwise a deeply-scrolled count would carry
+  // into the new filter and reveal a burst of items/images at once.
+  useEffect(() => {
+    setVisibleCount(PRODUCTS_PER_BATCH);
+    productScrollRef.current?.scrollTo({ top: 0 });
+  }, [activeCategory, search]);
 
   const sortedCats = [...categories].sort((a, b) => a.order - b.order);
 
@@ -117,6 +135,36 @@ export default function SaleView({ isOffline = false }: { isOffline?: boolean })
     if (search && !p.name.toLowerCase().includes(search.toLowerCase())) return false;
     return true;
   });
+
+  // Grow the visible count as the sentinel (rendered after the product grid)
+  // scrolls into view. rootMargin starts loading the next batch before the
+  // cashier hits the true bottom. Skipped while the gift-card rack is showing
+  // — that list is short and always renders in full.
+  //
+  // `visibleCount` is a dependency so the observer re-checks itself after
+  // every growth — IntersectionObserver only fires on enter/exit crossings,
+  // so a batch that fits on screen with no scrolling would otherwise stall
+  // growth after the first one.
+  useEffect(() => {
+    const sentinel = sentinelRef.current;
+    const root = productScrollRef.current;
+    if (!sentinel || !root || giftCatActive) return;
+    // No IntersectionObserver support (very old/unusual browser) — show
+    // everything rather than leaving the grid stuck on the first batch.
+    if (typeof IntersectionObserver === "undefined") {
+      setVisibleCount(filtered.length);
+      return;
+    }
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (!entry.isIntersecting) return;
+        setVisibleCount((prev) => Math.min(prev + PRODUCTS_PER_BATCH, filtered.length));
+      },
+      { root, rootMargin: "600px" },
+    );
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [filtered.length, giftCatActive, visibleCount]);
 
   // Same search box filters the rack by code or value while the gift
   // category is open.
@@ -450,7 +498,7 @@ export default function SaleView({ isOffline = false }: { isOffline?: boolean })
         </div>
 
         {/* Product grid — or the gift-card rack when the gold pill is active */}
-        <div className="flex-1 overflow-y-auto p-4">
+        <div ref={productScrollRef} className="flex-1 overflow-y-auto p-4">
           {giftCatActive ? (
             filteredGiftCards.length === 0 ? (
               <div className="flex flex-col items-center justify-center h-48 text-slate-500">
@@ -488,8 +536,9 @@ export default function SaleView({ isOffline = false }: { isOffline?: boolean })
               <p className="text-sm">No items found</p>
             </div>
           ) : (
+            <>
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-3">
-              {filtered.map((product) => {
+              {filtered.slice(0, visibleCount).map((product) => {
                 // Use the shared resolver so POS, customer site, waiter and admin
                 // agree on availability. `isAvailable` honours BOTH track-quantity
                 // (qty <= 0 → OOS) and manual status (stockStatus === "out_of_stock"
@@ -532,6 +581,7 @@ export default function SaleView({ isOffline = false }: { isOffline?: boolean })
                         <img
                           src={imageCache[product.imageUrl] ?? product.imageUrl}
                           alt={product.name}
+                          loading="lazy"
                           className="absolute inset-0 w-full h-full object-cover"
                         />
                         {outOfStock && (
@@ -606,6 +656,8 @@ export default function SaleView({ isOffline = false }: { isOffline?: boolean })
                 );
               })}
             </div>
+            <div ref={sentinelRef} aria-hidden className="h-px" />
+            </>
           )}
         </div>
       </div>

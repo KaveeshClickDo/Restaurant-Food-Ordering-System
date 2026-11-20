@@ -666,6 +666,11 @@ export default function HomePageClient() {
   // user hits the true bottom, so it feels seamless rather than a popcorn
   // "load more" jump. The sentinel always renders in the flat-grid branch —
   // the guard below just no-ops once everything is already visible.
+  //
+  // `visibleCount` is a dependency so the observer re-checks itself after
+  // every growth — IntersectionObserver only fires on enter/exit crossings,
+  // so a batch that fits on screen with no scrolling would otherwise stall
+  // growth after the first one.
   useEffect(() => {
     const sentinel = sentinelRef.current;
     const root = contentScrollRef.current;
@@ -685,7 +690,7 @@ export default function HomePageClient() {
     );
     observer.observe(sentinel);
     return () => observer.disconnect();
-  }, [items.length, groupedCategorySections]);
+  }, [items.length, groupedCategorySections, visibleCount]);
 
   // Search-bar autocomplete: dish suggestions shown in a dropdown as the
   // customer types. Searches every orderable online dish by name/description
