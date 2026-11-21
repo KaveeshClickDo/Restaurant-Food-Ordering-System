@@ -1,5 +1,7 @@
 /**
  * GET  /api/waiter/orders — list active dine-in orders (replaces direct supabase read).
+ *      No row cap — returns every open bill, so an old one can't silently
+ *      drop off the list before a waiter settles it.
  * POST /api/waiter/orders — place a new dine-in order.
  *
  * Both require a waiter session cookie. Uses the service role key — no admin
@@ -25,8 +27,7 @@ export async function GET() {
     .select("*")
     .eq("fulfillment", "dine-in")
     .in("status", ACTIVE_DINE_IN_STATUSES)
-    .order("date", { ascending: false })
-    .limit(500);
+    .order("date", { ascending: false });
 
   if (error) {
     console.error("waiter/orders GET:", error.message);

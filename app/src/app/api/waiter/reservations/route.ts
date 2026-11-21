@@ -52,8 +52,7 @@ export async function GET(req: NextRequest) {
       .select("id, table_label, section, customer_name, party_size, date, time, status, note, source")
       .eq("date", date)
       .in("status", ACTIVE_STATUSES)
-      .order("time", { ascending: true })
-      .limit(500);
+      .order("time", { ascending: true });
 
     // Table not migrated yet, or any other read error — degrade to "no
     // reservations" so the grid still renders normally.

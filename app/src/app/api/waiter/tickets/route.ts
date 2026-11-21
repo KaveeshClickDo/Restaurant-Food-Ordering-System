@@ -6,6 +6,10 @@
  * single `orders` bill that BillView builds/settles. Returned under the `orders`
  * key so the floor's existing parser is unchanged — only the URL differs from
  * the old /api/waiter/orders poll. Requires a waiter session.
+ *
+ * No row cap — returns every ticket in an active status, so this floor view
+ * (table occupancy / kitchen status) can never silently drop a still-open
+ * table off the end of a hidden limit.
  */
 
 import { NextResponse } from "next/server";
@@ -22,8 +26,7 @@ export async function GET() {
     .from("dine_in_tickets")
     .select("id, items, note, status, table_label, table_id, round_no, date, order_id")
     .in("status", ACTIVE_TICKET_STATUSES)
-    .order("date", { ascending: false })
-    .limit(500);
+    .order("date", { ascending: false });
 
   if (error) {
     console.error("waiter/tickets GET:", error.message);

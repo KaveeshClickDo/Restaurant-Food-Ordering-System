@@ -157,6 +157,10 @@ export default function CollectionView() {
   const [search, setSearch] = useState("");
   const [historyOrders, setHistoryOrders] = useState<CollectionOrder[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyPage, setHistoryPage] = useState(1);
+  const [historyPageSize, setHistoryPageSize] = useState(10);
+  const [historyTotalCount, setHistoryTotalCount] = useState(0);
+  const historyTotalPages = Math.max(1, Math.ceil(historyTotalCount / historyPageSize));
 
   const refresh = useCallback(async (showSpinner = false) => {
     if (showSpinner) setLoading(true);
@@ -184,19 +188,28 @@ export default function CollectionView() {
   const refreshHistory = useCallback(async (showSpinner = false) => {
     if (showSpinner) setHistoryLoading(true);
     try {
-      const r = await fetch(`${apiBase()}/api/pos/orders/collection?view=history&period=${period}`, { cache: "no-store" });
+      const params = new URLSearchParams({
+        view: "history", period, page: String(historyPage), pageSize: String(historyPageSize),
+      });
+      const r = await fetch(`${apiBase()}/api/pos/orders/collection?${params}`, { cache: "no-store" });
       if (!r.ok) { if (showSpinner) setHistoryOrders([]); return; }
-      const json = await r.json() as { ok: boolean; orders?: CollectionOrder[] };
-      if (json.ok && Array.isArray(json.orders)) setHistoryOrders(json.orders);
+      const json = await r.json() as { ok: boolean; orders?: CollectionOrder[]; totalCount?: number };
+      if (json.ok && Array.isArray(json.orders)) {
+        setHistoryOrders(json.orders);
+        setHistoryTotalCount(json.totalCount ?? 0);
+      }
     } catch {
       /* network blip — keep last-known list */
     } finally {
       if (showSpinner) setHistoryLoading(false);
     }
-  }, [period]);
+  }, [period, historyPage, historyPageSize]);
 
-  // Fetch history on entering it or changing the period — never polled (matches
-  // /collection's own History tab: fetch-on-demand only, not live).
+  // Reset to page 1 whenever the period or page size reshapes the list.
+  useEffect(() => { setHistoryPage(1); }, [period, historyPageSize]);
+
+  // Fetch history on entering it or changing the period/page — never polled
+  // (matches /collection's own History tab: fetch-on-demand only, not live).
   useEffect(() => {
     if (scope === "online" && onlineTab === "history") refreshHistory(true);
   }, [scope, onlineTab, refreshHistory]);
@@ -334,6 +347,15 @@ export default function CollectionView() {
                   {p === "today" ? "Today" : p === "7d" ? "Last 7 days" : "Last 30 days"}
                 </button>
               ))}
+              <select
+                value={historyPageSize}
+                onChange={(e) => setHistoryPageSize(Number(e.target.value))}
+                className="bg-slate-800 border border-slate-700 rounded-lg text-xs font-semibold text-slate-300 pl-2 pr-1 py-1.5 outline-none focus:border-orange-500"
+              >
+                {[10, 20, 50].map((n) => (
+                  <option key={n} value={n}>{n} per page</option>
+                ))}
+              </select>
               <div className="relative ml-auto">
                 <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-500" />
                 <input
@@ -367,6 +389,7 @@ export default function CollectionView() {
             <p className="text-sm">No completed pickups for this period.</p>
           </div>
         ) : (
+          <>
           <div className="space-y-2">
             {historyFiltered.map((order) => (
               <div key={order.id} className="bg-slate-800 rounded-xl border border-slate-700/70 px-4 py-3 flex items-center gap-3">
@@ -389,6 +412,28 @@ export default function CollectionView() {
               </div>
             ))}
           </div>
+          {historyTotalPages > 1 && (
+            <div className="flex items-center justify-between gap-3 mt-4">
+              <p className="text-xs text-slate-500">Page {historyPage} of {historyTotalPages}</p>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setHistoryPage((p) => Math.max(1, p - 1))}
+                  disabled={historyPage <= 1}
+                  className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-800 text-slate-300 hover:text-white disabled:opacity-40 disabled:cursor-not-allowed transition"
+                >
+                  Prev
+                </button>
+                <button
+                  onClick={() => setHistoryPage((p) => Math.min(historyTotalPages, p + 1))}
+                  disabled={historyPage >= historyTotalPages}
+                  className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-800 text-slate-300 hover:text-white disabled:opacity-40 disabled:cursor-not-allowed transition"
+                >
+                  Next
+                </button>
+              </div>
+            </div>
+          )}
+          </>
         )
       ) : loading ? (
         <div className="flex items-center justify-center py-20 text-slate-500">

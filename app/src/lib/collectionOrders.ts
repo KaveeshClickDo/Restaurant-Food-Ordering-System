@@ -43,40 +43,53 @@ export interface MutationResult {
 
 /**
  * List collection orders for the pickup queue.
- *  - active  → status in (pending, confirmed, preparing, ready)
- *  - history → status = "delivered" (optionally since `sinceISO`)
+ *  - active  → status in (pending, confirmed, preparing, ready). No row cap
+ *    and no pagination — this is the live pickup board, not a browsable
+ *    archive, so an order sitting just past a page boundary must never go
+ *    unnoticed.
+ *  - history → status = "delivered" (optionally since `sinceISO`). DB-paginated
+ *    via `page`/`pageSize` (page omitted → unpaginated, full matching set).
+ *    `totalCount` (exact DB count of the whole matching set) is always
+ *    returned alongside `orders`.
  */
 export async function listCollectionOrders(opts: {
   history?: boolean;
   sinceISO?: string;
-  limit?: number;
+  page?: number;
+  pageSize?: number;
   /** POS Collection tab shows walk-in (POS) orders too; the standalone
    *  /collection surface leaves this off and stays online-only. POS orders
    *  still follow the normal kitchen flow (pending → ready) before collection. */
   includePos?: boolean;
-} = {}): Promise<{ ok: true; orders: unknown[] } | { ok: false; error: string }> {
-  const limit = Math.min(opts.limit ?? 200, 2000);
-
+} = {}): Promise<{ ok: true; orders: unknown[]; totalCount: number } | { ok: false; error: string }> {
   let q = supabaseAdmin
     .from("orders")
-    .select(ORDER_SELECT)
+    .select(ORDER_SELECT, { count: "exact" })
     .eq("fulfillment", "collection");
   if (!opts.includePos) q = q.neq("customer_id", POS_CUSTOMER_ID);
-  q = q.order("date", { ascending: false }).limit(limit);
+  q = q.order("date", { ascending: false });
 
   if (opts.history) {
     q = q.eq("status", "delivered");
     if (opts.sinceISO) q = q.gte("date", opts.sinceISO);
+    if (opts.page) {
+      const page      = Math.max(1, opts.page);
+      const pageSize  = Math.min(100, Math.max(1, opts.pageSize ?? 10));
+      const rangeFrom = (page - 1) * pageSize;
+      const rangeTo   = rangeFrom + pageSize - 1;
+      q = q.range(rangeFrom, rangeTo);
+    }
   } else {
     q = q.in("status", ACTIVE_STATUSES);
   }
 
-  const { data, error } = await q;
+  const { data, error, count } = await q;
   if (error) {
     console.error("[collectionOrders] list:", error.message);
     return { ok: false, error: error.message };
   }
-  return { ok: true, orders: data ?? [] };
+  const orders = data ?? [];
+  return { ok: true, orders, totalCount: count ?? orders.length };
 }
 
 /**

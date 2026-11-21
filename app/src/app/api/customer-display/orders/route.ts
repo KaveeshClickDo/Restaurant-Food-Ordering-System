@@ -5,6 +5,9 @@
  * the minimum fields needed to show "your order is ready, please collect" —
  * no PII, no addresses, no phone numbers. Just receipt-style fields.
  *
+ * No row cap — returns every active order, oldest first, so a long-waiting
+ * customer's order can never silently drop off the board.
+ *
  * Replaces the public `supabase.from("orders")` subscription on the display.
  */
 
@@ -50,8 +53,7 @@ export async function GET() {
     .select("id, status, fulfillment, date, items, note")
     .in("status", ACTIVE_STATUSES)
     .neq("fulfillment", "delivery")
-    .order("date", { ascending: true })
-    .limit(50);
+    .order("date", { ascending: true });
 
   if (error) {
     console.error("customer-display/orders GET:", error.message);
