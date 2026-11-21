@@ -1,7 +1,11 @@
 /**
  * /api/pos/clock — POS staff clock-in / clock-out.
  *
- *   GET  /api/pos/clock?staffId=&from=ISO&to=ISO    list entries
+ *   GET  /api/pos/clock?staffId=&from=ISO&to=ISO&page=&pageSize=
+ *        List entries, no row cap. `page` is optional: omitted returns the
+ *        full set (needed by isClocked()/today's-attendance); sent, paginates
+ *        via `.range()` (default 20/page) for history views. `totalCount`
+ *        is always returned.
  *   POST /api/pos/clock                              { action, staffId, staffName }
  *
  * `action` is "in" or "out". The partial unique index
@@ -56,32 +60,40 @@ export async function GET(req: NextRequest) {
   const session = gate.staff;
 
   const { searchParams } = new URL(req.url);
-  const from    = searchParams.get("from");
-  const to      = searchParams.get("to");
-  const staffId = searchParams.get("staffId");
-  const limit   = Math.min(Number(searchParams.get("limit") ?? 500), 2000);
+  const from     = searchParams.get("from");
+  const to       = searchParams.get("to");
+  const staffId  = searchParams.get("staffId");
+  const pageRaw  = searchParams.get("page");
 
   const canSeeAll = session.permissions?.canManageStaff === true;
   const scope = canSeeAll ? (staffId || null) : session.id;
 
   let q = supabaseAdmin
     .from("pos_clock_entries")
-    .select("*")
-    .order("clock_in", { ascending: false })
-    .limit(limit);
+    .select("*", { count: "exact" })
+    .order("clock_in", { ascending: false });
 
   if (scope) q = q.eq("staff_id", scope);
 
   if (from) q = q.gte("clock_in", from);
   if (to)   q = q.lte("clock_in", to);
 
-  const { data, error } = await q;
+  if (pageRaw) {
+    const page      = Math.max(1, Number(pageRaw) || 1);
+    const pageSize  = Math.min(100, Math.max(1, Number(searchParams.get("pageSize")) || 20));
+    const rangeFrom = (page - 1) * pageSize;
+    const rangeTo   = rangeFrom + pageSize - 1;
+    q = q.range(rangeFrom, rangeTo);
+  }
+
+  const { data, error, count } = await q;
   if (error) {
     console.error("GET /api/pos/clock:", error.message);
     return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
   }
 
-  return NextResponse.json({ ok: true, entries: (data ?? []).map(rowToEntry) });
+  const entries = (data ?? []).map(rowToEntry);
+  return NextResponse.json({ ok: true, entries, totalCount: count ?? entries.length });
 }
 
 // ── POST ────────────────────────────────────────────────────────────────────

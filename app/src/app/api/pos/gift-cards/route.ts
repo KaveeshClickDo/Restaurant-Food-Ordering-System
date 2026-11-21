@@ -6,8 +6,10 @@
  *     these as a "Gift Cards" category on the Sale tab so a cashier can sell
  *     (activate) the physical card the customer picked off the rack. POS can
  *     NOT mint cards — only admin creates them; POS only sells what exists.
+ *     No row cap — returns every inactive card, newest-issued first.
  *   • view=sold&from=ISO&to=ISO — cards this POS sold (payment_ref 'pos:…'),
- *     dated by activated_at, for the POS dashboard reports.
+ *     dated by activated_at, for the POS dashboard reports. No row cap —
+ *     returns every matching card.
  *
  * Any valid POS session may read this (selling a card is a normal till action,
  * like taking a sale). Inactive codes are safe to expose: a card holds no
@@ -33,8 +35,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       .from("gift_cards")
       .select("id, code, initial_amount, activated_at, payment_method, payment_ref, issued_to_email, issued_to_name")
       .like("payment_ref", "pos:%")
-      .order("activated_at", { ascending: false })
-      .limit(1000);
+      .order("activated_at", { ascending: false });
     if (from) q = q.gte("activated_at", from);
     if (to)   q = q.lte("activated_at", to);
 
@@ -58,13 +59,12 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     });
   }
 
-  // Sellable: inactive pre-issued stock, oldest first so the rack rotates.
+  // Sellable: inactive pre-issued stock, newest-issued first.
   const { data, error } = await supabaseAdmin
     .from("gift_cards")
     .select("id, code, initial_amount, created_at")
     .eq("status", "inactive")
-    .order("created_at", { ascending: true })
-    .limit(500);
+    .order("created_at", { ascending: false });
   if (error) {
     console.error("GET /api/pos/gift-cards (sellable):", error.message);
     return NextResponse.json({ ok: false, error: error.message }, { status: 500 });

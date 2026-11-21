@@ -1,5 +1,6 @@
 /**
  * GET  /api/pos/reservations — list reservations (with optional date filter).
+ *      No row cap — returns every matching reservation.
  * POST /api/pos/reservations — create a walk-in or phone reservation.
  *
  * Both require a POS session. The admin Reservations panel uses
@@ -23,14 +24,12 @@ export async function GET(req: NextRequest) {
   const date  = searchParams.get("date");
   const from  = searchParams.get("from");
   const to    = searchParams.get("to");
-  const limit = Math.min(Number(searchParams.get("limit") ?? 500), 2000);
 
   let q = supabaseAdmin
     .from("reservations")
     .select("*")
     .order("date", { ascending: true })
-    .order("time", { ascending: true })
-    .limit(limit);
+    .order("time", { ascending: true });
 
   if (date) q = q.eq("date", date);
   if (from) q = q.gte("date", from);

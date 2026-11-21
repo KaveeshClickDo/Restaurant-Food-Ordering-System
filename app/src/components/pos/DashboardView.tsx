@@ -130,14 +130,13 @@ export default function DashboardView() {
   }, []);
 
   // Last 7 calendar days (incl. today), 00:00 → 23:59, for the Overview revenue
-  // chart. Higher limit than the today-only fetch since it spans a week.
+  // chart.
   const refreshWeekDineIn = useCallback(async () => {
     const weekStart = new Date(); weekStart.setDate(weekStart.getDate() - 6); weekStart.setHours(0, 0, 0, 0);
     const weekEnd = new Date(); weekEnd.setHours(23, 59, 59, 999);
     const params = new URLSearchParams({
       from: weekStart.toISOString(),
       to: weekEnd.toISOString(),
-      limit: "1000",
     });
     try {
       const r = await fetch(`${apiBase()}/api/pos/orders/dine-in?${params}`, { cache: "no-store" });
@@ -149,12 +148,11 @@ export default function DashboardView() {
   }, []);
 
   // Broad dine-in pull (no date filter, most-recent first) for the all-time best
-  // sellers list. Mirrors POS `sales`, which is itself the most-recent ~1000 rows
-  // — so "All Time" is "recent history" on both sides. Not polled: aggregate
+  // sellers list. No row cap — genuinely all-time now. Not polled: aggregate
   // item ranks barely move in 6s, so a fetch on tab-entry is enough.
   const refreshAllTimeDineIn = useCallback(async () => {
     try {
-      const r = await fetch(`${apiBase()}/api/pos/orders/dine-in?limit=2000`, { cache: "no-store" });
+      const r = await fetch(`${apiBase()}/api/pos/orders/dine-in`, { cache: "no-store" });
       if (!r.ok) return;
       const json = await r.json() as { ok: boolean; orders?: Record<string, unknown>[] };
       if (!json.ok || !json.orders) return;
@@ -404,7 +402,6 @@ export default function DashboardView() {
       const params = new URLSearchParams({
         from: startDate.toISOString(),
         to: endDate.toISOString(),
-        limit: "500",
       });
       const r = await fetch(`${apiBase()}/api/pos/orders/dine-in?${params}`, { cache: "no-store" });
       if (!r.ok) { if (isInitial) setReportsDineIn([]); return; }

@@ -1,9 +1,10 @@
 "use client";
 
-import { useRef, useState, useEffect } from "react";
+import { useRef, useState, useEffect, useCallback } from "react";
 import { usePOS } from "@/context/POSContext";
 import { useConnectivity } from "@/lib/connectivity";
-import { POSStaff } from "@/types/pos";
+import { apiBase } from "@/lib/apiBase";
+import { POSStaff, POSClockEntry } from "@/types/pos";
 import {
   UserPlus, Clock, Timer, ToggleRight, ToggleLeft, Pencil, Trash2, X, ClockIcon,
   EyeOff,
@@ -61,6 +62,63 @@ export default function StaffView() {
   // network) instead of dying silently in the console — a stuck button with no
   // feedback was undebuggable for staff.
   const [clockError, setClockError] = useState("");
+
+  // "Recent Clock Entries" in the self-only view — a dedicated DB-paginated
+  // fetch, not derived from POSContext's `clockEntries`. That context array
+  // must stay a full, unbounded fetch (isClocked() needs every open entry no
+  // matter how old), so this list fetches its own page straight from the API
+  // instead of slicing the shared one.
+  const MY_RECENT_PAGE_SIZE = 20;
+  const [myRecentEntries, setMyRecentEntries] = useState<POSClockEntry[]>([]);
+  const [myRecentPage, setMyRecentPage] = useState(1);
+  const [myRecentTotalCount, setMyRecentTotalCount] = useState(0);
+  const myRecentTotalPages = Math.max(1, Math.ceil(myRecentTotalCount / MY_RECENT_PAGE_SIZE));
+
+  const fetchMyRecent = useCallback(async (staffId: string, page: number) => {
+    try {
+      const params = new URLSearchParams({ staffId, page: String(page), pageSize: String(MY_RECENT_PAGE_SIZE) });
+      const res = await fetch(`${apiBase()}/api/pos/clock?${params}`, { cache: "no-store" });
+      if (!res.ok) return;
+      const json = await res.json() as { ok: boolean; entries?: POSClockEntry[]; totalCount?: number };
+      if (json.ok) { setMyRecentEntries(json.entries ?? []); setMyRecentTotalCount(json.totalCount ?? 0); }
+    } catch { /* network blip — keep last-known */ }
+  }, []);
+
+  useEffect(() => {
+    if (!currentStaff) return;
+    void fetchMyRecent(currentStaff.id, myRecentPage);
+  }, [currentStaff, myRecentPage, fetchMyRecent]);
+
+  // "Today's Clock Entries" in the manager view (every staff member, not just
+  // the signed-in one) — same treatment: its own dedicated DB-paginated fetch,
+  // decoupled from `clockEntries`/`todayEntries`. Those stay the full,
+  // unbounded set because isClocked() and each row's minutesToday() total
+  // need every one of today's entries, not just one page of them.
+  const MANAGER_TODAY_PAGE_SIZE = 20;
+  const [managerTodayEntries, setManagerTodayEntries] = useState<POSClockEntry[]>([]);
+  const [managerTodayPage, setManagerTodayPage] = useState(1);
+  const [managerTodayTotalCount, setManagerTodayTotalCount] = useState(0);
+  const managerTodayTotalPages = Math.max(1, Math.ceil(managerTodayTotalCount / MANAGER_TODAY_PAGE_SIZE));
+
+  const fetchManagerToday = useCallback(async (page: number) => {
+    try {
+      const start = new Date(); start.setHours(0, 0, 0, 0);
+      const end = new Date(); end.setHours(23, 59, 59, 999);
+      const params = new URLSearchParams({
+        from: start.toISOString(), to: end.toISOString(),
+        page: String(page), pageSize: String(MANAGER_TODAY_PAGE_SIZE),
+      });
+      const res = await fetch(`${apiBase()}/api/pos/clock?${params}`, { cache: "no-store" });
+      if (!res.ok) return;
+      const json = await res.json() as { ok: boolean; entries?: POSClockEntry[]; totalCount?: number };
+      if (json.ok) { setManagerTodayEntries(json.entries ?? []); setManagerTodayTotalCount(json.totalCount ?? 0); }
+    } catch { /* network blip — keep last-known */ }
+  }, []);
+
+  useEffect(() => {
+    if (!canManage) return;
+    void fetchManagerToday(managerTodayPage);
+  }, [canManage, managerTodayPage, fetchManagerToday]);
 
   // Double-click guard for the self clock-in/out button (QA #32). Without
   // this a rapid second click fires a second API request that 409s/404s.
@@ -201,7 +259,6 @@ export default function StaffView() {
   if (!canManage && currentStaff) {
     const clocked = isClocked(currentStaff.id);
     const myMinutes = minutesToday(currentStaff.id);
-    const myRecent = clockEntries.filter((e) => e.staffId === currentStaff.id).slice(0, 10);
     return (
       <div className="flex-1 overflow-y-auto p-6">
         <div className="max-w-2xl mx-auto space-y-6">
@@ -253,11 +310,11 @@ export default function StaffView() {
           </div>
 
           {/* Recent history */}
-          {myRecent.length > 0 && (
+          {myRecentEntries.length > 0 && (
             <div className="bg-slate-800 border border-slate-700 rounded-2xl p-5">
               <h3 className="text-white font-semibold text-sm mb-4 flex items-center gap-2"><ClockIcon size={16} className="text-slate-400" /> Recent Clock Entries</h3>
               <div className="space-y-2">
-                {myRecent.map((entry) => (
+                {myRecentEntries.map((entry) => (
                   <div key={entry.id} className="flex items-center gap-3 py-2 border-b border-slate-700/50 last:border-0">
                     <div className="flex-1">
                       <p className="text-white text-sm font-medium">{new Date(entry.clockIn).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" })}</p>
@@ -269,6 +326,27 @@ export default function StaffView() {
                   </div>
                 ))}
               </div>
+              {myRecentTotalPages > 1 && (
+                <div className="flex items-center justify-between gap-3 mt-4 pt-3 border-t border-slate-700/50">
+                  <p className="text-xs text-slate-500">Page {myRecentPage} of {myRecentTotalPages}</p>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => setMyRecentPage((p) => Math.max(1, p - 1))}
+                      disabled={myRecentPage <= 1}
+                      className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-700 text-slate-300 hover:text-white disabled:opacity-40 disabled:cursor-not-allowed transition"
+                    >
+                      Prev
+                    </button>
+                    <button
+                      onClick={() => setMyRecentPage((p) => Math.min(myRecentTotalPages, p + 1))}
+                      disabled={myRecentPage >= myRecentTotalPages}
+                      className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-700 text-slate-300 hover:text-white disabled:opacity-40 disabled:cursor-not-allowed transition"
+                    >
+                      Next
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -439,11 +517,11 @@ export default function StaffView() {
         </div>
 
         {/* Clock history */}
-        {todayEntries.length > 0 && (
+        {managerTodayTotalCount > 0 && (
           <div className="bg-slate-800 border border-slate-700 rounded-2xl p-5">
             <h3 className="text-white font-semibold text-sm mb-4 flex items-center gap-2"><ClockIcon size={16} className="text-slate-400" /> Today&apos;s Clock Entries</h3>
             <div className="space-y-2">
-              {todayEntries.map((entry) => (
+              {managerTodayEntries.map((entry) => (
                 <div key={entry.id} className="flex items-center gap-3 py-2 border-b border-slate-700/50 last:border-0">
                   <div className="w-8 h-8 rounded-full bg-slate-700 flex items-center justify-center text-xs font-bold text-slate-300 flex-shrink-0">
                     {getInitials(entry.staffName)}
@@ -458,6 +536,27 @@ export default function StaffView() {
                 </div>
               ))}
             </div>
+            {managerTodayTotalPages > 1 && (
+              <div className="flex items-center justify-between gap-3 mt-4 pt-3 border-t border-slate-700/50">
+                <p className="text-xs text-slate-500">Page {managerTodayPage} of {managerTodayTotalPages}</p>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setManagerTodayPage((p) => Math.max(1, p - 1))}
+                    disabled={managerTodayPage <= 1}
+                    className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-700 text-slate-300 hover:text-white disabled:opacity-40 disabled:cursor-not-allowed transition"
+                  >
+                    Prev
+                  </button>
+                  <button
+                    onClick={() => setManagerTodayPage((p) => Math.min(managerTodayTotalPages, p + 1))}
+                    disabled={managerTodayPage >= managerTodayTotalPages}
+                    className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-700 text-slate-300 hover:text-white disabled:opacity-40 disabled:cursor-not-allowed transition"
+                  >
+                    Next
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         )}
       </div>

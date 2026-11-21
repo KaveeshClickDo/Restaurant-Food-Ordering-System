@@ -1,7 +1,9 @@
 /**
  * /api/pos/sales — the source-of-truth endpoint for POS sales.
  *
- *   GET  /api/pos/sales?from=ISO&to=ISO   list sales in a date range
+ *   GET  /api/pos/sales?from=ISO&to=ISO   list sales in a date range — no row
+ *                                         cap, returns every sale matching
+ *                                         the range
  *   POST /api/pos/sales                   create a sale (atomic receipt_no)
  *
  * The POST handler does two writes:
@@ -46,13 +48,11 @@ export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const from  = searchParams.get("from");
   const to    = searchParams.get("to");
-  const limit = Math.min(Number(searchParams.get("limit") ?? 1000), 5000);
 
   let q = supabaseAdmin
     .from("pos_sales")
     .select("*")
-    .order("date", { ascending: false })
-    .limit(limit);
+    .order("date", { ascending: false });
 
   if (cashierScope) q = q.eq("staff_id", cashierScope);
   if (from)         q = q.gte("date", from);

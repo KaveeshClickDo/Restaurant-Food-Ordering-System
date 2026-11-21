@@ -6,7 +6,9 @@
  * Query params:
  *   from   ISO-8601 lower bound (inclusive)
  *   to     ISO-8601 upper bound (inclusive)
- *   limit  max rows (defaults 200, capped 2000)
+ *
+ * No row cap — returns every dine-in order matching from/to, so a long/
+ * all-time range can't silently drop older orders.
  *
  * Requires a POS session. The admin dashboard reads dine-in orders via
  * /api/admin/orders.
@@ -23,14 +25,12 @@ export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const from  = searchParams.get("from");
   const to    = searchParams.get("to");
-  const limit = Math.min(Number(searchParams.get("limit") ?? 200), 2000);
 
   let q = supabaseAdmin
     .from("orders")
     .select("id, items, total, note, status, payment_status, payment_method, service_fee, vat_amount, vat_inclusive, tip_amount, discount_amount, date, refunded_amount, gift_card_used, card_tip_amount, card_tip_refunded")
     .eq("fulfillment", "dine-in")
-    .order("date", { ascending: false })
-    .limit(limit);
+    .order("date", { ascending: false });
 
   if (from) q = q.gte("date", from);
   if (to)   q = q.lte("date", to);
