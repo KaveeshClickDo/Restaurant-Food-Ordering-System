@@ -93,6 +93,9 @@ export default function POSAttendancePanel() {
   const [customStart, setCustomStart] = useState("");
   const [customEnd, setCustomEnd] = useState("");
   const [expanded, setExpanded] = useState<string | null>(null);
+  const [page, setPage] = useState(1);
+  const [entryPage, setEntryPage] = useState(1);
+  const PAGE_SIZE = 20;
 
   const [startDate, endDate] = useMemo(
     () => getDateRange(period, customStart, customEnd),
@@ -177,6 +180,15 @@ export default function POSAttendancePanel() {
   const totalMinutes = rows.reduce((s, r) => s + r.minutes, 0);
   const totalWages = rows.reduce((s, r) => s + (r.wage ?? 0), 0);
   const openTotal = rows.reduce((s, r) => s + r.openCount, 0);
+
+  // Reset to page 1 whenever the period reshapes the staff list — purely
+  // client-side slicing of the already-fetched, already-aggregated rows.
+  useEffect(() => { setPage(1); setEntryPage(1); }, [startDate, endDate]);
+  const totalPages = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
+  const pageRows = useMemo(
+    () => rows.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE),
+    [rows, page],
+  );
 
   // ── CSV export (payroll) ────────────────────────────────────────────────────
   function exportCSV() {
@@ -273,10 +285,10 @@ export default function POSAttendancePanel() {
           </div>
         ) : (
           <div className="divide-y divide-gray-800">
-            {rows.map((r) => (
+            {pageRows.map((r) => (
               <div key={r.staffId}>
                 <button
-                  onClick={() => setExpanded(expanded === r.staffId ? null : r.staffId)}
+                  onClick={() => { setExpanded(expanded === r.staffId ? null : r.staffId); setEntryPage(1); }}
                   className="w-full p-4 flex items-center gap-3 hover:bg-gray-800/40 transition text-left"
                 >
                   <div className="w-9 h-9 rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0" style={{ backgroundColor: r.avatarColor }}>
@@ -301,10 +313,13 @@ export default function POSAttendancePanel() {
                   {expanded === r.staffId ? <ChevronUp size={16} className="text-gray-500" /> : <ChevronDown size={16} className="text-gray-500" />}
                 </button>
 
-                {expanded === r.staffId && (
+                {expanded === r.staffId && (() => {
+                  const entryTotalPages = Math.max(1, Math.ceil(r.entries.length / PAGE_SIZE));
+                  const entryPageItems = r.entries.slice((entryPage - 1) * PAGE_SIZE, entryPage * PAGE_SIZE);
+                  return (
                   <div className="px-4 pb-4">
                     <div className="bg-gray-950/60 rounded-xl border border-gray-800 divide-y divide-gray-800/60">
-                      {r.entries.map((e) => (
+                      {entryPageItems.map((e) => (
                         <div key={e.id} className="px-4 py-2.5 flex flex-wrap items-center gap-3">
                           <div className="flex-1 min-w-0">
                             <p className="text-gray-300 text-xs font-medium">{fmtDate(e.clockIn)}</p>
@@ -332,10 +347,53 @@ export default function POSAttendancePanel() {
                         </div>
                       ))}
                     </div>
+                    {entryTotalPages > 1 && (
+                      <div className="flex items-center justify-between gap-3 pt-2">
+                        <p className="text-gray-500 text-xs">Page {entryPage} of {entryTotalPages}</p>
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => setEntryPage((p) => Math.max(1, p - 1))}
+                            disabled={entryPage <= 1}
+                            className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-gray-800 text-gray-300 hover:text-white disabled:opacity-40 disabled:cursor-not-allowed transition"
+                          >
+                            Prev
+                          </button>
+                          <button
+                            onClick={() => setEntryPage((p) => Math.min(entryTotalPages, p + 1))}
+                            disabled={entryPage >= entryTotalPages}
+                            className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-gray-800 text-gray-300 hover:text-white disabled:opacity-40 disabled:cursor-not-allowed transition"
+                          >
+                            Next
+                          </button>
+                        </div>
+                      </div>
+                    )}
                   </div>
-                )}
+                  );
+                })()}
               </div>
             ))}
+          </div>
+        )}
+        {totalPages > 1 && (
+          <div className="flex items-center justify-between gap-3 px-4 py-3 border-t border-gray-800">
+            <p className="text-gray-500 text-xs">Page {page} of {totalPages}</p>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                disabled={page <= 1}
+                className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-gray-800 text-gray-300 hover:text-white disabled:opacity-40 disabled:cursor-not-allowed transition"
+              >
+                Prev
+              </button>
+              <button
+                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                disabled={page >= totalPages}
+                className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-gray-800 text-gray-300 hover:text-white disabled:opacity-40 disabled:cursor-not-allowed transition"
+              >
+                Next
+              </button>
+            </div>
           </div>
         )}
       </div>

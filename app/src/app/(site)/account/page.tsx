@@ -1,7 +1,7 @@
 "use client";
 
 import { uuid } from "@/lib/uuid";
-import { Suspense, useEffect, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
@@ -1602,9 +1602,38 @@ function RewardsTab() {
   const [tiers, setTiers] = useState<number[]>([]);
   const [loadingRewards, setLoadingRewards] = useState(true);
   const [history, setHistory] = useState<LoyaltyTransaction[]>([]);
+  const [historyPage, setHistoryPage] = useState(1);
+  const [historyTotalCount, setHistoryTotalCount] = useState(0);
+  const [loadingMoreHistory, setLoadingMoreHistory] = useState(false);
   const [nextExpiry, setNextExpiry] = useState<{ points: number; expiresAt: string } | null>(null);
   const [showHistory, setShowHistory] = useState(false);
   const [rewardToast, setRewardToast] = useState<string | null>(null);
+
+  // `append`: false replaces the list (initial load), true adds the next 20
+  // rows for "View more" — a cursor-style load rather than page-number nav.
+  const loadHistory = useCallback(async (page: number, append: boolean) => {
+    try {
+      const res = await fetch(`/api/loyalty/history?page=${page}`, { cache: "no-store" });
+      const json = await res.json() as {
+        ok: boolean;
+        transactions?: LoyaltyTransaction[];
+        nextExpiry?: { points: number; expiresAt: string } | null;
+        totalCount?: number;
+      };
+      if (json.ok) {
+        setHistory((prev) => append ? [...prev, ...(json.transactions ?? [])] : (json.transactions ?? []));
+        setHistoryTotalCount(json.totalCount ?? 0);
+        setHistoryPage(page);
+        if (!append) setNextExpiry(json.nextExpiry ?? null);
+      }
+    } catch { /* history is non-critical */ }
+  }, []);
+
+  async function loadMoreHistory() {
+    setLoadingMoreHistory(true);
+    try { await loadHistory(historyPage + 1, true); }
+    finally { setLoadingMoreHistory(false); }
+  }
 
   useEffect(() => {
     if (!currentUser) { setLoadingCards(false); setLoadingRewards(false); return; }
@@ -1626,21 +1655,8 @@ function RewardsTab() {
         setLoadingRewards(false);
       }
     })();
-    (async () => {
-      try {
-        const res = await fetch("/api/loyalty/history", { cache: "no-store" });
-        const json = await res.json() as {
-          ok: boolean;
-          transactions?: LoyaltyTransaction[];
-          nextExpiry?: { points: number; expiresAt: string } | null;
-        };
-        if (json.ok) {
-          setHistory(json.transactions ?? []);
-          setNextExpiry(json.nextExpiry ?? null);
-        }
-      } catch { /* history is non-critical */ }
-    })();
-  }, [currentUser]);
+    void loadHistory(1, false);
+  }, [currentUser, loadHistory]);
 
   async function resendCard(id: string) {
     setResendingId(id);
@@ -1799,6 +1815,16 @@ function RewardsTab() {
                 </div>
               </div>
             ))}
+            {history.length < historyTotalCount && (
+              <button
+                onClick={() => void loadMoreHistory()}
+                disabled={loadingMoreHistory}
+                className="w-full flex items-center justify-center gap-1.5 text-xs font-semibold text-orange-600 hover:text-orange-700 disabled:opacity-50 py-2"
+              >
+                {loadingMoreHistory ? <RefreshCw size={13} className="animate-spin" /> : null}
+                {loadingMoreHistory ? "Loading…" : "View more"}
+              </button>
+            )}
           </div>
         )}
       </div>

@@ -7,7 +7,7 @@ import { parseTableLabelFromNote } from "@/lib/tableLabel";
 import {
   Circle, CheckCircle2, ChefHat, Package, Truck, Ban,
   RefreshCw, ShoppingBag, TrendingUp, Clock, UtensilsCrossed, Tablet,
-  Receipt,
+  Receipt, ChevronLeft, ChevronRight,
 } from "lucide-react";
 import { ReceiptModal } from "./ReceiptModal";
 import { Customer, Order } from "@/types";
@@ -70,13 +70,14 @@ const STATUS_CONFIG: Record<string, { label: string; badge: string; dot: string;
   cancelled: { label: "Cancelled", badge: "bg-red-50 text-red-700 border-red-200", dot: "bg-red-400", icon: <Ban size={11} className="text-red-500" /> },
 };
 
-const ACTIVE_STATUSES = ["pending", "confirmed", "preparing", "ready"];
-
-function isToday(iso: string) {
-  const d = new Date(iso);
+// Today's start/end bounds (local time), for the two day-scoped views.
+function todayBounds(): [string, string] {
   const n = new Date();
-  return d.getFullYear() === n.getFullYear() && d.getMonth() === n.getMonth() && d.getDate() === n.getDate();
+  const start = new Date(n.getFullYear(), n.getMonth(), n.getDate());
+  const end = new Date(n.getFullYear(), n.getMonth(), n.getDate(), 23, 59, 59, 999);
+  return [start.toISOString(), end.toISOString()];
 }
+
 // Date + time — ongoing orders can be from a previous day, so time alone is
 // ambiguous on this board.
 function fmtDateTime(iso: string) {
@@ -152,56 +153,158 @@ function OrderCard({ o, source, sym, onViewReceipt }: { o: RawOrder; source: Sou
   );
 }
 
+// Shared Prev/Next footer for the three sections below — only rendered by
+// the caller when totalPages > 1.
+function Pager({ page, totalPages, onChange }: { page: number; totalPages: number; onChange: (p: number) => void }) {
+  return (
+    <div className="flex items-center justify-between gap-3 px-1">
+      <p className="text-xs text-gray-500">Page {page} of {totalPages}</p>
+      <div className="flex items-center gap-2">
+        <button
+          onClick={() => onChange(Math.max(1, page - 1))}
+          disabled={page <= 1}
+          className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold border border-gray-200 text-gray-600 hover:border-gray-300 disabled:opacity-40 disabled:cursor-not-allowed transition"
+        >
+          <ChevronLeft size={13} /> Prev
+        </button>
+        <button
+          onClick={() => onChange(Math.min(totalPages, page + 1))}
+          disabled={page >= totalPages}
+          className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold border border-gray-200 text-gray-600 hover:border-gray-300 disabled:opacity-40 disabled:cursor-not-allowed transition"
+        >
+          Next <ChevronRight size={13} />
+        </button>
+      </div>
+    </div>
+  );
+}
+
+const PAGE_SIZE = 10;
+
 export default function OrderMonitorPanel({ source }: { source: Source }) {
   const { settings } = useApp();
   const sym = settings.currency?.symbol ?? "£";
-  const [orders, setOrders] = useState<RawOrder[]>([]);
+  // The paginated /api/admin/orders mode uses "walk-in" for what this panel
+  // calls "pos" (both mean the same thing: customer_id = the POS walk-in
+  // sentinel — see applySource in the route).
+  const apiSource = source === "pos" ? "walk-in" : "dine-in";
+
   const [loading, setLoading] = useState(true);
-  const lastKey = useRef<string>("");
+
+  // Active orders — no date bound, any status in ACTIVE_STATUSES. Fetched in
+  // full (unpaginated): this is a live "what's in progress" board, not a
+  // browsable archive, and paginating it risks an order sitting just past the
+  // page boundary where a cashier never sees it. activeTotalCount comes from
+  // the server's own exact count (same mechanism as the other two sections),
+  // not from activeOrders.length, so the stat card is a DB count rather than
+  // a client-side array length.
+  const [activeOrders, setActiveOrders] = useState<RawOrder[]>([]);
+  const [activeTotalCount, setActiveTotalCount] = useState(0);
+
+  // Completed today — status delivered, not refunded.
+  const [completedOrders, setCompletedOrders] = useState<RawOrder[]>([]);
+  const [completedTotalCount, setCompletedTotalCount] = useState(0);
+  const [completedTotal, setCompletedTotal] = useState(0);
+  const [completedPage, setCompletedPage] = useState(1);
+  const completedTotalPages = Math.max(1, Math.ceil(completedTotalCount / PAGE_SIZE));
+
+  // Voided / refunded today.
+  const [voidedOrders, setVoidedOrders] = useState<RawOrder[]>([]);
+  const [voidedTotalCount, setVoidedTotalCount] = useState(0);
+  const [voidedPage, setVoidedPage] = useState(1);
+  const voidedTotalPages = Math.max(1, Math.ceil(voidedTotalCount / PAGE_SIZE));
 
   // State for receipt modal
   const [viewingReceipt, setViewingReceipt] = useState<RawOrder | null>(null);
 
-  const fetchOrders = useCallback(async (isInitial = false) => {
-    if (isInitial) setLoading(true);
+  // The initial-load spinner (button only — no skeleton in this panel) flips
+  // off once all three sections have completed their first fetch, tracked by
+  // a ref rather than effect deps so later page changes / poll ticks don't
+  // re-trigger it.
+  const firstLoadDone = useRef({ active: false, completed: false, voided: false });
+  const markFirstLoadDone = useCallback((key: "active" | "completed" | "voided") => {
+    firstLoadDone.current[key] = true;
+    const { active, completed, voided } = firstLoadDone.current;
+    if (active && completed && voided) setLoading(false);
+  }, []);
+
+  const fetchActive = useCallback(async () => {
     try {
-      const r = await fetch(`/api/admin/orders?source=${source}&limit=2000`, { cache: "no-store" });
+      // Unpaginated on purpose — the route's unpaginated mode has no row cap
+      // and applies `view` filtering too, so this is a full, uncapped fetch
+      // of every currently-active order.
+      const params = new URLSearchParams({ source, view: "active" });
+      const r = await fetch(`/api/admin/orders?${params}`, { cache: "no-store" });
       if (!r.ok) return;
-      const json = await r.json() as { ok: boolean; orders?: RawOrder[] };
+      const json = await r.json() as { ok: boolean; orders?: RawOrder[]; totalCount?: number };
+      if (json.ok) { setActiveOrders(json.orders ?? []); setActiveTotalCount(json.totalCount ?? 0); }
+    } catch { /* network blip — keep last-known */ }
+    finally { markFirstLoadDone("active"); }
+  }, [source, markFirstLoadDone]);
+
+  const fetchCompleted = useCallback(async () => {
+    try {
+      const [from, to] = todayBounds();
+      const params = new URLSearchParams({
+        source: apiSource, view: "completed-today", page: String(completedPage), pageSize: String(PAGE_SIZE), from, to,
+      });
+      const r = await fetch(`/api/admin/orders?${params}`, { cache: "no-store" });
+      if (!r.ok) return;
+      const json = await r.json() as { ok: boolean; orders?: RawOrder[]; totalCount?: number; totalForFilter?: number };
       if (json.ok) {
-        const next = json.orders ?? [];
-        const key = JSON.stringify(next);
-        if (key !== lastKey.current) { lastKey.current = key; setOrders(next); }
+        setCompletedOrders(json.orders ?? []);
+        setCompletedTotalCount(json.totalCount ?? 0);
+        setCompletedTotal(json.totalForFilter ?? 0);
       }
     } catch { /* network blip — keep last-known */ }
-    finally { if (isInitial) setLoading(false); }
-  }, [source]);
+    finally { markFirstLoadDone("completed"); }
+  }, [apiSource, completedPage, markFirstLoadDone]);
 
-  useEffect(() => { fetchOrders(true); }, [fetchOrders]);
+  const fetchVoided = useCallback(async () => {
+    try {
+      const [from, to] = todayBounds();
+      const params = new URLSearchParams({
+        source: apiSource, view: "voided-today", page: String(voidedPage), pageSize: String(PAGE_SIZE), from, to,
+      });
+      const r = await fetch(`/api/admin/orders?${params}`, { cache: "no-store" });
+      if (!r.ok) return;
+      const json = await r.json() as { ok: boolean; orders?: RawOrder[]; totalCount?: number };
+      if (json.ok) { setVoidedOrders(json.orders ?? []); setVoidedTotalCount(json.totalCount ?? 0); }
+    } catch { /* network blip — keep last-known */ }
+    finally { markFirstLoadDone("voided"); }
+  }, [apiSource, voidedPage, markFirstLoadDone]);
 
+  // Each section refetches whenever its own page changes — this also covers
+  // the initial load (effects run once on mount regardless of deps).
+  useEffect(() => { void fetchActive(); }, [fetchActive]);
+  useEffect(() => { void fetchCompleted(); }, [fetchCompleted]);
+  useEffect(() => { void fetchVoided(); }, [fetchVoided]);
+
+  // Clamp each paginated section's page down if a refetch shrinks the set
+  // out from under it.
+  useEffect(() => { setCompletedPage((p) => Math.min(p, completedTotalPages)); }, [completedTotalPages]);
+  useEffect(() => { setVoidedPage((p) => Math.min(p, voidedTotalPages)); }, [voidedTotalPages]);
+
+  // 8-second live poll, kept at a stable cadence independent of pagination —
+  // reads the latest fetchers via a ref so navigating a page doesn't reset
+  // the interval's countdown.
+  const fetchersRef = useRef({ fetchActive, fetchCompleted, fetchVoided });
+  useEffect(() => { fetchersRef.current = { fetchActive, fetchCompleted, fetchVoided }; });
   useEffect(() => {
     const id = setInterval(() => {
       if (document.visibilityState !== "visible") return;
-      fetchOrders();
+      void fetchersRef.current.fetchActive();
+      void fetchersRef.current.fetchCompleted();
+      void fetchersRef.current.fetchVoided();
     }, 8_000);
     return () => clearInterval(id);
-  }, [fetchOrders]);
+  }, []);
 
-  // Refund state lives on payment_status (dine-in refunds keep status
-  // "delivered").
-  const isRefunded = (o: RawOrder) =>
-    o.payment_status === "refunded" || o.payment_status === "partially_refunded";
-
-  const active = orders.filter((o) => ACTIVE_STATUSES.includes(o.status))
-    .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-  const completedToday = orders.filter((o) => isToday(o.date) && o.status === "delivered" && !isRefunded(o))
-    .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-  const earnedToday = completedToday.reduce((s, o) => s + Number(o.total ?? 0), 0);
-  // Voided POS sales land on the mirror order as "cancelled" (with refund state
-  // on payment_status); refunded dine-in orders stay "delivered" but carry
-  // payment_status. Surface all of them for today.
-  const voidedToday = orders.filter((o) => isToday(o.date) && (o.status === "cancelled" || isRefunded(o)))
-    .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+  const handleRefresh = useCallback(async () => {
+    setLoading(true);
+    await Promise.all([fetchActive(), fetchCompleted(), fetchVoided()]);
+    setLoading(false);
+  }, [fetchActive, fetchCompleted, fetchVoided]);
 
   const isPos = source === "pos";
   const heading = isPos ? "POS Orders" : "Dine-in Orders";
@@ -222,7 +325,7 @@ export default function OrderMonitorPanel({ source }: { source: Source }) {
           </div>
         </div>
         <button
-          onClick={() => fetchOrders(true)}
+          onClick={() => void handleRefresh()}
           disabled={loading}
           className="flex items-center gap-1.5 border border-gray-200 rounded-xl px-3 py-2 text-sm text-gray-500 hover:text-gray-700 hover:border-gray-300 transition bg-white"
         >
@@ -232,9 +335,9 @@ export default function OrderMonitorPanel({ source }: { source: Source }) {
 
       {/* Stats */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <StatCard label="Active now" value={active.length} sub={active.length === 0 ? "All clear" : "in progress"} icon={<ShoppingBag size={16} />} accent="orange" />
-        <StatCard label="Completed today" value={completedToday.length} sub="orders" icon={<CheckCircle2 size={16} />} accent="green" />
-        <StatCard label="Earned today" value={`${sym}${earnedToday.toFixed(2)}`} sub="completed orders" icon={<TrendingUp size={16} />} accent="purple" />
+        <StatCard label="Active now" value={activeTotalCount} sub={activeTotalCount === 0 ? "All clear" : "in progress"} icon={<ShoppingBag size={16} />} accent="orange" />
+        <StatCard label="Completed today" value={completedTotalCount} sub="orders" icon={<CheckCircle2 size={16} />} accent="green" />
+        <StatCard label="Earned today" value={`${sym}${completedTotal.toFixed(2)}`} sub="completed orders" icon={<TrendingUp size={16} />} accent="purple" />
       </div>
 
       {/* Active orders */}
@@ -242,9 +345,9 @@ export default function OrderMonitorPanel({ source }: { source: Source }) {
         <div className="flex items-center gap-2">
           <span className="w-2 h-2 rounded-full bg-orange-400 animate-pulse" />
           <p className="text-sm font-bold text-gray-700">Active orders</p>
-          {active.length > 0 && <span className="text-xs font-semibold text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">{active.length}</span>}
+          {activeTotalCount > 0 && <span className="text-xs font-semibold text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">{activeTotalCount}</span>}
         </div>
-        {active.length === 0 ? (
+        {activeOrders.length === 0 ? (
           <div className="bg-white rounded-2xl border border-gray-100 shadow-sm py-14 text-center">
             <HeadIcon size={36} className="mx-auto text-gray-200 mb-2.5" />
             <p className="font-semibold text-gray-400">No active {noun} orders</p>
@@ -252,36 +355,38 @@ export default function OrderMonitorPanel({ source }: { source: Source }) {
           </div>
         ) : (
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-            {active.map((o) => <OrderCard key={o.id} o={o} source={source} sym={sym} onViewReceipt={setViewingReceipt} />)}
+            {activeOrders.map((o) => <OrderCard key={o.id} o={o} source={source} sym={sym} onViewReceipt={setViewingReceipt} />)}
           </div>
         )}
       </div>
 
       {/* Completed today */}
-      {completedToday.length > 0 && (
+      {completedTotalCount > 0 && (
         <div className="space-y-3">
           <div className="flex items-center gap-2">
             <CheckCircle2 size={14} className="text-green-500" />
             <p className="text-sm font-bold text-gray-700">Completed today</p>
-            <span className="text-xs font-semibold text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">{completedToday.length}</span>
+            <span className="text-xs font-semibold text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">{completedTotalCount}</span>
           </div>
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-            {completedToday.map((o) => <OrderCard key={o.id} o={o} source={source} sym={sym} onViewReceipt={setViewingReceipt} />)}
+            {completedOrders.map((o) => <OrderCard key={o.id} o={o} source={source} sym={sym} onViewReceipt={setViewingReceipt} />)}
           </div>
+          {completedTotalPages > 1 && <Pager page={completedPage} totalPages={completedTotalPages} onChange={setCompletedPage} />}
         </div>
       )}
 
       {/* Voided / refunded today */}
-      {voidedToday.length > 0 && (
+      {voidedTotalCount > 0 && (
         <div className="space-y-3">
           <div className="flex items-center gap-2">
             <Ban size={14} className="text-red-400" />
             <p className="text-sm font-bold text-gray-700">Voided / refunded today</p>
-            <span className="text-xs font-semibold text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">{voidedToday.length}</span>
+            <span className="text-xs font-semibold text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">{voidedTotalCount}</span>
           </div>
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-            {voidedToday.map((o) => <OrderCard key={o.id} o={o} source={source} sym={sym} onViewReceipt={setViewingReceipt} />)}
+            {voidedOrders.map((o) => <OrderCard key={o.id} o={o} source={source} sym={sym} onViewReceipt={setViewingReceipt} />)}
           </div>
+          {voidedTotalPages > 1 && <Pager page={voidedPage} totalPages={voidedTotalPages} onChange={setVoidedPage} />}
         </div>
       )}
 

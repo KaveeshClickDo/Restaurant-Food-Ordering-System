@@ -19,7 +19,9 @@
  *   • source — "online" | "admin" | "pos" | "all" (default)
  *   • from   — ISO lower bound on created_at (inclusive)
  *   • to     — ISO upper bound on created_at (inclusive)
- *   • limit  — page size (default 500, max 2000)
+ *
+ * No row cap — fetches every gift card and filters by recognition date in JS
+ * (see below), so a long/all-time report range can't silently drop older sales.
  */
 
 import { NextRequest, NextResponse }                   from "next/server";
@@ -35,18 +37,16 @@ export async function GET(req: NextRequest) {
   const source = (url.searchParams.get("source") ?? "all") as "all" | "online" | "admin" | "pos";
   const from   = url.searchParams.get("from");
   const to     = url.searchParams.get("to");
-  const limit  = Math.min(2000, Math.max(1, Number(url.searchParams.get("limit")) || 500));
 
   // Date filtering happens in JS below against the RECOGNITION date
   // (activated_at ?? created_at), not created_at alone — a pre-issued card
   // created in one period but sold/activated in another must book in the
-  // activation period. Volume here is low (a single restaurant's gift cards),
-  // so pulling up to `limit` rows and filtering in memory is fine.
+  // activation period. No row cap, so a card recognised in range is never
+  // missed regardless of how its created_at sorts.
   const q = supabaseAdmin
     .from("gift_cards")
     .select("id, code, initial_amount, created_at, activated_at, status, payment_method, payment_ref, stripe_payment_intent_id, issued_to_email, issued_to_name")
-    .order("created_at", { ascending: false })
-    .limit(limit);
+    .order("created_at", { ascending: false });
 
   const { data, error } = await q;
   if (error) {

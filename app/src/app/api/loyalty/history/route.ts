@@ -1,24 +1,34 @@
 /**
- * GET /api/loyalty/history — the logged-in customer's points ledger.
+ * GET /api/loyalty/history?page=N — the logged-in customer's points ledger.
  *
  * Powers the History list on /account?tab=rewards (the +/− lines grouped by
- * month, McDonald's-style). Most recent first, capped at 100 rows.
+ * month, McDonald's-style) — 20 rows at a time behind a "View more" button,
+ * not page-number pagination. Most recent first. `page` defaults to 1;
+ * pageSize is fixed at 20 (the amount "View more" loads each time). No row
+ * cap beyond that — `totalCount` tells the client whether more rows remain.
  */
 
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { getCustomerSession, unauthorizedJson } from "@/lib/auth";
 
-export async function GET() {
+const PAGE_SIZE = 10;
+
+export async function GET(req: NextRequest) {
   const session = await getCustomerSession();
   if (!session) return unauthorizedJson();
 
-  const { data, error } = await supabaseAdmin
+  const { searchParams } = new URL(req.url);
+  const page = Math.max(1, Number(searchParams.get("page")) || 1);
+  const rangeFrom = (page - 1) * PAGE_SIZE;
+  const rangeTo   = rangeFrom + PAGE_SIZE - 1;
+
+  const { data, error, count } = await supabaseAdmin
     .from("loyalty_transactions")
-    .select("id, type, points, balance_after, order_id, pos_sale_id, reward_id, note, created_at")
+    .select("id, type, points, balance_after, order_id, pos_sale_id, reward_id, note, created_at", { count: "exact" })
     .eq("customer_id", session.id)
     .order("created_at", { ascending: false })
-    .limit(100);
+    .range(rangeFrom, rangeTo);
 
   if (error) {
     console.error("GET /api/loyalty/history:", error.message);
@@ -54,5 +64,5 @@ export async function GET() {
     ? { points: Number(lot.points_remaining), expiresAt: String(lot.expires_at) }
     : null;
 
-  return NextResponse.json({ ok: true, transactions, nextExpiry });
+  return NextResponse.json({ ok: true, transactions, nextExpiry, page, totalCount: count ?? transactions.length });
 }

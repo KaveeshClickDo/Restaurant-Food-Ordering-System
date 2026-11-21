@@ -10,7 +10,9 @@
  *   • source — "online" (stripe/paypal) | "pos" (cash/card) | "all" (default)
  *   • from   — ISO date lower bound on reservation created_at (inclusive)
  *   • to     — ISO date upper bound on created_at (inclusive)
- *   • limit  — page size (default 500, max 2000)
+ *
+ * No row cap — returns every fee matching the filters, so a long/all-time
+ * report range can't silently drop older entries.
  */
 
 import { NextRequest, NextResponse }            from "next/server";
@@ -29,7 +31,6 @@ export async function GET(req: NextRequest) {
   const source = (url.searchParams.get("source") ?? "all") as "all" | "online" | "pos";
   const from   = url.searchParams.get("from");
   const to     = url.searchParams.get("to");
-  const limit  = Math.min(2000, Math.max(1, Number(url.searchParams.get("limit")) || 500));
 
   let q = supabaseAdmin
     .from("reservations")
@@ -42,8 +43,7 @@ export async function GET(req: NextRequest) {
     `)
     .eq("payment_status", "paid")
     .gt("vip_fee", 0)
-    .order("created_at", { ascending: false })
-    .limit(limit);
+    .order("created_at", { ascending: false });
 
   if (source === "online") q = q.in("payment_method", ONLINE_METHODS);
   if (source === "pos")    q = q.in("payment_method", POS_METHODS);

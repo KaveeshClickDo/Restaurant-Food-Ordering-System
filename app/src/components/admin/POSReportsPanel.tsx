@@ -46,7 +46,7 @@ async function fetchAllSales(): Promise<POSSale[]> {
   try {
     // no-store: without it the browser serves the cached sales response, so
     // the Refresh button spins but the numbers never change.
-    const res = await fetch("/api/admin/pos-sales?limit=5000", { cache: "no-store" });
+    const res = await fetch("/api/admin/pos-sales", { cache: "no-store" });
     if (!res.ok) return [];
     const json = await res.json() as { ok: boolean; sales?: POSSale[] };
     return json.ok && Array.isArray(json.sales) ? json.sales : [];
@@ -60,7 +60,7 @@ async function fetchAllSales(): Promise<POSSale[]> {
 // revenue line in POS reports.
 async function fetchPosVipFees(): Promise<VipFeeRow[]> {
   try {
-    const res = await fetch("/api/admin/booking-fees?source=pos&limit=2000", { cache: "no-store" });
+    const res = await fetch("/api/admin/booking-fees?source=pos", { cache: "no-store" });
     if (!res.ok) return [];
     const json = await res.json() as { ok: boolean; fees?: VipFeeRow[] };
     return json.ok && Array.isArray(json.fees) ? json.fees : [];
@@ -82,7 +82,7 @@ interface PosGiftCardSaleRow {
 }
 async function fetchPosGiftCardSales(): Promise<PosGiftCardSaleRow[]> {
   try {
-    const res = await fetch("/api/admin/gift-card-sales?source=pos&limit=2000", { cache: "no-store" });
+    const res = await fetch("/api/admin/gift-card-sales?source=pos", { cache: "no-store" });
     if (!res.ok) return [];
     const json = await res.json() as { ok: boolean; sales?: PosGiftCardSaleRow[] };
     return json.ok && Array.isArray(json.sales) ? json.sales : [];
@@ -248,6 +248,8 @@ export default function POSReportsPanel() {
   // Default ON: voided sales are real history (often money was kept), so admins
   // should see them without hunting for a toggle — mirrors Order History.
   const [showVoided, setShowVoided] = useState(true);
+  const [txPage, setTxPage] = useState(1);
+  const [txPageSize, setTxPageSize] = useState(10);
 
   // Sales come from the DB (pos_sales table) so reports aggregate across all
   // tills. Products are still read from localStorage because the cost field
@@ -448,6 +450,17 @@ export default function POSReportsPanel() {
     if (sortField === "date") return dir * (new Date(a.date).getTime() - new Date(b.date).getTime());
     return dir * (a.total - b.total);
   });
+
+  // Reset to page 1 whenever the filters/sort reshape the list — purely
+  // client-side slicing of the already-fetched sales array (same approach as
+  // CustomersPanel/RefundsPanel/MenuManagementPanel).
+  useEffect(() => { setTxPage(1); }, [txSearch, showVoided, sortField, sortDir, txPageSize]);
+
+  const txTotalPages = Math.max(1, Math.ceil(txSorted.length / txPageSize));
+  const txPageItems = useMemo(
+    () => txSorted.slice((txPage - 1) * txPageSize, txPage * txPageSize),
+    [txSorted, txPage, txPageSize],
+  );
 
   function toggleSort(field: typeof sortField) {
     if (sortField === field) setSortDir((d) => d === "desc" ? "asc" : "desc");
@@ -834,6 +847,15 @@ export default function POSReportsPanel() {
                   Show voided
                 </label>
                 <p className="text-gray-400 text-xs ml-auto">{txSorted.length} rows</p>
+                <select
+                  value={txPageSize}
+                  onChange={(e) => setTxPageSize(Number(e.target.value))}
+                  className="border border-gray-200 rounded-lg text-xs font-semibold text-gray-600 pl-2 pr-1 py-1.5 focus:outline-none focus:ring-2 focus:ring-orange-300"
+                >
+                  {[10, 20, 50].map((n) => (
+                    <option key={n} value={n}>{n} per page</option>
+                  ))}
+                </select>
               </div>
 
               {/* Table */}
@@ -856,7 +878,7 @@ export default function POSReportsPanel() {
                   <tbody className="divide-y divide-gray-50">
                     {txSorted.length === 0 ? (
                       <tr><td colSpan={7} className="px-5 py-8 text-center text-gray-400 text-sm">No transactions found</td></tr>
-                    ) : txSorted.map((sale) => (
+                    ) : txPageItems.map((sale) => (
                       <tr key={sale.id} className={`hover:bg-gray-50 transition-colors ${sale.voided ? "opacity-60" : ""}`}>
                         <td className="px-5 py-3 font-mono text-xs text-gray-900">
                           #{sale.receiptNo}
@@ -939,6 +961,29 @@ export default function POSReportsPanel() {
                   )}
                 </table>
               </div>
+
+              {/* Pagination */}
+              {txSorted.length > 0 && (
+                <div className="flex items-center justify-between gap-3 px-5 py-3 border-t border-gray-100">
+                  <p className="text-xs text-gray-500">Page {txPage} of {txTotalPages}</p>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => setTxPage((p) => Math.max(1, p - 1))}
+                      disabled={txPage <= 1}
+                      className="px-3 py-1.5 rounded-lg text-xs font-semibold border border-gray-200 text-gray-600 hover:border-gray-300 disabled:opacity-40 disabled:cursor-not-allowed transition"
+                    >
+                      Prev
+                    </button>
+                    <button
+                      onClick={() => setTxPage((p) => Math.min(txTotalPages, p + 1))}
+                      disabled={txPage >= txTotalPages}
+                      className="px-3 py-1.5 rounded-lg text-xs font-semibold border border-gray-200 text-gray-600 hover:border-gray-300 disabled:opacity-40 disabled:cursor-not-allowed transition"
+                    >
+                      Next
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </>

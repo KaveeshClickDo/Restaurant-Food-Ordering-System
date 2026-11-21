@@ -9,7 +9,9 @@
  *   • from    — ISO lower bound on clock_in (inclusive)
  *   • to      — ISO upper bound on clock_in (inclusive)
  *   • staffId — narrow to one staff member
- *   • limit   — page size (default 1000, max 5000)
+ *
+ * No row cap — returns every entry matching the filters, so a long date range
+ * across many staff can't silently drop older entries from wage/hours totals.
  *
  * Admin authentication required. This is the "admin tree" counterpart of the
  * POS-side /api/pos/clock (which POS sessions use, scoped by permission).
@@ -26,13 +28,11 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   const from    = searchParams.get("from");
   const to      = searchParams.get("to");
   const staffId = searchParams.get("staffId");
-  const limit   = Math.min(Number(searchParams.get("limit") ?? 1000), 5000);
 
   let q = supabaseAdmin
     .from("pos_clock_entries")
     .select("id, staff_id, staff_name, clock_in, clock_out, total_minutes, notes")
-    .order("clock_in", { ascending: false })
-    .limit(limit);
+    .order("clock_in", { ascending: false });
   if (from)    q = q.gte("clock_in", from);
   if (to)      q = q.lte("clock_in", to);
   if (staffId) q = q.eq("staff_id", staffId);

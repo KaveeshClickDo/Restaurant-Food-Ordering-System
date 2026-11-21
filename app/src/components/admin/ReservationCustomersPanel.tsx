@@ -548,6 +548,10 @@ export default function ReservationCustomersPanel() {
 
   // Broadcast state
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
+  const [campaignsPage, setCampaignsPage] = useState(1);
+  const [campaignsPageSize, setCampaignsPageSize] = useState(10);
+  const [campaignsTotalCount, setCampaignsTotalCount] = useState(0);
+  const [campaignsStats, setCampaignsStats] = useState({ sentCount: 0, totalSent: 0, totalOpened: 0 });
   const [editingId, setEditingId] = useState<string | null>(null);
   const [composeInitial, setComposeInitial] = useState<{ subject: string; previewText: string; body: string; audience: Audience; startStep: 1 | 2 } | null>(null);
 
@@ -569,13 +573,26 @@ export default function ReservationCustomersPanel() {
 
   const fetchCampaigns = useCallback(async () => {
     try {
-      const res = await fetch("/api/admin/campaigns");
-      const json = await res.json() as { ok: boolean; campaigns?: Campaign[] };
-      if (json.ok) setCampaigns(json.campaigns ?? []);
+      const params = new URLSearchParams({ page: String(campaignsPage), pageSize: String(campaignsPageSize) });
+      const res = await fetch(`/api/admin/campaigns?${params}`);
+      const json = await res.json() as {
+        ok: boolean; campaigns?: Campaign[]; totalCount?: number;
+        stats?: { sentCount: number; totalSent: number; totalOpened: number };
+      };
+      if (json.ok) {
+        setCampaigns(json.campaigns ?? []);
+        setCampaignsTotalCount(json.totalCount ?? 0);
+        if (json.stats) setCampaignsStats(json.stats);
+      }
     } catch (err) { console.error("campaigns fetch:", err); }
-  }, []);
+  }, [campaignsPage, campaignsPageSize]);
 
-  useEffect(() => { fetchCustomers(true); fetchCampaigns(); }, [fetchCustomers, fetchCampaigns]);
+  // Reset to page 1 whenever the page size changes — purely client-triggered
+  // (no search/date filter on this view), same guard style as elsewhere.
+  useEffect(() => { setCampaignsPage(1); }, [campaignsPageSize]);
+
+  useEffect(() => { fetchCustomers(true); }, [fetchCustomers]);
+  useEffect(() => { fetchCampaigns(); }, [fetchCampaigns]);
 
   useEffect(() => {
     const id = setInterval(() => {
@@ -676,6 +693,9 @@ export default function ReservationCustomersPanel() {
         <BroadcastsHome
           campaigns={campaigns} reachableCount={reachableCount} loading={loading}
           onNew={() => newBroadcast(false)} onResume={resumeDraft} onChanged={fetchCampaigns}
+          stats={campaignsStats}
+          page={campaignsPage} pageSize={campaignsPageSize} totalCount={campaignsTotalCount}
+          onPageChange={setCampaignsPage} onPageSizeChange={setCampaignsPageSize}
         />
       ) : (
         <AudienceSection
@@ -694,9 +714,18 @@ export default function ReservationCustomersPanel() {
 }
 
 // ═══ Broadcasts home ══════════════════════════════════════════════════════════
-function BroadcastsHome({ campaigns, reachableCount, loading, onNew, onResume, onChanged }: {
+function BroadcastsHome({
+  campaigns, reachableCount, loading, onNew, onResume, onChanged,
+  stats, page, pageSize, totalCount, onPageChange, onPageSizeChange,
+}: {
   campaigns: Campaign[]; reachableCount: number; loading: boolean;
   onNew: () => void; onResume: (id: string) => void; onChanged: () => void;
+  // sentCount/totalSent/totalOpened are server-computed aggregates over every
+  // campaign ever sent — not derived from `campaigns`, which is only the
+  // current page.
+  stats: { sentCount: number; totalSent: number; totalOpened: number };
+  page: number; pageSize: number; totalCount: number;
+  onPageChange: (p: number) => void; onPageSizeChange: (n: number) => void;
 }) {
   const [deleting, setDeleting] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
@@ -707,17 +736,16 @@ function BroadcastsHome({ campaigns, reachableCount, loading, onNew, onResume, o
     finally { setDeleting(null); setConfirmDelete(null); }
   }
 
-  const sentCampaigns = campaigns.filter((c) => c.status === "sent");
-  const totalSent = sentCampaigns.reduce((s, c) => s + c.sentCount, 0);
-  const totalOpened = sentCampaigns.reduce((s, c) => s + c.openedCount, 0);
+  const { sentCount, totalSent, totalOpened } = stats;
   const avgOpenRate = totalSent > 0 ? Math.round((totalOpened / totalSent) * 100) : null;
+  const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
 
   if (loading && campaigns.length === 0) {
     return <div className="flex justify-center py-16"><Loader2 size={28} className="animate-spin text-orange-500" /></div>;
   }
 
   // ── First-time hero ─────────────────────────────────────────────────────────
-  if (campaigns.length === 0) {
+  if (totalCount === 0) {
     return (
       <div className="bg-gradient-to-br from-orange-50 via-amber-50 to-white border border-orange-100 rounded-2xl px-8 py-12 text-center">
         <div className="w-14 h-14 rounded-2xl bg-orange-500 flex items-center justify-center mx-auto mb-4 shadow-lg shadow-orange-200">
@@ -758,7 +786,7 @@ function BroadcastsHome({ campaigns, reachableCount, loading, onNew, onResume, o
       <div className="grid grid-cols-3 gap-3">
         {[
           { label: "Reachable audience", value: reachableCount, hint: "opted-in contacts" },
-          { label: "Broadcasts sent", value: sentCampaigns.length, hint: `${totalSent} emails delivered` },
+          { label: "Broadcasts sent", value: sentCount, hint: `${totalSent} emails delivered` },
           { label: "Average open rate", value: avgOpenRate === null ? "—" : `${avgOpenRate}%`, hint: "across sent broadcasts" },
         ].map((s) => (
           <div key={s.label} className="bg-white border border-gray-200 rounded-xl p-4">
@@ -769,11 +797,28 @@ function BroadcastsHome({ campaigns, reachableCount, loading, onNew, onResume, o
         ))}
       </div>
 
-      <div className="flex items-center justify-between">
-        <p className="text-sm font-semibold text-gray-700">Your broadcasts</p>
-        <button onClick={onNew} className="flex items-center gap-2 bg-orange-500 hover:bg-orange-600 text-white font-semibold px-4 py-2 rounded-xl text-sm transition">
-          <Sparkles size={15} /> New broadcast
-        </button>
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <div className="flex items-center gap-2">
+          <p className="text-sm font-semibold text-gray-700">Your broadcasts</p>
+          <span className="text-xs text-gray-400">{totalCount} total</span>
+        </div>
+        <div className="flex items-center gap-3">
+          <label className="flex items-center gap-1.5 text-xs text-gray-500">
+            Rows
+            <select
+              value={pageSize}
+              onChange={(e) => onPageSizeChange(Number(e.target.value))}
+              className="border border-gray-200 rounded-lg text-xs font-semibold text-gray-600 pl-2 pr-1 py-1 focus:outline-none focus:ring-2 focus:ring-orange-300"
+            >
+              {[10, 20, 50].map((n) => (
+                <option key={n} value={n}>{n} per page</option>
+              ))}
+            </select>
+          </label>
+          <button onClick={onNew} className="flex items-center gap-2 bg-orange-500 hover:bg-orange-600 text-white font-semibold px-4 py-2 rounded-xl text-sm transition">
+            <Sparkles size={15} /> New broadcast
+          </button>
+        </div>
       </div>
 
       <div className="space-y-2.5">
@@ -829,6 +874,29 @@ function BroadcastsHome({ campaigns, reachableCount, loading, onNew, onResume, o
           );
         })}
       </div>
+
+      {/* Pagination */}
+      {totalPages > 1 && (
+        <div className="flex items-center justify-between gap-3">
+          <p className="text-xs text-gray-500">Page {page} of {totalPages}</p>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => onPageChange(Math.max(1, page - 1))}
+              disabled={page <= 1}
+              className="px-3 py-1.5 rounded-lg text-xs font-semibold border border-gray-200 text-gray-600 hover:border-gray-300 disabled:opacity-40 disabled:cursor-not-allowed transition"
+            >
+              Prev
+            </button>
+            <button
+              onClick={() => onPageChange(Math.min(totalPages, page + 1))}
+              disabled={page >= totalPages}
+              className="px-3 py-1.5 rounded-lg text-xs font-semibold border border-gray-200 text-gray-600 hover:border-gray-300 disabled:opacity-40 disabled:cursor-not-allowed transition"
+            >
+              Next
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

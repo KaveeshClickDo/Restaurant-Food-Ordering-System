@@ -416,7 +416,6 @@ export default function OnlineReportsPanel() {
       const params = new URLSearchParams({
         from: from.toISOString(),
         to: to.toISOString(),
-        limit: "10000",
       });
       const feeParams = new URLSearchParams({
         source: "all",
